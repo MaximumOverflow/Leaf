@@ -217,6 +217,10 @@ impl MetadataBuilder {
 		self.strings.get_str(str)
 	}
 
+	pub fn get_blob(&self, blob: SliceRef<[u8]>) -> Option<&[u8]> {
+		self.blobs.get_blob(blob)
+	}
+
 	pub fn get_str_ref(&self, str: &str) -> Option<SliceRef<str>> {
 		self.strings.get_str_ref(str)
 	}
@@ -227,5 +231,13 @@ impl MetadataBuilder {
 
 	pub fn get_fn(&self, ty: ElementRef<FunctionDef>) -> Option<&FunctionDef> {
 		self.function_defs.get(ty.offset as usize)
+	}
+
+	pub fn get_fn_by_name(&self, namespace: &str, name: &str) -> Option<&FunctionDef> {
+		self.function_defs.iter().find(|func| {
+			let f_name = self.strings.get_str(func.name).unwrap_or_default();
+			let f_namespace = self.strings.get_str(func.namespace).unwrap_or_default();
+			f_name == name && f_namespace == namespace
+		})
 	}
 }

@@ -49,3 +49,12 @@ pub struct FunctionBody {
 	pub(crate) locals: SliceRef<SliceRef<TypeSignature>>,
 	pub(crate) opcodes: SliceRef<[u8]>,
 }
+
+impl FunctionBody {
+	pub fn locals(&self) -> SliceRef<SliceRef<TypeSignature>> {
+		self.locals
+	}
+	pub fn opcodes(&self) -> SliceRef<[u8]> {
+		self.opcodes
+	}
+}

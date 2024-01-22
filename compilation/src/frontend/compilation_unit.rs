@@ -180,7 +180,6 @@ impl<'l> CompilationUnit<'l> {
 
 		let locals = Block::generate_local_signatures(&decl.block, self)?;
 		let opcodes = Block::generate_opcodes(&decl.block, self)?;
-		println!("{:?}", opcodes);
 
 		self.metadata_builder.set_locals(func, &locals);
 		self.metadata_builder.set_instructions(func, &opcodes);

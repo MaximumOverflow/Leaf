@@ -15,7 +15,7 @@ pub trait MetadataWrite {
 
 const CONV_ERR: &str = "Could not convert integer to the destination type.";
 
-macro_rules! impl_integers {
+macro_rules! impl_unsigned_integers {
     ($($ty: ty),*) => {
 		$(
 			impl MetadataRead for $ty {
@@ -39,7 +39,32 @@ macro_rules! impl_integers {
 	};
 }
 
-impl_integers!(u8, u16, u32, u64, usize);
+macro_rules! impl_signed_integers {
+    ($($ty: ty),*) => {
+		$(
+			impl MetadataRead for $ty {
+				fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
+					(read_compressed_integer(stream)? as i64)
+						.try_into()
+						.map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))
+				}
+			}
+
+			impl MetadataWrite for $ty {
+				fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+					let int = (*self as i64)
+					.try_into()
+					.map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))?;
+
+					write_compressed_integer(stream, int)
+				}
+			}
+		)*
+	};
+}
+
+impl_signed_integers!(i8, i16, i32, i64, isize);
+impl_unsigned_integers!(u8, u16, u32, u64, usize);
 
 impl MetadataRead for f32 {
 	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
