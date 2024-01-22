@@ -1,8 +1,8 @@
 [workspace]
 members = [
-#    "derive",
+    "derive",
     "parsing",
-#    "reflection",
+    "reflection",
 #    "compilation"
 ]
 resolver = "2"
