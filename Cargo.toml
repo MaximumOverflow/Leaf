@@ -3,7 +3,7 @@ members = [
     "derive",
     "parsing",
     "reflection",
-#    "compilation"
+    "compilation"
 ]
 resolver = "2"
 

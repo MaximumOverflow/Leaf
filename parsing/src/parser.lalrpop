@@ -30,7 +30,7 @@ pub Literal: Literal<'input> = {
 }
 
 pub Expression: Expression<'input> = {
-	"(" <expr:Expression> ")" => expr,
+	//"(" <expr:Expression> ")" => expr,
 	FnCall => Expression::FnCall(Box::new(<>)),
 	TemplateCall => Expression::TemplateCall(Box::new(<>)),
 	BinaryOperation0,
@@ -53,7 +53,12 @@ pub BinaryOperation1: Expression<'input> = {
     <lhs:BinaryOperation1> "/" <rhs:Literal>
         => Expression::Binary(Box::new(lhs), BinaryOperator::Div, Box::new(Expression::Literal(rhs))),
 
-    Literal => Expression::Literal(<>)
+    <lhs:BinaryOperation1> "%" <rhs:Literal>
+            => Expression::Binary(Box::new(lhs), BinaryOperator::Mod, Box::new(Expression::Literal(rhs))),
+
+    "(" <expr:Expression> ")" => expr,
+
+    Literal => Expression::Literal(<>),
 }
 
 pub FnCall: FnCall<'input> = {
