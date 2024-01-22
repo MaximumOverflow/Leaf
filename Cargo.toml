@@ -1,11 +1,14 @@
 [workspace]
 members = [
 #    "derive",
-#    "parsing",
+    "parsing",
 #    "reflection",
 #    "compilation"
 ]
 resolver = "2"
+
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.production]
 inherits = "release"

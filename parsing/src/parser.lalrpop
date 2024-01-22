@@ -1,0 +1,226 @@
+use lalrpop_util::ParseError;
+use std::str::FromStr;
+use crate::ast::*;
+
+grammar;
+
+extern {
+	type Error = String;
+}
+
+// ### Values ###
+
+pub Identifier: &'input str = r"[a-zA-Z_#][a-zA-Z0-9_#]*";
+pub Integer: i128 = <s:r"[0-9]+"> => i128::from_str(s).unwrap();
+pub Decimal: f64 = <s:r"[0-9]*\.[0-9]+"> => f64::from_str(s).unwrap();
+pub Character: char = <s:r#"'(\\.|[^\\"])'"#> =>? Literal::unescape_char(s);
+pub String: &'input str = r#""(\\.|[^\\"])*""#;
+pub Boolean: bool = {
+    "true" => true,
+    "false" => false,
+};
+
+pub Literal: Literal<'input> = {
+	Identifier => Literal::Id(<>),
+	Integer => Literal::Integer(<>),
+	Decimal => Literal::Decimal(<>),
+	Character => Literal::Char(<>),
+	String => Literal::String(<>),
+	Boolean => Literal::Boolean(<>),
+}
+
+pub Expression: Expression<'input> = {
+	"(" <expr:Expression> ")" => expr,
+	FnCall => Expression::FnCall(Box::new(<>)),
+	TemplateCall => Expression::TemplateCall(Box::new(<>)),
+	BinaryOperation0,
+}
+
+pub BinaryOperation0: Expression<'input> = {
+    <lhs:Expression> "+" <rhs:BinaryOperation1>
+        => Expression::Binary(Box::new(lhs), BinaryOperator::Add, Box::new(rhs)),
+
+    <lhs:Expression> "-" <rhs:BinaryOperation1>
+        => Expression::Binary(Box::new(lhs), BinaryOperator::Sub, Box::new(rhs)),
+
+    BinaryOperation1
+}
+
+pub BinaryOperation1: Expression<'input> = {
+    <lhs:BinaryOperation1> "*" <rhs:Literal>
+        => Expression::Binary(Box::new(lhs), BinaryOperator::Mul, Box::new(Expression::Literal(rhs))),
+
+    <lhs:BinaryOperation1> "/" <rhs:Literal>
+        => Expression::Binary(Box::new(lhs), BinaryOperator::Div, Box::new(Expression::Literal(rhs))),
+
+    Literal => Expression::Literal(<>)
+}
+
+pub FnCall: FnCall<'input> = {
+	<callee:Expression> "(" <params:CommaSeparatedList<Expression>> ")"
+	    => FnCall { <> }
+}
+
+// ### Objects ###
+
+pub Alias: Alias<'input> = {
+    "type" <id:Identifier> "=" <ty:Type>
+        => Alias { id, ty: Box::new(ty) }
+}
+
+pub Enum: Enum<'input> = { 
+	"enum" <id:Identifier?> "{" <variants:CommaSeparatedList<EnumVariant>> "}" 
+	    => Enum { <> }
+}
+
+EnumVariant = Identifier;
+
+pub Struct: Struct<'input> = {
+	"struct" <id:Identifier?> "{" <members:CommaSeparatedList<Member>> "}"
+	    => Struct { <> }
+}
+
+pub Union: Union<'input> = {
+	"union" <id:Identifier?> "{" <members:CommaSeparatedList<Member>> "}"
+	    => Union { <> }
+}
+
+pub Interface: Interface<'input> = {
+	"interface" <id:Identifier?> "{" <members:CommaSeparatedList<InterfaceMember>> "}"
+	    => Interface { <> }
+}
+
+Member: Member<'input> = {
+	<id:Identifier> ":" <ty:Type>
+	    => Member { <> }
+}
+
+InterfaceMember: InterfaceMember<'input> = {
+	<id:Identifier> ":" <get:"get"?> <set:"set"?> <ty:Type> =>? {
+		if get.is_none() && set.is_none() {
+			return Err(ParseError::<_, _, String>::User {
+				error: format!("Property must be 'get', 'set' or 'get set'. Try `{}: get {}`.", id, ty),
+			})
+		}
+		
+		Ok(InterfaceMember::Property {
+		   id: id, ty: ty,
+		   get: get.is_some(),
+		   set: set.is_some(),
+	   })
+	},
+	
+	<id:Identifier> ":" <signature:FunctionSignature> => {
+		InterfaceMember::Function { <> }
+	}
+}
+
+pub TemplateCall: TemplateCall<'input> = {
+    <callee:Expression> "<" <params:CommaSeparatedList<Expression>> ">"
+        => TemplateCall { <> }
+}
+
+pub Type: Type<'input> = {
+	Identifier => Type::Id(<>),
+	TemplateCall => Type::Template(<>),
+	
+	"[" <elem:Type> "]" => Type::Array { 
+	    elem: Box::new(elem), 
+	    size: None,
+	}, 
+	"[" <elem:Type> ";" <size:Expression> "]" => Type::Array { 
+	    elem: Box::new(elem),
+	    size: Some(size),
+	}, 
+		
+	"&" "'" <kind:Identifier> <is_mut:"mut"?> <base:Type> => Type::Ref {
+		kind: kind,
+		is_mut: is_mut.is_some(),
+		base: Box::new(base),
+	}
+}
+
+pub Function: Function<'input> = {
+	<signature:FunctionSignature> <block:Block>
+	    => Function { <> }
+}
+
+pub FunctionSignature: FunctionSignature<'input> = {
+	"fn" <id:Identifier?> "(" <par:CommaSeparatedList<FnParameter>> ")" ":" <ret_ty:Type>
+	    => FunctionSignature { <> }
+}
+
+FnParameter: (&'input str, Type<'input>) = { 
+	<id:Identifier> ":" <ty:Type>
+	    => (id, ty)
+}
+
+// ### Statements ###
+
+pub Statement: Statement<'input> = {
+    Block => Statement::Block(<>),
+    VariableDeclaration => Statement::VarDecl(<>),
+    //SymbolDeclaration => Statement::SymDecl(<>),
+    "return" <expr:Expression?> ";" => Statement::Return(expr),
+    "yield" <expr:Expression> ";" => Statement::Yield(expr),
+    "yield" "next" <expr:Expression> ";" => Statement::CoYield(expr),
+}
+
+pub Block: Block<'input> = {
+    "{" <statements:Statement*> "}"
+        => Block { <> }
+}
+
+pub VariableDeclaration: VariableDeclaration<'input> = {
+    <id:Identifier> ":" <ty:Type?> "=" <expr:Expression> ";"
+        =>? VariableDeclaration::new(id, false, id.starts_with('#'), expr, ty),
+    
+    "mut" <id:Identifier> ":" <ty:Type?> "=" <expr:Expression> ";"
+        =>? VariableDeclaration::new(id, true, id.starts_with('#'), expr, ty),
+}
+
+pub SymbolDeclaration: SymbolDeclaration<'input> = {
+    Alias => SymbolDeclaration::Alias(<>),
+    Struct => SymbolDeclaration::Struct(<>),
+    Enum => SymbolDeclaration::Enum(<>),
+    Interface => SymbolDeclaration::Interface(<>),
+    Union => SymbolDeclaration::Union(<>),
+    Function => SymbolDeclaration::Function(<>),
+}
+
+pub CompilationUnit: CompilationUnit<'input> = {
+    "namespace" <namespace:Namespace> ";"
+    <imports:NamespaceImport*>
+    <declarations: SymbolDeclaration*>
+        => CompilationUnit { <> }
+}
+
+pub NamespaceImport: NamespaceImport<'input> = {
+    "import" <id:Namespace> ";"
+        => NamespaceImport(id)
+}
+
+// ### Utilities ###
+
+Namespace: &'input str = {
+	<v:(Identifier "::")*> <e:Identifier> => match v.is_empty() {
+	    true => e,
+	    false => unsafe {
+	        let start = v[0].0.as_ptr();
+	        let end = e.as_ptr().add(e.len());
+	        let len = end as usize - start as usize;
+	        let slice = std::slice::from_raw_parts(start, len);
+	        std::str::from_utf8_unchecked(slice)
+	    }
+	}
+};
+
+CommaSeparatedList<T>: Vec<T> = {
+	<mut v:(<T> ",")*> <e:T?> => match e {
+		None => v,
+		Some(e) => {
+			v.push(e);
+			v
+		}
+	}
+};
