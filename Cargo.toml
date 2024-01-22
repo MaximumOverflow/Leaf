@@ -1,0 +1,14 @@
+[workspace]
+members = [
+#    "derive",
+#    "parsing",
+#    "reflection",
+#    "compilation"
+]
+resolver = "2"
+
+[profile.production]
+inherits = "release"
+panic = "abort"
+strip = true
+lto = true
