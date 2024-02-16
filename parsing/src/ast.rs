@@ -122,7 +122,7 @@ pub struct Block<'l> {
 #[derive(Debug)]
 pub enum Literal<'l> {
 	Id(&'l str),
-	Integer(i128),
+	Integer(i64),
 	Decimal(f64),
 	Char(char),
 	String(&'l str),

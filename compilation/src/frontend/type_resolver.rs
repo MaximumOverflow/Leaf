@@ -1,8 +1,8 @@
 use leaf_reflection::builders::{MetadataBuilder, TypeSignatureBuilder, TypeSignatureBytes};
 use leaf_reflection::{ElementRef, TypeDef};
 use std::collections::HashMap;
-use anyhow::Error;
 use leaf_parsing::ast::Type;
+use anyhow::Error;
 use crate::BUG_ERR;
 
 pub trait TypeResolver {

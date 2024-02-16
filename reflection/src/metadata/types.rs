@@ -16,23 +16,20 @@ pub enum TypeSignatureTag {
 	Void = 0x05,
 	Char = 0x06,
 	Bool = 0x07,
-	Decimal = 0x08,
-	Integer = 0x09,
-	UInteger = 0x0A,
 
-	Decimal16 = 0x0B,
-	Decimal32 = 0x0C,
-	Decimal64 = 0x0D,
+	Integer8 = 0x08,
+	Integer16 = 0x09,
+	Integer32 = 0x0A,
+	Integer64 = 0x0B,
 
-	Integer8 = 0x0E,
-	Integer16 = 0x0F,
-	Integer32 = 0x10,
-	Integer64 = 0x11,
+	UInteger8 = 0x0C,
+	UInteger16 = 0x0D,
+	UInteger32 = 0x0E,
+	UInteger64 = 0x0F,
 
-	UInteger8 = 0x12,
-	UInteger16 = 0x13,
-	UInteger32 = 0x14,
-	UInteger64 = 0x15,
+	Decimal16 = 0x10,
+	Decimal32 = 0x11,
+	Decimal64 = 0x12,
 }
 unsafe impl Pod for TypeSignatureTag {}
 unsafe impl Zeroable for TypeSignatureTag {}

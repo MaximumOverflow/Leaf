@@ -1,7 +1,4 @@
-use crate::{
-	ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, SliceRef, TypeDef, TypeKind,
-	MetadataWrite, FunctionBody, Opcode,
-};
+use crate::{ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, SliceRef, TypeDef, TypeKind, MetadataWrite, FunctionBody, Opcode, TypeSignature};
 use crate::builders::{BlobHeapBuilder, StringHeapBuilder, TypeSignatureBytes};
 use std::io::{Cursor, Write};
 use std::cmp::Ordering;
@@ -149,7 +146,7 @@ impl MetadataBuilder {
 		let func = &mut self.function_defs[func.offset as usize];
 		func.body.locals = SliceRef {
 			offset: local_refs.offset,
-			len: local_refs.len,
+			len: locals.len() as u32,
 			ph: Default::default(),
 		};
 	}
@@ -239,5 +236,10 @@ impl MetadataBuilder {
 			let f_namespace = self.strings.get_str(func.namespace).unwrap_or_default();
 			f_name == name && f_namespace == namespace
 		})
+	}
+
+	pub fn get_locals(&self, func: &FunctionDef) -> Option<impl Iterator<Item=&TypeSignature>> {
+		let locals = self.blobs.get_blob_items(func.body.locals)?;
+		Some(locals.filter_map(|local| self.get_blob(local)))
 	}
 }

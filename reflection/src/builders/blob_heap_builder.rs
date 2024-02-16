@@ -1,5 +1,6 @@
+use crate::{MetadataRead, SliceRef};
 use std::collections::HashMap;
-use crate::SliceRef;
+use std::io::Cursor;
 use std::rc::Rc;
 
 #[derive(Default)]
@@ -71,5 +72,15 @@ impl BlobHeapBuilder {
 			false => None,
 			true => Some(blob),
 		}
+	}
+
+	pub fn get_blob_items<T: MetadataRead>(&self, blob_ref: SliceRef<T>) -> Option<impl Iterator<Item=T> + '_> {
+		let blob = self.rev_map.get(&blob_ref.offset)?;
+		let mut cursor = Cursor::new(&**blob);
+		let iter = (0..blob_ref.len).map(move |i| {
+			T::read(&mut cursor).unwrap()
+		});
+
+		Some(iter)
 	}
 }

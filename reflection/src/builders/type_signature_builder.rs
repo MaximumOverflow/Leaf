@@ -36,22 +36,14 @@ impl TypeSignatureBuilder {
 				16 => self.bytes.push(TypeSignatureTag::Integer16 as u8),
 				32 => self.bytes.push(TypeSignatureTag::Integer32 as u8),
 				64 => self.bytes.push(TypeSignatureTag::Integer64 as u8),
-				_ => {
-					let (bytes, count) = compress_integer(size).unwrap();
-					self.bytes.push(TypeSignatureTag::Integer as u8);
-					self.bytes.extend_from_slice(&bytes[..count]);
-				},
+				_ => panic!("Integer too big"),
 			},
 			false => match size {
 				8 => self.bytes.push(TypeSignatureTag::UInteger8 as u8),
 				16 => self.bytes.push(TypeSignatureTag::UInteger16 as u8),
 				32 => self.bytes.push(TypeSignatureTag::UInteger32 as u8),
 				64 => self.bytes.push(TypeSignatureTag::UInteger64 as u8),
-				_ => {
-					let (bytes, count) = compress_integer(size).unwrap();
-					self.bytes.push(TypeSignatureTag::UInteger as u8);
-					self.bytes.extend_from_slice(&bytes[..count]);
-				},
+				_ => panic!("Integer too big"),
 			},
 		}
 	}
@@ -61,11 +53,7 @@ impl TypeSignatureBuilder {
 			16 => self.bytes.push(TypeSignatureTag::Decimal16 as u8),
 			32 => self.bytes.push(TypeSignatureTag::Decimal32 as u8),
 			64 => self.bytes.push(TypeSignatureTag::Decimal64 as u8),
-			_ => {
-				let (bytes, count) = compress_integer(size).unwrap();
-				self.bytes.push(TypeSignatureTag::Decimal as u8);
-				self.bytes.extend_from_slice(&bytes[..count]);
-			},
+			_ => panic!("Decimal too big"),
 		}
 	}
 
@@ -157,16 +145,6 @@ impl TypeSignatureBuilder {
 				| TypeSignatureTag::Decimal16
 				| TypeSignatureTag::Decimal32
 				| TypeSignatureTag::Decimal64 => depth -= 1,
-
-				| TypeSignatureTag::Integer
-				| TypeSignatureTag::UInteger
-				| TypeSignatureTag::Decimal => {
-					let mut byte = 0u8;
-					cursor.read_exact(bytemuck::bytes_of_mut(&mut byte)).expect(BUG_ERR);
-					let sz_len = get_compressed_integer_length(byte).expect(BUG_ERR) as i64;
-					cursor.seek(SeekFrom::Current(sz_len - 1)).expect(BUG_ERR);
-					depth -= 1;
-				},
 			}
 		}
 
