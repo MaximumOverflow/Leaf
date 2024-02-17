@@ -37,12 +37,16 @@ pub enum Opcode {
 	PushDecimal32(f32) = 0xB9,
 	PushDecimal64(f64) = 0xBA,
 
-	PushLocal(usize) = 0xBB,
-	PushLocalA(usize) = 0xBC,
-	StoreLocal(usize) = 0xBD,
+	PushLocal(usize) = 0xC0,
+	PushLocalA(usize) = 0xC1,
+	StoreLocal(usize) = 0xC2,
 
-	SignExtend(u32) = 0xC0,
-	ConvDecimal(u32) = 0xC1,
+	PushParam(usize) = 0xC3,
+	PushParamA(usize) = 0xC4,
+	StoreParam(usize) = 0xC5,
+
+	SignExtend(u32) = 0xCA,
+	ConvDecimal(u32) = 0xCB,
 }
 
 impl MetadataWrite for Opcode {
@@ -119,7 +123,12 @@ impl MetadataWrite for Opcode {
 				f.write(stream)
 			},
 
-			Opcode::PushLocal(l) | Opcode::PushLocalA(l) | Opcode::StoreLocal(l) => {
+			| Opcode::PushParam(l)
+			| Opcode::PushParamA(l)
+			| Opcode::StoreParam(l)
+			| Opcode::PushLocal(l)
+			| Opcode::PushLocalA(l)
+			| Opcode::StoreLocal(l) => {
 				std::mem::discriminant(self).write(stream)?;
 				l.write(stream)
 			},
@@ -202,13 +211,9 @@ impl MetadataRead for Option<Opcode> {
 			0xB9 => Opcode::PushDecimal32(f32::read(stream)?),
 			0xBA => Opcode::PushDecimal64(f64::read(stream)?),
 
-			0xBB => Opcode::PushLocal(usize::read(stream)?),
-			0xBC => Opcode::PushLocalA(usize::read(stream)?),
-			0xBD => Opcode::StoreLocal(usize::read(stream)?),
+			0xC3 => Opcode::PushParam(usize::read(stream)?),
 
-			0xC1 => Opcode::ConvDecimal(u32::read(stream)?),
-
-			_ => return Err(Error::new(ErrorKind::InvalidData, format!("Unimplemented opcode 0x{:X}.", discriminant))),
+			_ => return Err(Error::new(ErrorKind::InvalidData, format!("Unimplemented opcode 0x{:X}", discriminant))),
 		};
 
 		Ok(Some(opcode))
@@ -219,7 +224,7 @@ impl MetadataRead for Opcode {
 	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
 		match Option::<Opcode>::read(stream)? {
 			Some(opcode) => Ok(opcode),
-			None => Err(Error::new(ErrorKind::UnexpectedEof, "Unexpected end of stream.")),
+			None => Err(Error::new(ErrorKind::UnexpectedEof, "Unexpected end of stream")),
 		}
 	}
 }

@@ -1,91 +1,63 @@
-use leaf_reflection::builders::TypeSignatureBytes;
-use crate::frontend::type_resolver::TypeResolver;
-use crate::frontend::CompilationUnit;
-use leaf_parsing::ast::Statement;
+use leaf_parsing::ast::{Block as BlockAST, Statement};
+use crate::frontend::expressions::compile_expression;
+use crate::frontend::expressions::Value;
+use crate::frontend::types::Type;
 use std::collections::HashMap;
 use leaf_reflection::Opcode;
-use std::ops::RangeFrom;
-use anyhow::Error;
+use std::sync::Arc;
 
-use leaf_parsing::ast::Block as BlockNode;
-
-pub struct Block;
-
-impl Block {
-	pub fn generate_opcodes<'l, 'u>(
-		node: &'l BlockNode<'l>, unit: &'l mut CompilationUnit<'u>,
-	) -> anyhow::Result<Vec<Opcode>, Error> {
-		let mut opcodes = vec![];
-		let locals = HashMap::new();
-		let mut local_indices = 0..;
-		generate_opcodes_recursive(node, unit, &mut local_indices, locals, &mut opcodes)?;
-		Ok(opcodes)
-	}
-
-	pub fn generate_local_signatures<'l, 'u>(
-		node: &'l BlockNode<'l>, unit: &'l mut CompilationUnit<'u>,
-	) -> anyhow::Result<Vec<TypeSignatureBytes>, Error> {
-		let mut locals = vec![];
-		generate_local_signatures_recursive(node, unit, &mut locals)?;
-		Ok(locals)
-	}
+pub struct Block<'l> {
+    parent: &'l mut dyn BlockRequirements,
+    values: HashMap<Arc<str>, Value>,
 }
 
-fn generate_opcodes_recursive<'l, 'u>(
-	node: &'l BlockNode<'l>, unit: &'l mut CompilationUnit<'u>,
-	local_indices: &mut RangeFrom<usize>, mut locals: HashMap<&'l str, (usize, Vec<u8>)>,
-	opcodes: &mut Vec<Opcode>,
-) -> anyhow::Result<(), Error> {
-	for statement in &node.statements {
-		match statement {
-			Statement::VarDecl(decl) => {
-				let ty = match &decl.ty {
-					None => unimplemented!(),
-					Some(ty) => unit.create_type_signature(ty)?,
-				};
-
-				let local_id = local_indices.next().unwrap();
-				locals.insert(decl.id, (local_id, ty.into()));
-				Block::generate_expression(&decl.expr, opcodes, &locals)?;
-				opcodes.push(Opcode::StoreLocal(local_id));
-			},
-
-			Statement::Block(child) => {
-				let locals = locals.clone();
-				generate_opcodes_recursive(child, unit, local_indices, locals, opcodes)?;
-			},
-
-			Statement::Return(None) => {
-				opcodes.push(Opcode::Ret);
-			},
-			Statement::Return(Some(expr)) => {
-				Block::generate_expression(expr, opcodes, &locals)?;
-				opcodes.push(Opcode::Ret);
-			},
-
-			_ => unimplemented!("Unimplemented statement: {:#?}", statement),
-		}
-	}
-
-	Ok(())
+pub trait BlockRequirements {
+    fn expected_type(&self) -> Type;
+    fn values(&self) -> &HashMap<Arc<str>, Value>;
+    fn values_mut(&mut self) -> &mut HashMap<Arc<str>, Value>;
 }
 
-fn generate_local_signatures_recursive<'l, 'u>(
-	block: &'l BlockNode<'l>, unit: &'l mut CompilationUnit<'u>,
-	locals: &mut Vec<TypeSignatureBytes>,
-) -> anyhow::Result<(), Error> {
-	for statement in &block.statements {
-		match statement {
-			Statement::VarDecl(decl) => locals.push(match &decl.ty {
-				None => unimplemented!(),
-				Some(ty) => unit.create_type_signature(ty)?,
-			}),
+impl<'l> Block<'l> {
+    pub fn new(parent: &'l mut dyn BlockRequirements) -> Self {
+        Self { values: parent.values().clone(), parent }
+    }
+    pub fn compile(&self, block: &BlockAST, opcodes: &mut Vec<Opcode>) -> anyhow::Result<()> {
+        for statement in &block.statements {
+            match statement {
+                Statement::Return(None) => {
+                    let expected = self.parent.expected_type();
+                    match &expected {
+                        Type::Void => opcodes.push(Opcode::Ret),
+                        _ => return Err(anyhow::Error::msg(format!(r#"Expected type "{}", got "void""#, expected))),
+                    }
+                }
 
-			Statement::Block(child) => {
-				generate_local_signatures_recursive(&child, unit, locals)?;
-			},
-			_ => {},
-		}
-	}
-	Ok(())
+                Statement::Return(Some(expr)) => {
+                    let expected = self.parent.expected_type();
+                    let expr = compile_expression(self, expr, opcodes)?;
+                    if expr.r#type() != &expected {
+                        return Err(anyhow::Error::msg(format!(r#"Expected type "{}", got "{}""#, expected, expr.r#type())));
+                    }
+                    opcodes.push(Opcode::Ret);
+                }
+
+                _ => unimplemented!("{:?}", statement),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl BlockRequirements for Block<'_> {
+    fn expected_type(&self) -> Type {
+        self.parent.expected_type()
+    }
+
+    fn values(&self) -> &HashMap<Arc<str>, Value> {
+        &self.values
+    }
+
+    fn values_mut(&mut self) -> &mut HashMap<Arc<str>, Value> {
+        &mut self.values
+    }
 }

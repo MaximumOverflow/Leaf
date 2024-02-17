@@ -1,13 +1,13 @@
 use crate::{MetadataRead, SliceRef};
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct BlobHeapBuilder {
 	offset: u32,
-	map: HashMap<Rc<[u8]>, u32>,
-	rev_map: HashMap<u32, Rc<[u8]>>,
+	map: HashMap<Arc<[u8]>, (u32, Arc<[u8]>)>,
+	rev_map: HashMap<u32, Arc<[u8]>>,
 }
 
 #[allow(unused)]
@@ -20,15 +20,18 @@ impl BlobHeapBuilder {
 		self.offset == 0
 	}
 
-	pub fn alloc(&mut self, bytes: &[u8]) -> SliceRef<[u8]> {
+	pub fn alloc(&mut self, bytes: &[u8]) -> (SliceRef<[u8]>, Arc<[u8]>) {
 		match self.map.get(bytes) {
-			Some(offset) => SliceRef {
-				offset: *offset,
-				len: bytes.len() as u32,
-				ph: Default::default(),
+			Some((offset, buf)) => {
+				let buf_ref = SliceRef {
+					offset: *offset,
+					len: bytes.len() as u32,
+					ph: Default::default(),
+				};
+				(buf_ref, buf.clone())
 			},
 			None => {
-				let buf: Rc<[u8]> = Rc::from(bytes);
+				let buf: Arc<[u8]> = Arc::from(bytes);
 				let buf_ref = SliceRef {
 					offset: self.offset,
 					len: buf.len() as u32,
@@ -36,9 +39,9 @@ impl BlobHeapBuilder {
 				};
 
 				self.offset += buf_ref.len;
-				self.map.insert(buf.clone(), buf_ref.offset);
-				self.rev_map.insert(buf_ref.offset, buf);
-				buf_ref
+				self.map.insert(buf.clone(), (buf_ref.offset, buf.clone()));
+				self.rev_map.insert(buf_ref.offset, buf.clone());
+				(buf_ref, buf)
 			},
 		}
 	}
@@ -59,7 +62,7 @@ impl BlobHeapBuilder {
 			&mut buffer[start..]
 		};
 
-		for (buf, offset) in self.map {
+		for (buf, (offset, _)) in self.map {
 			let offset = offset as usize;
 			let slice = &mut buffer[offset..offset + buf.len()];
 			slice.copy_from_slice(buf.as_ref());

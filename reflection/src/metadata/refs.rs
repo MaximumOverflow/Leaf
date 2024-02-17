@@ -60,6 +60,10 @@ impl<T: Sized> ElementRef<T> {
 		let offset = self.offset as usize;
 		elements.get(offset)
 	}
+
+	pub fn offset(&self) -> u32 {
+		self.offset
+	}
 }
 
 impl ElementRef<str> {

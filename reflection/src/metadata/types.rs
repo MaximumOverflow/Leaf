@@ -34,6 +34,13 @@ pub enum TypeSignatureTag {
 unsafe impl Pod for TypeSignatureTag {}
 unsafe impl Zeroable for TypeSignatureTag {}
 
+impl MetadataWrite for TypeSignatureTag {
+	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+		let value = *self as u8;
+		value.write(stream)
+	}
+}
+
 pub type TypeSignature = [u8];
 
 #[repr(u32)]

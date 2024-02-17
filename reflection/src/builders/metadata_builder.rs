@@ -2,6 +2,7 @@ use crate::{ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, Sl
 use crate::builders::{BlobHeapBuilder, StringHeapBuilder, TypeSignatureBytes};
 use std::io::{Cursor, Write};
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 pub struct MetadataBuilder {
 	blobs: BlobHeapBuilder,
@@ -65,17 +66,17 @@ impl MetadataBuilder {
 		element_ref
 	}
 
-	pub fn create_field(&mut self, name: &str, signature: &TypeSignatureBytes) -> FieldDef {
+	pub fn create_field(&mut self, name: &str, signature: impl AsRef<TypeSignature>) -> FieldDef {
 		FieldDef {
 			name: self.strings.alloc(name).into(),
-			signature: self.blobs.alloc(&signature.0),
+			signature: self.blobs.alloc(signature.as_ref()).0,
 		}
 	}
 
-	pub fn create_parameter(&mut self, name: &str, signature: &TypeSignatureBytes) -> ParameterDef {
+	pub fn create_parameter(&mut self, name: &str, signature: impl AsRef<TypeSignature>) -> ParameterDef {
 		ParameterDef {
 			name: self.strings.alloc(name),
-			signature: self.blobs.alloc(&signature.0),
+			signature: self.blobs.alloc(signature.as_ref()).0,
 		}
 	}
 
@@ -129,19 +130,17 @@ impl MetadataBuilder {
 		}
 	}
 
-	pub fn set_return_type(
-		&mut self, func: ElementRef<FunctionDef>, signature: &TypeSignatureBytes,
-	) {
+	pub fn set_return_type(&mut self, func: ElementRef<FunctionDef>, signature: &TypeSignature) {
 		let func = &mut self.function_defs[func.offset as usize];
-		func.return_ty = self.blobs.alloc(&signature.0);
+		func.return_ty = self.blobs.alloc(&signature).0;
 	}
 
 	pub fn set_locals(&mut self, func: ElementRef<FunctionDef>, locals: &[TypeSignatureBytes]) {
 		let mut local_refs = vec![];
-		for local in locals.iter().map(|sig| self.blobs.alloc(&sig.0)) {
+		for (local, _) in locals.iter().map(|sig| self.blobs.alloc(&sig.0)) {
 			local.write(&mut local_refs).unwrap();
 		}
-		let local_refs = self.blobs.alloc(&local_refs);
+		let (local_refs, _) = self.blobs.alloc(&local_refs);
 
 		let func = &mut self.function_defs[func.offset as usize];
 		func.body.locals = SliceRef {
@@ -151,11 +150,13 @@ impl MetadataBuilder {
 		};
 	}
 
-	pub fn set_instructions(&mut self, func: ElementRef<FunctionDef>, opcodes: &[Opcode]) {
+	pub fn set_instructions(&mut self, func: ElementRef<FunctionDef>, opcodes: &[Opcode]) -> Arc<[u8]> {
 		let mut data = vec![];
 		opcodes.write(&mut data).unwrap();
 		let func = &mut self.function_defs[func.offset as usize];
-		func.body.opcodes = self.blobs.alloc(&data);
+		let (opcodes, buffer) = self.blobs.alloc(&data);
+		func.body.opcodes = opcodes;
+		buffer
 	}
 
 	pub fn build(self) -> Result<Vec<u8>, std::io::Error> {

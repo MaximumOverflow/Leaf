@@ -8,9 +8,8 @@ pub use refs::*;
 pub use types::*;
 pub use opcodes::*;
 pub use functions::*;
-pub use read_write::*;
-
 use leaf_derive::MetadataWrite;
+pub use read_write::*;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, MetadataWrite)]
 pub struct MetadataOffsets {

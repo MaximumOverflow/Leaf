@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use clap::Parser;
 use leaf_compilation::frontend::CompilationUnit;
 use leaf_compilation::reflection::builders::MetadataBuilder;
-use leaf_compilation::reflection::MetadataRead;
 use crate::interpreter::interpret;
 
 #[derive(Debug, clap::Parser)]
@@ -33,7 +32,7 @@ fn main() {
 			let code = std::fs::read_to_string(&file).unwrap();
 
 			let mut metadata_builder = MetadataBuilder::default();
-			CompilationUnit::compile(&mut metadata_builder, &code).unwrap();
+			CompilationUnit::new(&mut metadata_builder, &code).unwrap();
 
 			let namespace = {
 				let start = code.find("namespace ").unwrap() + 10;
@@ -53,7 +52,16 @@ fn main() {
 			let code = std::fs::read_to_string(&file).unwrap();
 
 			let mut metadata_builder = MetadataBuilder::default();
-			CompilationUnit::compile(&mut metadata_builder, &code).unwrap();
+			let unit = match CompilationUnit::new(&mut metadata_builder, &code) {
+				Ok(unit) => unit,
+				Err(error) => {
+					println!("{:?}", error.context("Compilation failed"));
+					return;
+				}
+			};
+
+			println!("{:#?}", unit.defined_types());
+			println!("{:#?}", unit.defined_functions());
 
 			let metadata = metadata_builder.build().unwrap();
 			let out = out.unwrap_or_else(|| {

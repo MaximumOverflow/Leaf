@@ -1,7 +1,7 @@
 mod compilation_unit;
-mod type_resolver;
-mod expressions;
-mod block;
 mod types;
+mod functions;
+mod block;
+mod expressions;
 
 pub use compilation_unit::*;

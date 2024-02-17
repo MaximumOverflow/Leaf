@@ -1,6 +1,5 @@
-use leaf_compilation::reflection::{FunctionDef, MetadataRead, Opcode, TypeSignature, TypeSignatureTag};
+use leaf_compilation::reflection::{FunctionDef, TypeSignature, TypeSignatureTag};
 use leaf_compilation::reflection::builders::MetadataBuilder;
-use std::io::Cursor;
 use half::f16;
 
 #[derive(Debug, Clone)]
@@ -14,91 +13,7 @@ pub enum Value {
 }
 
 pub fn interpret(metadata: &MetadataBuilder, function: &FunctionDef) -> anyhow::Result<Value> {
-    let body = function.body();
-    let ret_ty = metadata.get_blob(function.return_ty()).unwrap();
-    let mut opcodes = Cursor::new(metadata.get_blob(body.opcodes()).unwrap());
-
-    let mut stack = vec![];
-    let mut locals: Vec<_> = match metadata.get_locals(function) {
-        None => panic! {
-            "Could not create locals for {}",
-            metadata
-                .get_str(function.name())
-                .unwrap_or("[Failed to get function name too]")
-        },
-        Some(locals) => locals.map(|local| {
-            (local, Value::Uninit)
-        }).collect(),
-    };
-
-    loop {
-        let offset = opcodes.position();
-        let Some(opcode) = Option::<Opcode>::read(&mut opcodes)? else { break };
-
-        if cfg!(debug_assertions) {
-            eprintln!("IR_0x{:04X}: {:?}", offset, opcode);
-        }
-
-        match opcode {
-            Opcode::Ret => {
-                let value = stack.pop().unwrap();
-                return Ok(check_type(value, ret_ty)?);
-            }
-
-            Opcode::Add => {
-                let lhs = stack.pop().unwrap();
-                let rhs = stack.pop().unwrap();
-                match (&lhs, &rhs) {
-                    (Value::Int32(lhs), Value::Int32(rhs)) => stack.push(Value::Int32(lhs + rhs)),
-                    (Value::Int64(lhs), Value::Int64(rhs)) => stack.push(Value::Int64(lhs + rhs)),
-                    (Value::Dec64(lhs), Value::Dec64(rhs)) => stack.push(Value::Dec64(lhs + rhs)),
-                    _ => unimplemented!("{:?} {:?}, {:?}", opcode, lhs, rhs),
-                }
-            }
-
-            Opcode::Mul => {
-                let lhs = stack.pop().unwrap();
-                let rhs = stack.pop().unwrap();
-                match (&lhs, &rhs) {
-                    (Value::Int32(lhs), Value::Int32(rhs)) => stack.push(Value::Int32(lhs * rhs)),
-                    (Value::Int64(lhs), Value::Int64(rhs)) => stack.push(Value::Int64(lhs * rhs)),
-                    (Value::Dec64(lhs), Value::Dec64(rhs)) => stack.push(Value::Dec64(lhs * rhs)),
-                    _ => unimplemented!("{:?} {:?}, {:?}", opcode, lhs, rhs),
-                }
-            }
-
-            Opcode::PushInt32(value) => stack.push(Value::Int32(value)),
-            Opcode::PushDecimal64(value) => stack.push(Value::Dec64(value)),
-
-            Opcode::PushLocal(local) => {
-                let (_, ref mut local) = locals[local];
-                stack.push(local.clone())
-            }
-
-            Opcode::ConvDecimal(size) => {
-                let mut value = stack.pop().unwrap();
-                match &value {
-                    | Value::Int32(_)
-                    | Value::Int64(_)
-                    | Value::Dec16(_)
-                    | Value::Dec32(_)
-                    | Value::Dec64(_) => match size {
-                        2 => value = Value::Dec16(value.try_into()?),
-                        4 => value = Value::Dec32(value.try_into()?),
-                        8 => value = Value::Dec64(value.try_into()?),
-                        _ => panic!("Unsupported decimal size {}", size),
-                    }
-
-                    Value::Uninit => panic!("Attempted to use an uninitialized value."),
-                }
-                stack.push(value);
-            }
-
-            _=> unimplemented!("Unimplemented opcode {:?}", opcode),
-        }
-    }
-
-    Err(anyhow::Error::msg("Function did not return correctly."))
+    unimplemented!()
 }
 
 fn check_type(value: Value, expected: &TypeSignature) -> anyhow::Result<Value> {
