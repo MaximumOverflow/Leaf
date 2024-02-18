@@ -1,7 +1,6 @@
 mod utilities;
 mod metadata;
-
-pub mod builders;
+pub mod structured;
 
 pub use metadata::*;
 

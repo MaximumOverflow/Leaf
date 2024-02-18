@@ -3,6 +3,7 @@ mod types;
 mod functions;
 mod read_write;
 mod opcodes;
+pub mod builders;
 
 pub use refs::*;
 pub use types::*;

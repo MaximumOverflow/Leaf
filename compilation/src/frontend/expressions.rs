@@ -31,10 +31,10 @@ pub fn compile_expression(block: &Block, expr: &Expression, opcodes: &mut Vec<Op
         }
 
         Expression::Binary(lhs, op, rhs) => {
-            let mut rhs = compile_expression(block, rhs, opcodes)?;
+            let rhs = compile_expression(block, rhs, opcodes)?;
             rhs.load(opcodes);
 
-            let mut lhs = compile_expression(block, lhs, opcodes)?;
+            let lhs = compile_expression(block, lhs, opcodes)?;
             lhs.load(opcodes);
 
             let rhs_type = rhs.r#type();
