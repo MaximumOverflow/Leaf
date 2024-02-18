@@ -128,6 +128,16 @@ pub struct Body {
     locals: Vec<Local>,
 }
 
+impl Body {
+    pub fn opcodes(&self) -> &[u8] {
+        &self.opcodes
+    }
+
+    pub fn locals(&self) -> &[Local] {
+        &self.locals
+    }
+}
+
 impl Debug for Body {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut dbg = f.debug_struct("Body");
@@ -139,6 +149,20 @@ pub struct Local {
     id: usize,
     ty: Arc<Type>,
     name: Arc<str>,
+}
+
+impl Local {
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn ty(&self) -> &Arc<Type> {
+        &self.ty
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl Debug for Local {
@@ -298,11 +322,10 @@ impl AsRef<Arc<Function>> for FunctionBodyBuilder {
 }
 
 pub mod builder_data {
-    use std::collections::HashMap;
     use std::sync::Arc;
-    use crate::Opcode;
-    use crate::structured::functions::{Function, Local, Parameter};
     use crate::structured::Type;
+    use std::collections::HashMap;
+    use crate::structured::functions::{Function, Local, Parameter};
 
     pub struct Signature<'l> {
         pub(super) name: Arc<str>,

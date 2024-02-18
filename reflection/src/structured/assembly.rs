@@ -16,6 +16,13 @@ impl Assembly {
             None => panic!("Assembly has not been finalized"),
         }
     }
+
+    pub fn functions(&self) -> &[Arc<Function>] {
+        match self.functions.get() {
+            Some(types) => &types,
+            None => panic!("Assembly has not been finalized"),
+        }
+    }
 }
 
 impl Debug for Assembly {
