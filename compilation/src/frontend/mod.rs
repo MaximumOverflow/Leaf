@@ -1,6 +1,5 @@
 mod compilation_unit;
 mod types;
-mod functions;
 mod block;
 mod expressions;
 

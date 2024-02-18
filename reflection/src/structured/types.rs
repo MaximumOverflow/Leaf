@@ -1,7 +1,8 @@
-use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter, Write};
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, OnceLock, Weak};
 use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use crate::structured::name_or_empty;
 
 pub struct Type {
     variant: TypeVariant,
@@ -40,29 +41,64 @@ impl Type {
         }
     }
 
-    pub fn void() -> Arc<Type> {
+    pub fn void() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Void)).clone()
+        TYPE.get_or_init(|| Self::new(TypeVariant::Void))
     }
 
-    pub fn i8() -> Arc<Type> {
+    pub fn i8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(1))).clone()
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(1)))
     }
 
-    pub fn i16() -> Arc<Type> {
+    pub fn i16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(2))).clone()
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(2)))
     }
 
-    pub fn i32() -> Arc<Type> {
+    pub fn i32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(4))).clone()
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(4)))
     }
 
-    pub fn i64() -> Arc<Type> {
+    pub fn i64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(8))).clone()
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(8)))
+    }
+
+    pub fn u8() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(1)))
+    }
+
+    pub fn u16() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(2)))
+    }
+
+    pub fn u32() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(4)))
+    }
+
+    pub fn u64() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(8)))
+    }
+
+    pub fn f16() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(2)))
+    }
+
+    pub fn f32() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(4)))
+    }
+
+    pub fn f64() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(8)))
     }
 
     pub fn name(&self) -> &str {
@@ -90,6 +126,13 @@ impl Type {
                 _ => unreachable!(),
             }
             TypeVariant::Struct(data) => &data.name,
+        }
+    }
+
+    pub fn name_arc(&self) -> Option<&Arc<str>> {
+        match &self.variant {
+            TypeVariant::Struct(data) => Some(&data.name),
+            _ => None,
         }
     }
 
@@ -233,7 +276,7 @@ impl StructBuilder {
                 TypeVariant::Struct(
                     StructType {
                         namespace,
-                        name: Arc::from(name),
+                        name: name_or_empty(name),
                         fields: Default::default(),
                     }
                 )

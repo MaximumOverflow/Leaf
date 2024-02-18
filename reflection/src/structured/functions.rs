@@ -1,6 +1,6 @@
 use crate::{MetadataRead, MetadataWrite, Opcode};
-use std::sync::{Arc, OnceLock, Weak};
 use std::fmt::{Debug, Formatter};
+use std::sync::{Arc, OnceLock};
 use crate::structured::Type;
 use std::io::Cursor;
 
@@ -14,6 +14,10 @@ pub struct Function {
 
 impl Function {
     pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn name_arc(&self) -> &Arc<str> {
         &self.name
     }
 
@@ -91,6 +95,24 @@ pub struct Parameter {
     ty: Arc<Type>,
 }
 
+impl Parameter {
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn name_arc(&self) -> &Arc<str> {
+        &self.name
+    }
+
+    pub fn ty(&self) -> &Arc<Type> {
+        &self.ty
+    }
+}
+
 impl Debug for Parameter {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut dbg = f.debug_struct("Parameter");
@@ -133,13 +155,15 @@ pub struct FunctionBuilder<T> {
     data: T,
 }
 
-impl<'l> FunctionBuilder<builder_data::Signature<'l>> {
-    pub(crate) fn new(name: &str, namespace: Arc<str>, functions: &'l mut Vec<Arc<Function>>) -> FunctionBuilder<builder_data::Signature<'l>> {
+pub type FunctionSignatureBuilder<'l> = FunctionBuilder<builder_data::Signature<'l>>;
+
+impl<'l> FunctionSignatureBuilder<'l> {
+    pub(crate) fn new(name: &str, namespace: Arc<str>, functions: &'l mut Vec<Arc<Function>>) -> FunctionSignatureBuilder<'l> {
         Self {
             data: builder_data::Signature {
                 namespace,
                 name: Arc::from(name),
-                return_ty: Type::void(),
+                return_ty: Type::void().clone(),
                 parameters: Default::default(),
                 functions,
             },
@@ -166,7 +190,7 @@ impl<'l> FunctionBuilder<builder_data::Signature<'l>> {
         Ok(id)
     }
 
-    pub fn declare(self) -> (Arc<Function>, FunctionBuilder<builder_data::Body>) {
+    pub fn declare(self) -> (Arc<Function>, FunctionBodyBuilder) {
         let mut parameters: Vec<Parameter> = self.data.parameters.into_values().collect();
         parameters.sort_by_key(|i| i.id);
 
@@ -178,7 +202,7 @@ impl<'l> FunctionBuilder<builder_data::Signature<'l>> {
             body: Default::default(),
         });
 
-        let builder = FunctionBuilder {
+        let builder = FunctionBodyBuilder {
             data: builder_data::Body {
                 func: func.clone(),
                 opcodes: vec![],
@@ -191,7 +215,9 @@ impl<'l> FunctionBuilder<builder_data::Signature<'l>> {
     }
 }
 
-impl FunctionBuilder<builder_data::Body> {
+pub type FunctionBodyBuilder = FunctionBuilder<builder_data::Body>;
+
+impl FunctionBodyBuilder {
     pub fn declare_local(&mut self, name: &str, ty: &Arc<Type>) -> Result<usize, &Local> {
         if self.data.locals.contains_key(name) {
             return Err(&self.data.locals[name]);
@@ -265,7 +291,13 @@ impl FunctionBuilder<builder_data::Body> {
     }
 }
 
-pub(super) mod builder_data {
+impl AsRef<Arc<Function>> for FunctionBodyBuilder {
+    fn as_ref(&self) -> &Arc<Function> {
+        &self.data.func
+    }
+}
+
+pub mod builder_data {
     use std::collections::HashMap;
     use std::sync::Arc;
     use crate::Opcode;
