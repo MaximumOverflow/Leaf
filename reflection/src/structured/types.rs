@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, OnceLock, Weak};
+use crate::{ElementRef, TypeDef};
 use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
-use crate::{ElementRef, TypeDef};
 use crate::structured::name_or_empty;
 
 pub struct Type {

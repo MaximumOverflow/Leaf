@@ -9,12 +9,12 @@ pub type ParseError<'l> = lalrpop_util::ParseError<usize, Token<'l>, String>;
 #[derive(Debug, PartialEq)]
 pub enum Literal<'l> {
 	Uninit,
-	Id(&'l str),
-	Integer(i64),
-	Decimal(f64),
 	Char(char),
-	String(&'l str),
+	Id(&'l str),
+	Decimal(f64),
 	Boolean(bool),
+	String(&'l str),
+	Integer(Integer),
 }
 
 impl Literal<'_> {
@@ -37,6 +37,19 @@ impl Literal<'_> {
 			}),
 		}
 	}
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Integer {
+	Any(i128),
+	Int8(i8),
+	Int16(i16),
+	Int32(i32),
+	Int64(i64),
+	UInt8(u8),
+	UInt16(u16),
+	UInt32(u32),
+	UInt64(u64),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -69,8 +82,11 @@ pub enum BinaryOperator {
 
 #[derive(Debug, PartialEq)]
 pub enum Expression<'l> {
+	Block(Block<'l>),
 	Literal(Literal<'l>),
 	NewStruct(NewStruct<'l>),
+	Cast(Box<Expression<'l>>, Type<'l>),
+	FunctionCall(Box<FunctionCall<'l>>),
 	Unary(UnaryOperator, Box<Expression<'l>>),
 	Binary(Box<Expression<'l>>, BinaryOperator, Box<Expression<'l>>),
 }
@@ -81,8 +97,40 @@ macro_rules! impl_binary_expr {
 			type Output = Expression<'l>;
 			fn $func(self, rhs: Self) -> Self::Output {
 				match (&self, &rhs) {
-					(Expression::Literal(Literal::Integer(lhs)), Expression::Literal(Literal::Integer(rhs)))
-						=> Expression::Literal(Literal::Integer(lhs $op rhs)),
+					(
+						Expression::Literal(Literal::Integer(Integer::Int8(lhs))),
+						Expression::Literal(Literal::Integer(Integer::Int8(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::Int8(lhs $op rhs))),
+
+					(
+						Expression::Literal(Literal::Integer(Integer::Int16(lhs))),
+						Expression::Literal(Literal::Integer(Integer::Int16(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::Int16(lhs $op rhs))),
+
+					(
+						Expression::Literal(Literal::Integer(Integer::Int32(lhs))),
+						Expression::Literal(Literal::Integer(Integer::Int32(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::Int32(lhs $op rhs))),
+
+					(
+						Expression::Literal(Literal::Integer(Integer::UInt8(lhs))),
+						Expression::Literal(Literal::Integer(Integer::UInt8(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::UInt8(lhs $op rhs))),
+
+					(
+						Expression::Literal(Literal::Integer(Integer::UInt16(lhs))),
+						Expression::Literal(Literal::Integer(Integer::UInt16(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::UInt16(lhs $op rhs))),
+
+					(
+						Expression::Literal(Literal::Integer(Integer::UInt32(lhs))),
+						Expression::Literal(Literal::Integer(Integer::UInt32(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::UInt32(lhs $op rhs))),
+
+					(
+						Expression::Literal(Literal::Integer(Integer::UInt64(lhs))),
+						Expression::Literal(Literal::Integer(Integer::UInt64(rhs)))
+					) => Expression::Literal(Literal::Integer(Integer::UInt64(lhs $op rhs))),
 
 					(Expression::Literal(Literal::Decimal(lhs)), Expression::Literal(Literal::Decimal(rhs)))
 						=> Expression::Literal(Literal::Decimal(lhs $op rhs)),
@@ -104,6 +152,12 @@ impl_binary_expr!(Rem, rem, Mod, %);
 pub struct NewStruct<'l> {
 	pub ty: Type<'l>,
 	pub values: HashMap<&'l str, Expression<'l>>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FunctionCall<'l> {
+	pub func: Expression<'l>,
+	pub params: Vec<Expression<'l>>,
 }
 
 //endregion
@@ -168,20 +222,22 @@ pub struct FunctionParameter<'l> {
 
 
 //region Statements
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Block<'l> {
 	pub statements: Vec<Statement<'l>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Statement<'l> {
+	If(If<'l>),
 	VarDecl(VarDecl<'l>),
+	Expression(Expression<'l>),
 	Yield(Option<Expression<'l>>),
 	Return(Option<Expression<'l>>),
 	Assignment(Expression<'l>, Expression<'l>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct VarDecl<'l> {
 	pub name: &'l str,
 	pub mutable: bool,
@@ -203,6 +259,12 @@ impl<'l> VarDecl<'l> {
 
 		Ok(VarDecl { name, mutable, ty, value })
 	}
+}
+
+#[derive(Debug, PartialEq)]
+pub struct If<'l> {
+	pub condition: Expression<'l>,
+	pub block: Block<'l>,
 }
 
 //endregion

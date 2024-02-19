@@ -34,7 +34,7 @@ impl<'l> Block<'l> {
                             builder.push_opcode(Opcode::Ret);
                         },
                         false => {
-                            return Err(anyhow::Error::msg(format!("Expected type '{}', got 'void'", expected)));
+                            return Err(invalid_type_err(expected, Some(Type::void())));
                         },
                     }
                 }
@@ -44,8 +44,8 @@ impl<'l> Block<'l> {
                     let expr = compile_expression(self, expr, builder)?;
                     expr.load(builder)?;
 
-                    if expr.ty() != expected {
-                        return Err(anyhow::Error::msg(format!("Expected type '{}', got '{}'", expected, expr.ty())));
+                    if expr.ty() != Some(expected){
+                        return Err(invalid_type_err(expected, expr.ty()));
                     }
                     builder.push_opcode(Opcode::Ret);
                 }
@@ -59,8 +59,8 @@ impl<'l> Block<'l> {
                         Expression::Literal(Literal::Uninit) => false,
                         _ => {
                             let value = compile_expression(self, &decl.value, builder)?;
-                            if ty != *value.ty() {
-                                return Err(anyhow!("Expected type '{}', got '{}'", ty, value.ty()))
+                            if Some(&ty) != value.ty() {
+                                return Err(invalid_type_err(&ty, value.ty()))
                             }
 
                             value.load(builder)?;
@@ -85,9 +85,9 @@ impl<'l> Block<'l> {
                     match &target {
                         Value::Local(ty, id, mutability, ..) => {
                             match mutability {
-                                Mutability::Mutable => match ty == value.ty() {
+                                Mutability::Mutable => match Some(ty) == value.ty() {
                                     true => builder.push_opcode(Opcode::StoreLocal(*id)),
-                                    false => return Err(anyhow!("Expected type '{}', got '{}'", ty, value.ty())),
+                                    false => return Err(invalid_type_err(&ty, value.ty())),
                                 },
                                 Mutability::Immutable => {
                                     let name = self.values.iter().find_map(|(name, value)| {
@@ -128,5 +128,12 @@ impl BlockRequirements for Block<'_> {
 
     fn values_mut(&mut self) -> &mut HashMap<Arc<str>, Value> {
         &mut self.values
+    }
+}
+
+pub fn invalid_type_err(expected: &Arc<Type>, got: Option<&Arc<Type>>) -> anyhow::Error {
+    match got {
+        None => anyhow!("Expected type '{}', got '?'", expected),
+        Some(ty) => anyhow!("Expected type '{}', got '{}'", expected, ty),
     }
 }

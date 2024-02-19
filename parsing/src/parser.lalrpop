@@ -11,7 +11,6 @@ extern {
 // ### Values ###
 
 pub Identifier: &'input str = r"[a-zA-Z_#][a-zA-Z0-9_#]*";
-pub Integer: i64 = <s:r"[0-9]+"> => i64::from_str(s).unwrap();
 pub Decimal: f64 = <s:r"[0-9]*\.[0-9]+"> => f64::from_str(s).unwrap();
 pub Character: char = <s:r#"'(\\.|[^\\"])'"#> =>? Literal::unescape_char(s);
 pub String: &'input str = r#""(\\.|[^\\"])*""#;
@@ -19,6 +18,18 @@ pub Boolean: bool = {
     "true" => true,
     "false" => false,
 };
+
+pub Integer: Integer = {
+    <s:r"-?[0-9]+">     =>? Ok(Integer::Any(i128::from_str(s).map_err(|_| format!("{s} does not fit in type 'i128'"))?)),
+    <s:r"[0-9]+u8">     =>? Ok(Integer::UInt8(u8::from_str(&s[..s.len() - 2]).map_err(|_| format!("{s} does not fit in type 'u8'"))?)),
+    <s:r"[0-9]+u16">    =>? Ok(Integer::UInt16(u16::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'u16'"))?)),
+    <s:r"[0-9]+u32">    =>? Ok(Integer::UInt32(u32::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'u32'"))?)),
+    <s:r"[0-9]+u64">    =>? Ok(Integer::UInt64(u64::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'u64'"))?)),
+    <s:r"-?[0-9]+i8">   =>? Ok(Integer::Int8(i8::from_str(&s[..s.len() - 2]).map_err(|_| format!("{s} does not fit in type 'i8'"))?)),
+    <s:r"-?[0-9]+i16">  =>? Ok(Integer::Int16(i16::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'i16'"))?)),
+    <s:r"-?[0-9]+i32">  =>? Ok(Integer::Int32(i32::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'i32'"))?)),
+    <s:r"-?[0-9]+i64">  =>? Ok(Integer::Int64(i64::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'i64'"))?)),
+}
 
 pub Literal: Literal<'input> = {
     "?" => Literal::Uninit,
@@ -31,9 +42,18 @@ pub Literal: Literal<'input> = {
 }
 
 pub Expression: Expression<'input> = {
-    NewStruct => Expression::NewStruct(<>),
     <l:Expression> "+" <r:Factor> => l + r,
     <l:Expression> "-" <r:Factor> => l - r,
+
+    <expr: Expression> "as" <ty: Type>
+        => Expression::Cast(Box::new(expr), ty),
+
+    "new" <ty: Type> "{" <values: CommaSeparatedList<NewStructValue>> "}"
+        => Expression::NewStruct(NewStruct { ty, values: std::collections::HashMap::from_iter(values) }),
+
+    <func: Expression> "(" <params: CommaSeparatedList<Expression>> ")"
+        => Expression::FunctionCall(Box::new(FunctionCall { <> })),
+
     Factor,
 };
 
@@ -45,13 +65,9 @@ Factor: Expression<'input> = {
 
 Term: Expression<'input> = {
     Literal => Expression::Literal(<>),
+    Block => Expression::Block(<>),
     "(" <Expression> ")",
 };
-
-pub NewStruct: NewStruct<'input> = {
-    <ty: Type> "{" <values: CommaSeparatedList<NewStructValue>> "}"
-        => NewStruct { ty, values: std::collections::HashMap::from_iter(values) }
-}
 
 pub NewStructValue: (&'input str, Expression<'input>) = {
     <name: Identifier> ":" <value: Expression>
@@ -94,8 +110,10 @@ pub Type: Type<'input> = {
 // ### Statements ###
 
 pub Block: Block<'input> = {
-    "{" <statements: Statement*> "}"
-        => Block { <> }
+    "{" <mut statements: Statement*> <ret: Expression?> "}"=> {
+        if let Some(ret) = ret { statements.push(Statement::Expression(ret)) }
+        Block { statements }
+    }
 }
 
 pub Statement: Statement<'input> = {
@@ -104,6 +122,9 @@ pub Statement: Statement<'input> = {
 
     <to: Expression> "=" <val: Expression> ";"
         => Statement::Assignment(to, val),
+
+    "if" <condition: Expression> <block: Block>
+        => Statement::If(If { <> }),
 
     "return" <expr: Expression?> ";" =>
          Statement::Return(<>),
