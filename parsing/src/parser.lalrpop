@@ -46,6 +46,7 @@ pub BinaryOperation0: Expression<'input> = {
     BinaryOperation1
 }
 
+// FIXME "2 * (6 / 3)" breaks parsing
 pub BinaryOperation1: Expression<'input> = {
     <lhs:BinaryOperation1> "*" <rhs:Literal>
         => Expression::Binary(Box::new(lhs), BinaryOperator::Mul, Box::new(Expression::Literal(rhs))),

@@ -46,6 +46,11 @@ impl Type {
         TYPE.get_or_init(|| Self::new(TypeVariant::Void))
     }
 
+    pub fn char() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::Char))
+    }
+
     pub fn i8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
         TYPE.get_or_init(|| Self::new(TypeVariant::Int(1)))

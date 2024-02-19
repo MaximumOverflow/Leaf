@@ -34,11 +34,11 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
         }
 
         Expression::Binary(lhs, op, rhs) => {
-            let rhs = compile_expression(block, rhs, builder)?;
-            rhs.load(builder);
-
             let lhs = compile_expression(block, lhs, builder)?;
             lhs.load(builder);
+
+            let rhs = compile_expression(block, rhs, builder)?;
+            rhs.load(builder);
 
             let rhs_type = rhs.r#type();
             let lhs_type = lhs.r#type();
