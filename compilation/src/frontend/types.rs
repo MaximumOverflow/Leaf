@@ -1,9 +1,7 @@
 use leaf_parsing::ast::Type as TypeNode;
 use leaf_reflection::structured::Type;
-use std::fmt::{Debug, Display};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::hash::Hash;
 
 pub trait TypeResolver {
     fn types(&self) -> &HashMap<Arc<str>, Arc<Type>>;

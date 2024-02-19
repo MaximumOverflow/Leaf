@@ -1,5 +1,5 @@
 use crate::utilities::{compress_integer, get_compressed_integer_length};
-use crate::{BUG_ERR, TypeDefOrRef, TypeSignatureTag};
+use crate::{BUG_ERR, MetadataWrite, TypeDefOrRef, TypeSignatureTag};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 #[derive(Default)]
@@ -71,21 +71,8 @@ impl TypeSignatureBuilder {
 	}
 
 	pub fn push_type(&mut self, ty: TypeDefOrRef) {
-		if let Some(ty) = ty.as_type_def() {
-			let (bytes, count) = compress_integer(ty.offset as u64).unwrap();
-			self.bytes.push(TypeSignatureTag::TypeDef as u8);
-			self.bytes.extend_from_slice(&bytes[..count]);
-			return;
-		}
-
-		if let Some(ty) = ty.as_type_ref() {
-			let (bytes, count) = compress_integer(ty.offset as u64).unwrap();
-			self.bytes.push(TypeSignatureTag::TypeRef as u8);
-			self.bytes.extend_from_slice(&bytes[..count]);
-			return;
-		}
-
-		unreachable!("{}", BUG_ERR);
+		let mut cursor = Cursor::new(&mut self.bytes);
+		ty.write(&mut cursor).unwrap();
 	}
 
 	pub fn build(self) -> Result<TypeSignatureBytes, &'static str> {

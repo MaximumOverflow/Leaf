@@ -1,7 +1,9 @@
-use crate::{ElementRef, MetadataWrite, SliceRef};
+use crate::{ElementRef, MetadataRead, MetadataWrite, SliceRef};
+use std::io::ErrorKind::InvalidData;
+use std::io::{Error, Read, Write};
+use std::fmt::{Debug, Formatter};
 use leaf_derive::MetadataWrite;
 use bytemuck::{Pod, Zeroable};
-use std::io::{Error, Write};
 
 #[repr(u8)]
 #[derive(Copy, Clone)]
@@ -90,43 +92,57 @@ impl TypeDef {
 #[derive(Copy, Clone)]
 pub struct TypeRef {}
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct TypeDefOrRef {
-	tag: u32,
-	idx: ElementRef<()>,
+#[repr(u8)]
+#[derive(Copy, Clone, PartialEq)]
+pub enum TypeDefOrRef {
+	Def(ElementRef<TypeDef>) = TypeSignatureTag::TypeDef as u8,
+	Ref(ElementRef<TypeRef>) = TypeSignatureTag::TypeRef as u8,
 }
 
 impl From<ElementRef<TypeDef>> for TypeDefOrRef {
 	fn from(value: ElementRef<TypeDef>) -> Self {
-		Self {
-			tag: 0,
-			idx: ElementRef {
-				offset: value.offset,
-				ph: Default::default(),
-			},
+		Self::Def(value)
+	}
+}
+
+impl From<ElementRef<TypeRef>> for TypeDefOrRef {
+	fn from(value: ElementRef<TypeRef>) -> Self {
+		Self::Ref(value)
+	}
+}
+
+impl Debug for TypeDefOrRef {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		match self {
+			TypeDefOrRef::Def(v) => write!(f, "TypeDefOrRef::Def({})", v.offset),
+			TypeDefOrRef::Ref(v) => write!(f, "TypeDefOrRef::Ref({})", v.offset),
 		}
 	}
 }
 
-impl TypeDefOrRef {
-	pub fn as_type_def(&self) -> Option<ElementRef<TypeDef>> {
-		match self.tag == 0 {
-			false => None,
-			true => Some(ElementRef {
-				offset: self.idx.offset,
-				ph: Default::default(),
-			}),
+impl MetadataRead for TypeDefOrRef {
+	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
+		const TYPE_DEF: u8 = TypeSignatureTag::TypeDef as u8;
+		const TYPE_REF: u8 = TypeSignatureTag::TypeRef as u8;
+		match u8::read(stream)? {
+			TYPE_DEF => Ok(Self::Def(ElementRef::read(stream)?)),
+			TYPE_REF => Ok(Self::Ref(ElementRef::read(stream)?)),
+			_ => Err(Error::new(InvalidData, "Invalid type signature tag")),
 		}
 	}
+}
 
-	pub fn as_type_ref(&self) -> Option<ElementRef<TypeRef>> {
-		match self.tag == 1 {
-			false => None,
-			true => Some(ElementRef {
-				offset: self.idx.offset,
-				ph: Default::default(),
-			}),
+impl MetadataWrite for TypeDefOrRef {
+	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+		match self {
+			TypeDefOrRef::Def(v) => {
+				stream.write_all(&[TypeSignatureTag::TypeDef as u8])?;
+				v.write(stream)
+			}
+			TypeDefOrRef::Ref(v) => {
+				stream.write_all(&[TypeSignatureTag::TypeRef as u8])?;
+				v.write(stream)
+			}
 		}
 	}
 }

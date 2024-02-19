@@ -2,9 +2,10 @@ use crate::{MetadataRead, MetadataWrite};
 use std::io::{Error, Read, Write};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-
 use std::str::Utf8Error;
+
 #[repr(C)]
+#[derive(Debug)]
 pub struct ElementRef<T: ?Sized> {
 	pub(crate) offset: u32,
 	pub(crate) ph: PhantomData<T>,
