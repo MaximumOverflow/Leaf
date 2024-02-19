@@ -32,37 +32,25 @@ impl<'l> Block<'l> {
                         false => {
                             builder.push_opcode(Opcode::Ret);
                         },
-                        true => return Err(anyhow::Error::msg(format!(r#"Expected type "{}", got "void""#, expected))),
+                        true => return Err(anyhow::Error::msg(format!("Expected type '{}', got 'void'", expected))),
                     }
                 }
 
                 Statement::Return(Some(expr)) => {
                     let expected = self.parent.expected_type();
                     let expr = compile_expression(self, expr, builder)?;
+                    expr.load(builder);
+
                     if expr.r#type() != expected {
-                        return Err(anyhow::Error::msg(format!(r#"Expected type "{}", got "{}""#, expected, expr.r#type())));
+                        return Err(anyhow::Error::msg(format!("Expected type '{}', got '{}'", expected, expr.r#type())));
                     }
                     builder.push_opcode(Opcode::Ret);
                 }
 
                 Statement::VarDecl(decl) => {
                     let ty = self.resolve_type(decl.ty.as_ref().unwrap())?;
-                    let local = match builder.declare_local(decl.name, &ty) {
-                        Ok(local) => local,
-                        Err(_) => 'decl: {
-                            let mut name = String::from(decl.name);
-                            for _ in 0.. {
-                                name.push('`');
-                                if let Ok(local) = builder.declare_local(&name, &ty) {
-                                    break 'decl local
-                                }
-                            }
-                            unreachable!()
-                        }
-                    };
-
+                    let local = builder.declare_local(&ty);
                     let id = local.id();
-                    let name = local.name_arc().clone();
 
                     match decl.value {
                         Expression::Literal(Literal::Uninit) => {},
@@ -72,7 +60,7 @@ impl<'l> Block<'l> {
                         }
                     }
 
-                    self.values.insert(name, Value::Local(ty, id));
+                    self.values.insert(Arc::from(decl.name), Value::Local(ty, id));
                 }
 
                 _ => unimplemented!("{:?}", statement),

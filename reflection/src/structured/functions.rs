@@ -148,7 +148,6 @@ impl Debug for Body {
 pub struct Local {
     id: usize,
     ty: Arc<Type>,
-    name: Arc<str>,
 }
 
 impl Local {
@@ -159,23 +158,11 @@ impl Local {
     pub fn ty(&self) -> &Arc<Type> {
         &self.ty
     }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn name_arc(&self) -> &Arc<str> {
-        &self.name
-    }
 }
 
 impl Debug for Local {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut dbg = f.debug_struct("Local");
-        dbg.field("id", &self.id);
-        dbg.field("name", &self.name);
-        dbg.field("type", &format_args!("{}", self.ty));
-        dbg.finish()
+        write!(f, "Local({}, {})", self.id, self.ty)
     }
 }
 
@@ -246,36 +233,19 @@ impl<'l> FunctionSignatureBuilder<'l> {
 pub type FunctionBodyBuilder = FunctionBuilder<builder_data::Body>;
 
 impl FunctionBodyBuilder {
-    pub fn declare_local(&mut self, name: &str, ty: &Arc<Type>) -> Result<&Local, &Local> {
-        if self.data.locals.contains_key(name) {
-            return Err(&self.data.locals[name]);
-        }
-
+    pub fn declare_local(&mut self, ty: &Arc<Type>) -> &Local {
         let id = self.data.locals.len();
-        let parameter = Local {
-            id,
-            ty: ty.clone(),
-            name: Arc::from(name),
-        };
-
-        Ok(self.data.locals.entry(parameter.name.clone()).or_insert(parameter))
+        self.data.locals.push(Local { id, ty: ty.clone() });
+        &self.data.locals[id]
     }
 
     pub fn define(self) -> Arc<Function> {
-        let mut locals: Vec<_> = self.data.locals.into_values().collect();
-        locals.sort_by_key(|i| i.id);
-
         self.data.func.body.set(Body {
-            locals,
+            locals: self.data.locals,
             opcodes: self.data.opcodes,
         }).unwrap();
 
         self.data.func
-    }
-
-    pub fn load_local(&mut self, name: &str) -> Option<usize> {
-        let idx = self.data.locals.get(name)?.id;
-        Some(self.push_opcode(Opcode::PushLocal(idx)))
     }
 
     pub fn load_parameter(&mut self, name: &str) -> Option<usize> {
@@ -317,6 +287,6 @@ pub mod builder_data {
     pub struct Body {
         pub(super) opcodes: Vec<u8>,
         pub(super) func: Arc<Function>,
-        pub(super) locals: HashMap<Arc<str>, Local>,
+        pub(super) locals: Vec<Local>,
     }
 }
