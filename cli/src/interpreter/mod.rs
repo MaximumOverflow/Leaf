@@ -95,6 +95,15 @@ pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Re
                 *local = value;
             },
 
+            Opcode::StoreParam(id) => {
+                let value = stack.pop().context(POP_ERR)?;
+                let param = params.get_mut(id).context(LOCAL_ERR)?;
+                if param.ty() != value.ty() {
+                    return Err(anyhow!("Mismatched parameter type. Expected '{}', got '{}'", param.ty(), value.ty()));
+                }
+                *param = value;
+            },
+
             _ => return Err(anyhow!("Unimplemented opcode {:?}", opcode)),
         }
     }

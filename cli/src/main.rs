@@ -1,6 +1,7 @@
 mod interpreter;
 
 use std::path::PathBuf;
+use std::time::SystemTime;
 use clap::Parser;
 use leaf_compilation::frontend::CompilationUnit;
 use leaf_compilation::reflection::structured::assembly::AssemblyBuilder;
@@ -32,7 +33,6 @@ fn main() {
 			let code = std::fs::read_to_string(&file).unwrap();
 
 			let mut assembly_builder = AssemblyBuilder::new();
-
 			if let Err(err) = CompilationUnit::new(&mut assembly_builder, &code) {
 				return println!("{:#}", err);
 			}
@@ -49,7 +49,7 @@ fn main() {
 			let Some(main) = assembly.functions().iter().find(
 				|f| f.namespace() == namespace && f.name() == "main"
 			) else {
-				eprintln!("Could not find entry point 'main'.");
+				eprintln!("Could not find entry point 'main'");
 				return;
 			};
 
@@ -58,7 +58,8 @@ fn main() {
 				Err(err) => println!("Error: {}", err),
 			};
 		},
-		Args::Compile(CompileArgs { file, out }) => {
+		Args::Compile(CompileArgs { file, .. }) => {
+			let time = SystemTime::now();
 			let code = std::fs::read_to_string(&file).unwrap();
 
 			let mut assembly_builder = AssemblyBuilder::new();
@@ -71,7 +72,10 @@ fn main() {
 			};
 
 			let assembly = assembly_builder.build();
+			let comp_time = time.elapsed().unwrap();
+
 			println!("{:#?}", assembly);
+			println!("Compilation time: {:?}", comp_time);
 		},
 	}
 }

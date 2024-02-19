@@ -1,12 +1,11 @@
-use crate::{ElementRef, MetadataRead, MetadataWrite, SliceRef};
-use std::io::ErrorKind::InvalidData;
-use std::io::{Error, Read, Write};
+use crate::{ElementRef, MetadataWrite, SliceRef};
+use leaf_derive::{MetadataRead, MetadataWrite};
 use std::fmt::{Debug, Formatter};
-use leaf_derive::MetadataWrite;
 use bytemuck::{Pod, Zeroable};
+use std::io::{Error, Write};
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, MetadataRead, MetadataWrite)]
 pub enum TypeSignatureTag {
 	TypeDef = 0x00,
 	TypeRef = 0x01,
@@ -32,15 +31,6 @@ pub enum TypeSignatureTag {
 	Decimal16 = 0x10,
 	Decimal32 = 0x11,
 	Decimal64 = 0x12,
-}
-unsafe impl Pod for TypeSignatureTag {}
-unsafe impl Zeroable for TypeSignatureTag {}
-
-impl MetadataWrite for TypeSignatureTag {
-	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
-		let value = *self as u8;
-		value.write(stream)
-	}
 }
 
 pub type TypeSignature = [u8];
@@ -93,7 +83,7 @@ impl TypeDef {
 pub struct TypeRef {}
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, MetadataRead, MetadataWrite)]
 pub enum TypeDefOrRef {
 	Def(ElementRef<TypeDef>) = TypeSignatureTag::TypeDef as u8,
 	Ref(ElementRef<TypeRef>) = TypeSignatureTag::TypeRef as u8,
@@ -116,33 +106,6 @@ impl Debug for TypeDefOrRef {
 		match self {
 			TypeDefOrRef::Def(v) => write!(f, "TypeDefOrRef::Def({})", v.offset),
 			TypeDefOrRef::Ref(v) => write!(f, "TypeDefOrRef::Ref({})", v.offset),
-		}
-	}
-}
-
-impl MetadataRead for TypeDefOrRef {
-	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
-		const TYPE_DEF: u8 = TypeSignatureTag::TypeDef as u8;
-		const TYPE_REF: u8 = TypeSignatureTag::TypeRef as u8;
-		match u8::read(stream)? {
-			TYPE_DEF => Ok(Self::Def(ElementRef::read(stream)?)),
-			TYPE_REF => Ok(Self::Ref(ElementRef::read(stream)?)),
-			_ => Err(Error::new(InvalidData, "Invalid type signature tag")),
-		}
-	}
-}
-
-impl MetadataWrite for TypeDefOrRef {
-	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
-		match self {
-			TypeDefOrRef::Def(v) => {
-				stream.write_all(&[TypeSignatureTag::TypeDef as u8])?;
-				v.write(stream)
-			}
-			TypeDefOrRef::Ref(v) => {
-				stream.write_all(&[TypeSignatureTag::TypeRef as u8])?;
-				v.write(stream)
-			}
 		}
 	}
 }

@@ -2,12 +2,16 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, OnceLock, Weak};
 use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
+use crate::{ElementRef, TypeDef};
 use crate::structured::name_or_empty;
 
 pub struct Type {
+    this: Weak<Type>,
     variant: TypeVariant,
     ptr_ty: OnceLock<Arc<Type>>,
+    mut_ptr_ty: OnceLock<Arc<Type>>,
     slice_ty: OnceLock<Arc<Type>>,
+    type_def: ElementRef<TypeDef>,
 }
 
 #[derive(Default)]
@@ -19,6 +23,8 @@ pub enum TypeVariant {
     Int(u32),
     UInt(u32),
     Struct(StructType),
+    Pointer(Weak<Type>, bool),
+    Reference(Weak<Type>, bool),
 }
 
 impl Type {
@@ -43,94 +49,95 @@ impl Type {
 
     pub fn void() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Void))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Void, ElementRef::default()))
     }
 
     pub fn char() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Char))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Char, ElementRef::default()))
     }
 
     pub fn i8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(1)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(1), ElementRef::default()))
     }
 
     pub fn i16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(2)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(2), ElementRef::default()))
     }
 
     pub fn i32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(4)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(4), ElementRef::default()))
     }
 
     pub fn i64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(8)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int(8), ElementRef::default()))
     }
 
     pub fn u8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(1)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(1), ElementRef::default()))
     }
 
     pub fn u16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(2)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(2), ElementRef::default()))
     }
 
     pub fn u32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(4)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(4), ElementRef::default()))
     }
 
     pub fn u64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(8)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(8), ElementRef::default()))
     }
 
     pub fn f16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(2)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(2), ElementRef::default()))
     }
 
     pub fn f32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(4)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(4), ElementRef::default()))
     }
 
     pub fn f64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(8)))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(8), ElementRef::default()))
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> Option<&str> {
         match &self.variant {
-            TypeVariant::Void => "void",
-            TypeVariant::Char => "char",
+            TypeVariant::Void => Some("void"),
+            TypeVariant::Char => Some("char"),
             TypeVariant::Dec(size) => match *size {
-                2 => "f16",
-                4 => "f32",
-                8 => "f64",
+                2 => Some("f16"),
+                4 => Some("f32"),
+                8 => Some("f64"),
                 _ => unreachable!(),
             }
             TypeVariant::Int(size) => match *size {
-                1 => "i8",
-                2 => "i16",
-                4 => "i32",
-                8 => "i64",
+                1 => Some("i8"),
+                2 => Some("i16"),
+                4 => Some("i32"),
+                8 => Some("i64"),
                 _ => unreachable!(),
             }
             TypeVariant::UInt(size) => match *size {
-                1 => "u8",
-                2 => "u16",
-                4 => "u32",
-                8 => "u64",
+                1 => Some("u8"),
+                2 => Some("u16"),
+                4 => Some("u32"),
+                8 => Some("u64"),
                 _ => unreachable!(),
             }
-            TypeVariant::Struct(data) => &data.name,
+            TypeVariant::Struct(data) => Some(&data.name),
+            _ => None,
         }
     }
 
@@ -148,14 +155,28 @@ impl Type {
         }
     }
 
-    fn new(variant: TypeVariant) -> Arc<Type> {
-        Arc::new(
+    pub fn make_ptr(&self, mutable: bool) -> &Arc<Type> {
+        match mutable {
+            false => self.ptr_ty.get_or_init(|| {
+                Type::new(TypeVariant::Pointer(self.this.clone(), false), ElementRef::default())
+            }),
+            true => self.mut_ptr_ty.get_or_init(|| {
+                Type::new(TypeVariant::Pointer(self.this.clone(), true), ElementRef::default())
+            }),
+        }
+    }
+
+    fn new(variant: TypeVariant, type_def: ElementRef<TypeDef>) -> Arc<Type> {
+        Arc::new_cyclic(|this| {
             Self {
                 variant,
+                type_def,
+                this: this.clone(),
                 ptr_ty: Default::default(),
+                mut_ptr_ty: Default::default(),
                 slice_ty: Default::default(),
             }
-        )
+        })
     }
 }
 
@@ -192,7 +213,19 @@ impl Display for Type {
                     }
                 }
             }
-            _ => f.write_str(self.name()),
+            TypeVariant::Pointer(base, false) => {
+                write!(f, "*{}", base.upgrade().unwrap())
+            }
+            TypeVariant::Pointer(base, true) => {
+                write!(f, "*mut {}", base.upgrade().unwrap())
+            }
+            TypeVariant::Reference(base, false) => {
+                write!(f, "&{}", base.upgrade().unwrap())
+            }
+            TypeVariant::Reference(base, true) => {
+                write!(f, "&mut {}", base.upgrade().unwrap())
+            }
+            _ => f.write_str(self.name().unwrap()),
         }
     }
 }
@@ -275,7 +308,7 @@ pub struct StructBuilder {
 }
 
 impl StructBuilder {
-    pub(crate) fn new(name: &str, namespace: Arc<str>) -> StructBuilder {
+    pub(crate) fn new(name: &str, namespace: Arc<str>, type_def: ElementRef<TypeDef>) -> StructBuilder {
         Self {
             ty: Type::new(
                 TypeVariant::Struct(
@@ -284,7 +317,8 @@ impl StructBuilder {
                         name: name_or_empty(name),
                         fields: Default::default(),
                     }
-                )
+                ),
+                type_def
             ),
             fields: HashMap::new(),
         }

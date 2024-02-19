@@ -25,6 +25,10 @@ pub trait TypeResolver {
                     None => Err(anyhow::Error::msg(format!("Type {:?} is not available in the current scope", id))),
                 }
             }
+            TypeNode::Pointer(ty, mutable) => {
+                let ty = self.resolve_type(ty)?;
+                Ok(ty.make_ptr(*mutable).clone())
+            }
             _ => unimplemented!(),
         }
     }

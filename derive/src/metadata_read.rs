@@ -7,7 +7,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 
     match &ast.data {
         Data::Struct(_) => {
-            panic!("Cannot #[derive(MetadataWrite)] on a struct")
+            panic!("Cannot #[derive(MetadataRead)] on a struct")
         },
         Data::Enum(data) => {
             let mut cases = vec![];
@@ -30,8 +30,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
                 }
                 else if variant.fields.iter().all(|f| f.ident.is_none()) {
                     reads.clear();
-                    for field in &variant.fields {
-                        let ty = &field.ty;
+                    for _ in 0..variant.fields.len() {
                         reads.push(quote!(crate::metadata::MetadataRead::read(stream)?))
                     }
                     cases.push(quote!(#variant_value_name => #name::#variant_name(#(#reads),*),))
@@ -51,7 +50,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
                             _ => return std::result::Result::Err(
                                 std::io::Error::new(
                                     std::io::ErrorKind::InvalidData,
-                                    format!("Invalid opcode {:#X}", discriminant)
+                                    format!("Invalid enum discriminant {:#X}", discriminant)
                                 )
                             ),
                         };
@@ -62,6 +61,6 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 
             implementation.into()
         },
-        Data::Union(_) => panic!("Cannot #[derive(MetadataWrite)] on a union"),
+        Data::Union(_) => panic!("Cannot #[derive(MetadataRead)] on a union"),
     }
 }

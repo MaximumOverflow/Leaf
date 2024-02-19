@@ -1,5 +1,6 @@
 use std::ops::{Add, Div, Mul, Sub, Rem};
 use lalrpop_util::lexer::Token;
+use std::collections::HashMap;
 
 type Result<'l, T> = std::result::Result<T, ParseError<'l>>;
 pub type ParseError<'l> = lalrpop_util::ParseError<usize, Token<'l>, String>;
@@ -69,6 +70,7 @@ pub enum BinaryOperator {
 #[derive(Debug, PartialEq)]
 pub enum Expression<'l> {
 	Literal(Literal<'l>),
+	NewStruct(NewStruct<'l>),
 	Unary(UnaryOperator, Box<Expression<'l>>),
 	Binary(Box<Expression<'l>>, BinaryOperator, Box<Expression<'l>>),
 }
@@ -97,6 +99,12 @@ impl_binary_expr!(Sub, sub, Sub, -);
 impl_binary_expr!(Mul, mul, Mul, *);
 impl_binary_expr!(Div, div, Div, %);
 impl_binary_expr!(Rem, rem, Mod, %);
+
+#[derive(Debug, PartialEq)]
+pub struct NewStruct<'l> {
+	pub ty: Type<'l>,
+	pub values: HashMap<&'l str, Expression<'l>>,
+}
 
 //endregion
 
@@ -199,9 +207,11 @@ impl<'l> VarDecl<'l> {
 
 //endregion
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Type<'l> {
-	Id(&'l str)
+	Id(&'l str),
+	Pointer(Box<Type<'l>>, bool),
+	Reference(Box<Type<'l>>, bool),
 }
 
 #[derive(Debug)]

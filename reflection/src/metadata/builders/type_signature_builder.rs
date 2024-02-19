@@ -1,5 +1,5 @@
 use crate::utilities::{compress_integer, get_compressed_integer_length};
-use crate::{BUG_ERR, MetadataWrite, TypeDefOrRef, TypeSignatureTag};
+use crate::{BUG_ERR, MetadataRead, MetadataWrite, TypeDefOrRef, TypeSignatureTag};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 #[derive(Default)]
@@ -98,9 +98,7 @@ impl TypeSignatureBuilder {
 		let mut cursor = Cursor::new(&self.bytes);
 
 		while cursor.stream_position().expect(BUG_ERR) < self.bytes.len() as u64 {
-			let mut byte = TypeSignatureTag::TypeDef;
-			cursor.read_exact(bytemuck::bytes_of_mut(&mut byte)).expect(BUG_ERR);
-			match byte {
+			match TypeSignatureTag::read(&mut cursor).expect(BUG_ERR) {
 				TypeSignatureTag::Pointer | TypeSignatureTag::MutPointer => {},
 
 				TypeSignatureTag::TypeDef | TypeSignatureTag::TypeRef => {

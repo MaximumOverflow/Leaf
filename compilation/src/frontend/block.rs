@@ -30,10 +30,12 @@ impl<'l> Block<'l> {
                 Statement::Return(None) => {
                     let expected = self.parent.expected_type();
                     match expected == Type::void() {
-                        false => {
+                        true => {
                             builder.push_opcode(Opcode::Ret);
                         },
-                        true => return Err(anyhow::Error::msg(format!("Expected type '{}', got 'void'", expected))),
+                        false => {
+                            return Err(anyhow::Error::msg(format!("Expected type '{}', got 'void'", expected)));
+                        },
                     }
                 }
 

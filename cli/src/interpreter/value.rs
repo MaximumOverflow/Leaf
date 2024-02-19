@@ -19,22 +19,22 @@ pub struct Value {
 enum Data {
     Uninit,
     Large(Arc<dyn Any>),
-    Small(MaybeUninit<u64>, usize, TypeId),
+    Small(MaybeUninit<u128>, usize, TypeId),
 }
 
 impl Value {
     pub fn new<T: 'static>(ty: Arc<Type>, value: T) -> Self {
         let layout = Layout::new::<T>();
 
-        let dummy = NonNull::<u64>::dangling();
+        let dummy = NonNull::<u128>::dangling();
         let offset = dummy.as_ptr().align_offset(layout.align());
         let total_size = layout.size() + offset;
 
-        let data = match !std::mem::needs_drop::<T>() && total_size <= size_of::<u64>() {
+        let data = match !std::mem::needs_drop::<T>() && total_size <= size_of::<u128>() {
             true => Data::Small(
                 unsafe {
-                    let mut data = 0u64;
-                    let ptr = (&mut data as *mut u64 as *mut u8).add(offset);
+                    let mut data = 0u128;
+                    let ptr = (&mut data as *mut u128 as *mut u8).add(offset);
                     std::ptr::write(ptr as *mut T, value);
                     MaybeUninit::new(data)
                 },
@@ -55,6 +55,17 @@ impl Value {
                     return None;
                 }
 
+                let ptr = data.as_ptr().add(*offset) as *const T;
+                Some(&*ptr)
+            }
+        }
+    }
+
+    pub unsafe fn as_ref_unchecked<T: 'static>(&self) -> Option<&T> {
+        match &self.data {
+            Data::Uninit => None,
+            Data::Large(arc) => arc.downcast_ref(),
+            Data::Small(data, offset, ..) => unsafe {
                 let ptr = data.as_ptr().add(*offset) as *const T;
                 Some(&*ptr)
             }
@@ -136,6 +147,16 @@ impl Debug for Value {
                 4 => dbg.field("value", self.as_ref::<u32>().unwrap()),
                 8 => dbg.field("value", self.as_ref::<u64>().unwrap()),
                 _ => unreachable!(),
+            }
+            TypeVariant::Pointer(..) | TypeVariant::Reference(..) => {
+                match self.data {
+                    Data::Small(..) => unsafe {
+                        dbg.field("value", self.as_ref_unchecked::<*const u8>().unwrap())
+                    }
+                    _ => {
+                        dbg.field("value", &"pointer")
+                    }
+                }
             }
             TypeVariant::Struct(_) => dbg.field("value", &self.data),
         };

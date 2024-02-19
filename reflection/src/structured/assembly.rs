@@ -3,6 +3,7 @@ use crate::structured::functions::builder_data::Signature;
 use crate::structured::types::{StructBuilder, Type};
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, OnceLock};
+use crate::ElementRef;
 
 pub struct Assembly {
     types: OnceLock<Vec<Arc<Type>>>,
@@ -63,7 +64,10 @@ impl AssemblyBuilder {
     }
 
     pub fn define_struct(&mut self, name: &str, namespace: &Arc<str>) -> StructBuilder {
-        let builder = StructBuilder::new(name, namespace.clone());
+        let builder = StructBuilder::new(name, namespace.clone(), ElementRef {
+            offset: self.types.len() as u32 + 1,
+            ph: Default::default(),
+        });
         self.types.push(builder.as_ref().clone());
         builder
     }

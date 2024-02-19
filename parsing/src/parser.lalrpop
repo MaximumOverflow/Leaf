@@ -30,8 +30,8 @@ pub Literal: Literal<'input> = {
 	Boolean => Literal::Boolean(<>),
 }
 
-// FIXME "2 * (6 / 3)" breaks parsing
 pub Expression: Expression<'input> = {
+    NewStruct => Expression::NewStruct(<>),
     <l:Expression> "+" <r:Factor> => l + r,
     <l:Expression> "-" <r:Factor> => l - r,
     Factor,
@@ -47,6 +47,16 @@ Term: Expression<'input> = {
     Literal => Expression::Literal(<>),
     "(" <Expression> ")",
 };
+
+pub NewStruct: NewStruct<'input> = {
+    <ty: Type> "{" <values: CommaSeparatedList<NewStructValue>> "}"
+        => NewStruct { ty, values: std::collections::HashMap::from_iter(values) }
+}
+
+pub NewStructValue: (&'input str, Expression<'input>) = {
+    <name: Identifier> ":" <value: Expression>
+        => (name, value)
+}
 
 // ### Objects ###
 
@@ -74,7 +84,11 @@ pub FunctionParameter: FunctionParameter<'input> = {
 }
 
 pub Type: Type<'input> = {
-    Identifier => Type::Id(<>)
+    Identifier => Type::Id(<>),
+    "*" <base: Type> => Type::Pointer(Box::new(base), false),
+    "&" <base: Type> => Type::Reference(Box::new(base), false),
+    "*" "mut" <base: Type> => Type::Pointer(Box::new(base), true),
+    "&" "mut" <base: Type> => Type::Reference(Box::new(base), true),
 }
 
 // ### Statements ###

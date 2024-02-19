@@ -2,6 +2,7 @@ use leaf_reflection::structured::functions::FunctionBodyBuilder;
 use leaf_parsing::ast::{BinaryOperator, Expression, Literal};
 use crate::frontend::block::{Block, BlockRequirements};
 use leaf_reflection::structured::types::TypeVariant;
+use crate::frontend::types::TypeResolver;
 use leaf_reflection::structured::Type;
 use leaf_reflection::Opcode;
 use std::sync::Arc;
@@ -64,6 +65,37 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 _ => unimplemented!("{:?} {:?}, {:?}", op, lhs_type, rhs_type),
             }
         }
+
+        Expression::NewStruct(new_struct) => {
+            let ty = block.resolve_type(&new_struct.ty)?;
+            match ty.as_ref().as_ref() {
+                TypeVariant::Struct(s_ty) => {
+                    for field in s_ty.fields().iter().rev() {
+                        let value = match new_struct.values.get(field.name().as_ref()) {
+                            Some(value) => compile_expression(block, value, builder)?,
+                            None => return Err(anyhow!("Missing field '{}'", field.name())),
+                        };
+
+                        if *value.ty() != field.ty() {
+                            return Err(anyhow!("Expected value of type '{}', found {}", field.ty(), value.ty()));
+                        }
+
+                        value.load(builder)?;
+                    }
+
+                    let local = builder.declare_local(&ty).id();
+                    for i in 0..s_ty.fields().len() {
+                        builder.push_opcode(Opcode::PushLocalA(local));
+                        builder.push_opcode(Opcode::StoreField(i));
+                    }
+
+                    builder.push_opcode(Opcode::PushLocal(local));
+                    Ok(Value::Temp(ty))
+                }
+                _ => Err(anyhow!("Type '{}' is not a struct", ty)),
+            }
+        }
+
         _ => unimplemented!(),
     }
 }

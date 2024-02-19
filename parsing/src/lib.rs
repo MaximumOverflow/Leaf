@@ -1,4 +1,7 @@
 use lalrpop_util::lalrpop_mod;
 
 pub mod ast;
-lalrpop_mod!(pub parser);
+lalrpop_mod! {
+    #[allow(unused)]
+    pub parser
+}

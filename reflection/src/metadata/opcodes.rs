@@ -1,6 +1,6 @@
 use leaf_derive::{MetadataRead, MetadataWrite};
-use crate::{MetadataRead, MetadataWrite};
 use std::io::{Error, Write};
+use crate::MetadataWrite;
 
 #[repr(u8)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, MetadataRead, MetadataWrite)]
