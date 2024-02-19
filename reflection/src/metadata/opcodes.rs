@@ -211,6 +211,8 @@ impl MetadataRead for Option<Opcode> {
 			0xB9 => Opcode::PushDecimal32(f32::read(stream)?),
 			0xBA => Opcode::PushDecimal64(f64::read(stream)?),
 
+			0xC0 => Opcode::PushLocal(usize::read(stream)?),
+			0xC2 => Opcode::StoreLocal(usize::read(stream)?),
 			0xC3 => Opcode::PushParam(usize::read(stream)?),
 
 			_ => return Err(Error::new(ErrorKind::InvalidData, format!("Unimplemented opcode 0x{:X}", discriminant))),

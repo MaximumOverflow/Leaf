@@ -51,11 +51,11 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 | (TypeVariant::Int(_), TypeVariant::Int(_))
                 | (TypeVariant::UInt(_), TypeVariant::UInt(_)) => {
                     match op {
-                        BinaryOperator::Add => builder.add(),
-                        BinaryOperator::Sub => builder.sub(),
-                        BinaryOperator::Mul => builder.mul(),
-                        BinaryOperator::Div => builder.div(),
-                        BinaryOperator::Mod => builder.rem(),
+                        BinaryOperator::Add => builder.push_opcode(Opcode::Add),
+                        BinaryOperator::Sub => builder.push_opcode(Opcode::Sub),
+                        BinaryOperator::Mul => builder.push_opcode(Opcode::Mul),
+                        BinaryOperator::Div => builder.push_opcode(Opcode::Div),
+                        BinaryOperator::Mod => builder.push_opcode(Opcode::Mod),
                         _ => unimplemented!("{:?} {:?}, {:?}", op, lhs_type, rhs_type),
                     };
                     Ok(Value::Temp(lhs_type.clone()))

@@ -21,6 +21,7 @@ pub Boolean: bool = {
 };
 
 pub Literal: Literal<'input> = {
+    "?" => Literal::Uninit,
 	Identifier => Literal::Id(<>),
 	Integer => Literal::Integer(<>),
 	Decimal => Literal::Decimal(<>),
@@ -29,169 +30,69 @@ pub Literal: Literal<'input> = {
 	Boolean => Literal::Boolean(<>),
 }
 
-pub Expression: Expression<'input> = {
-	//"(" <expr:Expression> ")" => expr,
-	FnCall => Expression::FnCall(Box::new(<>)),
-	TemplateCall => Expression::TemplateCall(Box::new(<>)),
-	BinaryOperation0,
-}
-
-pub BinaryOperation0: Expression<'input> = {
-    <lhs:Expression> "+" <rhs:BinaryOperation1>
-        => Expression::Binary(Box::new(lhs), BinaryOperator::Add, Box::new(rhs)),
-
-    <lhs:Expression> "-" <rhs:BinaryOperation1>
-        => Expression::Binary(Box::new(lhs), BinaryOperator::Sub, Box::new(rhs)),
-
-    BinaryOperation1
-}
-
 // FIXME "2 * (6 / 3)" breaks parsing
-pub BinaryOperation1: Expression<'input> = {
-    <lhs:BinaryOperation1> "*" <rhs:Literal>
-        => Expression::Binary(Box::new(lhs), BinaryOperator::Mul, Box::new(Expression::Literal(rhs))),
+pub Expression: Expression<'input> = {
+    <l:Expression> "+" <r:Factor> => l + r,
+    <l:Expression> "-" <r:Factor> => l - r,
+    Factor,
+};
 
-    <lhs:BinaryOperation1> "/" <rhs:Literal>
-        => Expression::Binary(Box::new(lhs), BinaryOperator::Div, Box::new(Expression::Literal(rhs))),
+Factor: Expression<'input> = {
+    <l:Factor> "*" <r:Term> => l * r,
+    <l:Factor> "/" <r:Term> => l / r,
+    Term,
+};
 
-    <lhs:BinaryOperation1> "%" <rhs:Literal>
-            => Expression::Binary(Box::new(lhs), BinaryOperator::Mod, Box::new(Expression::Literal(rhs))),
-
-    "(" <expr:Expression> ")" => expr,
-
+Term: Expression<'input> = {
     Literal => Expression::Literal(<>),
-}
-
-pub FnCall: FnCall<'input> = {
-	<callee:Expression> "(" <params:CommaSeparatedList<Expression>> ")"
-	    => FnCall { <> }
-}
+    "(" <Expression> ")",
+};
 
 // ### Objects ###
 
-pub Alias: Alias<'input> = {
-    "type" <id:Identifier> "=" <ty:Type>
-        => Alias { id, ty: Box::new(ty) }
+pub SymbolDeclaration: SymbolDeclaration<'input> = {
+    <public: "pub"?> "def" <name: Identifier> ":" <symbol: Symbol>
+        => SymbolDeclaration { public: public.is_some(), name, symbol }
 }
 
-pub Enum: Enum<'input> = { 
-	"enum" <id:Identifier?> "{" <variants:CommaSeparatedList<EnumVariant>> "}" 
-	    => Enum { <> }
+pub Symbol: Symbol<'input> = {
+    "struct" "{" <members: CommaSeparatedList<StructMember>> "}"
+        => Symbol::Struct(Struct { <> }),
+
+    "(" <params: CommaSeparatedList<FunctionParameter>> ")" "->" <return_ty: Type> <block: Block>
+        => Symbol::Function(Function { params, return_ty, block: Some(block) }),
 }
 
-EnumVariant = Identifier;
-
-pub Struct: Struct<'input> = {
-	"struct" <id:Identifier?> "{" <members:CommaSeparatedList<Member>> "}"
-	    => Struct { <> }
+pub StructMember: StructMember<'input> = {
+    <name: Identifier> ":" <ty: Type>
+        => StructMember { <> }
 }
 
-pub Union: Union<'input> = {
-	"union" <id:Identifier?> "{" <members:CommaSeparatedList<Member>> "}"
-	    => Union { <> }
-}
-
-pub Interface: Interface<'input> = {
-	"interface" <id:Identifier?> "{" <members:CommaSeparatedList<InterfaceMember>> "}"
-	    => Interface { <> }
-}
-
-Member: Member<'input> = {
-	<id:Identifier> ":" <ty:Type>
-	    => Member { <> }
-}
-
-InterfaceMember: InterfaceMember<'input> = {
-	<id:Identifier> ":" <get:"get"?> <set:"set"?> <ty:Type> =>? {
-		if get.is_none() && set.is_none() {
-			return Err(ParseError::<_, _, String>::User {
-				error: format!("Property must be 'get', 'set' or 'get set'. Try `{}: get {}`.", id, ty),
-			})
-		}
-		
-		Ok(InterfaceMember::Property {
-		   id: id, ty: ty,
-		   get: get.is_some(),
-		   set: set.is_some(),
-	   })
-	},
-	
-	<id:Identifier> ":" <signature:FunctionSignature> => {
-		InterfaceMember::Function { <> }
-	}
-}
-
-pub TemplateCall: TemplateCall<'input> = {
-    <callee:Expression> "<" <params:CommaSeparatedList<Expression>> ">"
-        => TemplateCall { <> }
+pub FunctionParameter: FunctionParameter<'input> = {
+    <name: Identifier> ":" <ty: Type>
+        => FunctionParameter { <> }
 }
 
 pub Type: Type<'input> = {
-	Identifier => Type::Id(<>),
-	TemplateCall => Type::Template(<>),
-	
-	"[" <elem:Type> "]" => Type::Array { 
-	    elem: Box::new(elem), 
-	    size: None,
-	}, 
-	"[" <elem:Type> ";" <size:Expression> "]" => Type::Array { 
-	    elem: Box::new(elem),
-	    size: Some(size),
-	}, 
-		
-	"&" "'" <kind:Identifier> <is_mut:"mut"?> <base:Type> => Type::Ref {
-		kind: kind,
-		is_mut: is_mut.is_some(),
-		base: Box::new(base),
-	}
-}
-
-pub Function: Function<'input> = {
-	<signature:FunctionSignature> <block:Block>
-	    => Function { <> }
-}
-
-pub FunctionSignature: FunctionSignature<'input> = {
-	"fn" <id:Identifier?> "(" <par:CommaSeparatedList<FnParameter>> ")" ":" <ret_ty:Type>
-	    => FunctionSignature { <> }
-}
-
-FnParameter: (&'input str, Type<'input>) = { 
-	<id:Identifier> ":" <ty:Type>
-	    => (id, ty)
+    Identifier => Type::Id(<>)
 }
 
 // ### Statements ###
 
-pub Statement: Statement<'input> = {
-    Block => Statement::Block(<>),
-    VariableDeclaration => Statement::VarDecl(<>),
-    //SymbolDeclaration => Statement::SymDecl(<>),
-    "return" <expr:Expression?> ";" => Statement::Return(expr),
-    "yield" <expr:Expression> ";" => Statement::Yield(expr),
-    "yield" "next" <expr:Expression> ";" => Statement::CoYield(expr),
-}
-
 pub Block: Block<'input> = {
-    "{" <statements:Statement*> "}"
+    "{" <statements: Statement*> "}"
         => Block { <> }
 }
 
-pub VariableDeclaration: VariableDeclaration<'input> = {
-    <id:Identifier> ":" <ty:Type?> "=" <expr:Expression> ";"
-        =>? VariableDeclaration::new(id, false, id.starts_with('#'), expr, ty),
-    
-    "mut" <id:Identifier> ":" <ty:Type?> "=" <expr:Expression> ";"
-        =>? VariableDeclaration::new(id, true, id.starts_with('#'), expr, ty),
-}
+pub Statement: Statement<'input> = {
+    "let" <mutable: "mut"?> <name: Identifier> <ty: TypeSpecifier?> "=" <value: Expression> ";"
+        =>? Ok(Statement::VarDecl(VarDecl::new(name, mutable.is_some(), ty, value)?)),
 
-pub SymbolDeclaration: SymbolDeclaration<'input> = {
-    Alias => SymbolDeclaration::Alias(<>),
-    Struct => SymbolDeclaration::Struct(<>),
-    Enum => SymbolDeclaration::Enum(<>),
-    Interface => SymbolDeclaration::Interface(<>),
-    Union => SymbolDeclaration::Union(<>),
-    Function => SymbolDeclaration::Function(<>),
+    "return" <expr: Expression?> ";" =>
+         Statement::Return(<>),
+
+    "yield" <expr: Expression?> ";" =>
+          Statement::Yield(<>),
 }
 
 pub CompilationUnit: CompilationUnit<'input> = {
@@ -230,3 +131,7 @@ CommaSeparatedList<T>: Vec<T> = {
 		}
 	}
 };
+
+TypeSpecifier: Type<'input> = {
+    ":" <ty: Type> => ty
+}

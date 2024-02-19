@@ -1,126 +1,13 @@
-use std::fmt::{Display, Formatter};
+use std::ops::{Add, Div, Mul, Sub, Rem};
 use lalrpop_util::lexer::Token;
 
 type Result<'l, T> = std::result::Result<T, ParseError<'l>>;
 pub type ParseError<'l> = lalrpop_util::ParseError<usize, Token<'l>, String>;
 
-#[derive(Debug)]
-pub struct Alias<'l> {
-	pub id: &'l str,
-	pub ty: Box<Type<'l>>,
-}
-
-#[derive(Debug)]
-pub struct Enum<'l> {
-	pub id: Option<&'l str>,
-	pub variants: Vec<&'l str>,
-}
-
-#[derive(Debug)]
-pub struct Struct<'l> {
-	pub id: Option<&'l str>,
-	pub members: Vec<Member<'l>>,
-}
-
-#[derive(Debug)]
-pub struct Union<'l> {
-	pub id: Option<&'l str>,
-	pub members: Vec<Member<'l>>,
-}
-
-#[derive(Debug)]
-pub struct Member<'l> {
-	pub id: &'l str,
-	pub ty: Type<'l>,
-}
-
-#[derive(Debug)]
-pub struct Interface<'l> {
-	pub id: Option<&'l str>,
-	pub members: Vec<InterfaceMember<'l>>,
-}
-
-#[derive(Debug)]
-pub enum InterfaceMember<'l> {
-	Property {
-		id: &'l str,
-		get: bool,
-		set: bool,
-		ty: Type<'l>,
-	},
-
-	Function {
-		id: &'l str,
-		signature: FunctionSignature<'l>,
-	},
-}
-
-#[derive(Debug)]
-pub struct TemplateCall<'l> {
-	pub callee: Expression<'l>,
-	pub params: Vec<Expression<'l>>,
-}
-
-#[derive(Debug)]
-pub enum Type<'l> {
-	Id(&'l str),
-
-	Ref {
-		kind: &'l str,
-		is_mut: bool,
-		base: Box<Type<'l>>,
-	},
-
-	Array {
-		elem: Box<Type<'l>>,
-		size: Option<Expression<'l>>,
-	},
-
-	Template(TemplateCall<'l>),
-}
-
-impl Display for Type<'_> {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Type::Id(id) => f.write_str(id),
-			Type::Ref { kind, is_mut, base } => {
-				write!(
-					f,
-					"&'{}{}{}",
-					kind,
-					if *is_mut { " mut " } else { " " },
-					base
-				)
-			},
-			Type::Template(_) => f.write_str("template<...>"),
-			Type::Array { elem, size } => match size {
-				None => write!(f, "[{}]", elem),
-				Some(size) => write!(f, "[{}; {}]", elem, size),
-			},
-		}
-	}
-}
-
-#[derive(Debug)]
-pub struct Function<'l> {
-	pub signature: FunctionSignature<'l>,
-	pub block: Block<'l>,
-}
-
-#[derive(Debug)]
-pub struct FunctionSignature<'l> {
-	pub id: Option<&'l str>,
-	pub par: Vec<(&'l str, Type<'l>)>,
-	pub ret_ty: Type<'l>,
-}
-
-#[derive(Debug)]
-pub struct Block<'l> {
-	pub statements: Vec<Statement<'l>>,
-}
-
-#[derive(Debug)]
+//region Expressions
+#[derive(Debug, PartialEq)]
 pub enum Literal<'l> {
+	Uninit,
 	Id(&'l str),
 	Integer(i64),
 	Decimal(f64),
@@ -151,22 +38,7 @@ impl Literal<'_> {
 	}
 }
 
-#[derive(Debug)]
-pub enum Expression<'l> {
-	Literal(Literal<'l>),
-	FnCall(Box<FnCall<'l>>),
-	TemplateCall(Box<TemplateCall<'l>>),
-	Unary(UnaryOperator, Box<Expression<'l>>),
-	Binary(Box<Expression<'l>>, BinaryOperator, Box<Expression<'l>>),
-}
-
-impl Display for Expression<'_> {
-	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		f.write_str("<expr>")
-	}
-}
-
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum UnaryOperator {
 	Pos,
 	Neg,
@@ -174,7 +46,7 @@ pub enum UnaryOperator {
 	Deref,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum BinaryOperator {
 	Add,
 	Sub,
@@ -194,59 +66,141 @@ pub enum BinaryOperator {
 	Le,
 }
 
-#[derive(Debug)]
-pub struct FnCall<'l> {
-	pub callee: Expression<'l>,
-	pub params: Vec<Expression<'l>>,
+#[derive(Debug, PartialEq)]
+pub enum Expression<'l> {
+	Literal(Literal<'l>),
+	Unary(UnaryOperator, Box<Expression<'l>>),
+	Binary(Box<Expression<'l>>, BinaryOperator, Box<Expression<'l>>),
 }
 
-#[derive(Debug)]
-pub struct VariableDeclaration<'l> {
-	pub id: &'l str,
-	pub is_mut: bool,
-	pub is_const: bool,
-	pub expr: Expression<'l>,
-	pub ty: Option<Type<'l>>,
-}
+macro_rules! impl_binary_expr {
+    ($trait: ident, $func: ident, $oper: ident, $op: tt) => {
+		impl<'l> $trait for Expression<'l> {
+			type Output = Expression<'l>;
+			fn $func(self, rhs: Self) -> Self::Output {
+				match (&self, &rhs) {
+					(Expression::Literal(Literal::Integer(lhs)), Expression::Literal(Literal::Integer(rhs)))
+						=> Expression::Literal(Literal::Integer(lhs $op rhs)),
 
-impl<'l> VariableDeclaration<'l> {
-	pub fn new(
-		id: &'l str, is_mut: bool, is_const: bool, expr: Expression<'l>, ty: Option<Type<'l>>,
-	) -> Result<'l, Self> {
-		match is_mut && is_const {
-			false => Ok(Self {
-				id,
-				ty,
-				is_mut,
-				is_const,
-				expr,
-			}),
-			true => Err(ParseError::User {
-				error: format!("Constants cannot be mutable. Try `{} := {}`.", id, expr),
-			}),
+					(Expression::Literal(Literal::Decimal(lhs)), Expression::Literal(Literal::Decimal(rhs)))
+						=> Expression::Literal(Literal::Decimal(lhs $op rhs)),
+
+					_ => Expression::Binary(Box::new(self), BinaryOperator::$oper, Box::new(rhs)),
+				}
+			}
 		}
-	}
+	};
+}
+
+impl_binary_expr!(Add, add, Add, +);
+impl_binary_expr!(Sub, sub, Sub, -);
+impl_binary_expr!(Mul, mul, Mul, *);
+impl_binary_expr!(Div, div, Div, %);
+impl_binary_expr!(Rem, rem, Mod, %);
+
+//endregion
+
+//region Symbols
+#[derive(Debug)]
+pub struct SymbolDeclaration<'l> {
+	pub public: bool,
+	pub name: &'l str,
+	pub symbol: Symbol<'l>
 }
 
 #[derive(Debug)]
-pub enum SymbolDeclaration<'l> {
-	Alias(Alias<'l>),
+pub enum Symbol<'l> {
 	Enum(Enum<'l>),
-	Union(Union<'l>),
+	// Union(Union<'l>),
 	Struct(Struct<'l>),
-	Interface(Interface<'l>),
 	Function(Function<'l>),
 }
 
 #[derive(Debug)]
+pub struct Enum<'l> {
+	pub variants: Vec<EnumVariant<'l>>
+}
+
+#[derive(Debug)]
+pub struct EnumVariant<'l> {
+	pub name: &'l str,
+	pub discriminant: Option<i64>,
+}
+
+// #[derive(Debug)]
+// pub struct Union<'l> {
+//
+// }
+
+#[derive(Debug)]
+pub struct Struct<'l> {
+	pub members: Vec<StructMember<'l>>
+}
+
+#[derive(Debug)]
+pub struct StructMember<'l> {
+	pub name: &'l str,
+	pub ty: Type<'l>
+}
+
+#[derive(Debug)]
+pub struct Function<'l> {
+	pub return_ty: Type<'l>,
+	pub params: Vec<FunctionParameter<'l>>,
+	pub block: Option<Block<'l>>,
+}
+
+#[derive(Debug)]
+pub struct FunctionParameter<'l> {
+	pub name: &'l str,
+	pub ty: Type<'l>
+}
+
+//endregion
+
+
+//region Statements
+#[derive(Debug)]
+pub struct Block<'l> {
+	pub statements: Vec<Statement<'l>>,
+}
+
+#[derive(Debug)]
 pub enum Statement<'l> {
-	Block(Block<'l>),
-	Expression(Expression<'l>),
-	VarDecl(VariableDeclaration<'l>),
-	//SymDecl(SymbolDeclaration<'l>),
+	VarDecl(VarDecl<'l>),
+	Yield(Option<Expression<'l>>),
 	Return(Option<Expression<'l>>),
-	Yield(Expression<'l>),
-	CoYield(Expression<'l>),
+}
+
+#[derive(Debug)]
+pub struct VarDecl<'l> {
+	pub name: &'l str,
+	pub mutable: bool,
+	pub ty: Option<Type<'l>>,
+	pub value: Expression<'l>,
+}
+
+impl<'l> VarDecl<'l> {
+	pub fn new(name: &'l str, mutable: bool, ty: Option<Type<'l>>, value: Expression<'l>) -> Result<'l, VarDecl<'l>> {
+		if ty.is_none() && value == Expression::Literal(Literal::Uninit) {
+			return Err(ParseError::User {
+				error: format! {
+					"Uninitialized variables need an explicitly defined type. Try `let {}{}: {{type}} = ?`",
+					if mutable { "mut " } else { "" },
+					name,
+				}
+			});
+		}
+
+		Ok(VarDecl { name, mutable, ty, value })
+	}
+}
+
+//endregion
+
+#[derive(Debug)]
+pub enum Type<'l> {
+	Id(&'l str)
 }
 
 #[derive(Debug)]

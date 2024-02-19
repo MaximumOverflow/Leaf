@@ -3,10 +3,10 @@ use leaf_parsing::parser::CompilationUnitParser;
 use std::sync::{Arc, OnceLock};
 use std::collections::HashMap;
 use anyhow::{Context, Error};
+use leaf_parsing::ast::FunctionParameter;
 use leaf_reflection::structured::assembly::AssemblyBuilder;
 use leaf_reflection::structured::functions::FunctionBodyBuilder;
 use leaf_reflection::structured::types::StructBuilder;
-use crate::BUG_ERR;
 use crate::frontend::block::{Block, BlockRequirements};
 use crate::frontend::expressions::Value;
 use crate::frontend::types::TypeResolver;
@@ -50,10 +50,9 @@ impl<'l> CompilationUnit<'l> {
 	) -> Vec<(StructBuilder, &'a leaf_parsing::ast::Struct<'a>)> {
 		let mut decls = vec![];
 		for decl in &ast.declarations {
-			if let leaf_parsing::ast::SymbolDeclaration::Struct(decl) = decl {
-				let id = decl.id.unwrap_or_default();
+			let id = decl.name;
+			if let leaf_parsing::ast::Symbol::Struct(decl) = &decl.symbol {
 				let builder = self.assembly.define_struct(id, &self.namespace);
-
 				let ty = builder.as_ref();
 				let id = ty.name_arc().unwrap();
 				self.available_types.insert(id.clone(), ty.clone());
@@ -70,7 +69,7 @@ impl<'l> CompilationUnit<'l> {
 		for (mut builder, decl) in structs {
 			for member in &decl.members {
 				let ty = self.resolve_type(&member.ty).unwrap();
-				builder.define_field(member.id, &ty).unwrap();
+				builder.define_field(member.name, &ty).unwrap();
 			}
 			builder.build();
 		}
@@ -82,15 +81,14 @@ impl<'l> CompilationUnit<'l> {
 	) -> Vec<(FunctionBodyBuilder, &'a leaf_parsing::ast::Function<'a>)> {
 		let mut decls = vec![];
 		for decl in &ast.declarations {
-			if let leaf_parsing::ast::SymbolDeclaration::Function(decl) = decl {
-				let id = decl.signature.id.unwrap_or_default();
-
+			let id = decl.name;
+			if let leaf_parsing::ast::Symbol::Function(decl) = &decl.symbol {
 				let mut params = vec![];
-				for (name, ty) in &decl.signature.par {
+				for FunctionParameter { name, ty } in &decl.params {
 					let ty = self.resolve_type(ty).unwrap();
 					params.push((*name, ty));
 				}
-				let ret_ty = self.resolve_type(&decl.signature.ret_ty).unwrap();
+				let ret_ty = self.resolve_type(&decl.return_ty).unwrap();
 
 				let mut builder = self.assembly.define_function(id, &self.namespace);
 
@@ -117,6 +115,12 @@ impl<'l> CompilationUnit<'l> {
 			compilation_unit: &'l CompilationUnit<'l>,
 		}
 
+		impl<'l> TypeResolver for Data<'l> {
+			fn types(&self) -> &HashMap<Arc<str>, Arc<Type>> {
+				&self.compilation_unit.available_types
+			}
+		}
+
 		impl<'l> BlockRequirements for Data<'l> {
 			fn expected_type(&self) -> &Arc<Type> {
 				&self.return_type
@@ -130,6 +134,8 @@ impl<'l> CompilationUnit<'l> {
 		}
 
 		for (mut builder, decl) in functions {
+			let Some(ast_block) = &decl.block else { continue };
+
 			let func = builder.as_ref();
 			let mut values = HashMap::with_capacity(func.parameters().len());
 			for (i, param) in func.parameters().iter().enumerate() {
@@ -142,9 +148,9 @@ impl<'l> CompilationUnit<'l> {
 				return_type: func.return_ty().clone(),
 			};
 
-			let block = Block::new(&mut data);
+			let mut block = Block::new(&mut data);
 			let func_name = func.name_arc().clone();
-			block.compile(&decl.block, &mut builder).with_context(|| format!("Could not compile {:?}", func_name)).unwrap();
+			block.compile(ast_block, &mut builder).with_context(|| format!("Could not compile {:?}", func_name)).unwrap();
 			builder.define();
 		}
 	}

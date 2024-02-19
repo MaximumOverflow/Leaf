@@ -2,88 +2,61 @@ use leaf_compilation::reflection::structured::types::TypeVariant;
 use leaf_compilation::reflection::structured::Type;
 use std::mem::{MaybeUninit, size_of};
 use std::fmt::{Debug, Formatter};
+use std::any::{Any, TypeId};
 use std::alloc::Layout;
+use std::ptr::NonNull;
 use std::sync::Arc;
 use anyhow::anyhow;
 use half::f16;
 
+#[derive(Clone)]
 pub struct Value {
     data: Data,
     ty: Arc<Type>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Data {
     Uninit,
-    Large(*mut u8, Layout),
-    Small(MaybeUninit<u64>, Layout),
+    Large(Arc<dyn Any>),
+    Small(MaybeUninit<u64>, usize, TypeId),
 }
 
 impl Value {
-    pub fn new<T>(ty: Arc<Type>, value: T) -> Self {
+    pub fn new<T: 'static>(ty: Arc<Type>, value: T) -> Self {
         let layout = Layout::new::<T>();
-        let data = match layout.size() < size_of::<u64>() {
+
+        let dummy = NonNull::<u64>::dangling();
+        let offset = dummy.as_ptr().align_offset(layout.align());
+        let total_size = layout.size() + offset;
+
+        let data = match !std::mem::needs_drop::<T>() && total_size <= size_of::<u64>() {
             true => Data::Small(
                 unsafe {
                     let mut data = 0u64;
-                    std::ptr::write(&mut data as *mut u64 as *mut T, value);
+                    let ptr = (&mut data as *mut u64 as *mut u8).add(offset);
+                    std::ptr::write(ptr as *mut T, value);
                     MaybeUninit::new(data)
                 },
-                layout,
+                offset,
+                TypeId::of::<T>(),
             ),
-            false => Data::Large(
-                unsafe {
-                    let mut data = std::alloc::alloc(layout);
-                    std::ptr::write(data as *mut T, value);
-                    data
-                },
-                layout,
-            )
+            false => Data::Large(Arc::new(value))
         };
         Self { ty, data }
     }
 
-    pub unsafe fn read_copy<T>(&self) -> anyhow::Result<T> {
-        let to_layout = Layout::new::<T>();
-        match self.data {
-            Data::Uninit => Err(anyhow!("Value is uninitialized")),
-            Data::Large(ptr, layout) => match layout == to_layout {
-                false => Err(anyhow!("Invalid layout")),
-                true => {
-                    let value = std::ptr::read_unaligned(ptr as *mut T);
-                    Ok(value)
-                },
-            }
-            Data::Small(data, layout) => match layout == to_layout {
-                false => Err(anyhow!("Invalid layout")),
-                true => {
-                    let value = std::ptr::read_unaligned(data.as_ptr() as *mut T);
-                    Ok(value)
-                },
-            }
-        }
-    }
+    pub fn as_ref<T: 'static>(&self) -> Option<&T> {
+        match &self.data {
+            Data::Uninit => None,
+            Data::Large(arc) => arc.downcast_ref(),
+            Data::Small(data, offset, type_id) => unsafe {
+                if TypeId::of::<T>() != *type_id {
+                    return None;
+                }
 
-    pub unsafe fn read<T>(mut self) -> anyhow::Result<T> {
-        let to_layout = Layout::new::<T>();
-        match self.data {
-            Data::Uninit => Err(anyhow!("Value is uninitialized")),
-            Data::Large(ptr, layout) => match layout == to_layout {
-                false => Err(anyhow!("Invalid layout")),
-                true => {
-                    let value = std::ptr::read_unaligned(ptr as *mut T);
-                    std::alloc::dealloc(ptr, layout);
-                    self.data = Data::Uninit;
-                    Ok(value)
-                },
-            }
-            Data::Small(data, layout) => match layout == to_layout {
-                false => Err(anyhow!("Invalid layout")),
-                true => {
-                    let value = std::ptr::read_unaligned(data.as_ptr() as *mut T);
-                    self.data = Data::Uninit;
-                    Ok(value)
-                },
+                let ptr = data.as_ptr().add(*offset) as *const T;
+                Some(&*ptr)
             }
         }
     }
@@ -97,28 +70,18 @@ impl Value {
     }
 }
 
-impl Drop for Data {
-    // FIXME: Add support for destructors
-    fn drop(&mut self) {
-        match self {
-            Data::Uninit => {},
-            Data::Small(_, _) => {}
-            Data::Large(ptr, layout) => unsafe {
-                std::alloc::dealloc(*ptr, *layout);
-            }
-        }
-    }
-}
-
 macro_rules! impl_try_into {
     ($($ty: ident),+) => {
         $(
             impl TryInto<$ty> for Value {
                 type Error = anyhow::Error;
                 fn try_into(self) -> Result<$ty, Self::Error> {
-                    match &self.ty == Type::$ty() {
-                        true => unsafe { self.read() },
-                        false => Err(make_read_error(Some(&self.ty), Type::$ty())),
+                    match &self.data {
+                        Data::Uninit => Err(anyhow!("Value is not initialized")),
+                        _ => match self.as_ref::<$ty>() {
+                            Some(value) => Ok(*value),
+                            None => Err(make_read_error(Some(&self.ty), Type::$ty())),
+                        }
                     }
                 }
             }
@@ -151,33 +114,31 @@ impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut dbg = f.debug_struct("Value");
         dbg.field("type", &format_args!("{}", self.ty));
-        unsafe {
-            match self.ty.as_ref().as_ref() {
-                TypeVariant::Void => dbg.field("value", &()),
-                TypeVariant::Char => dbg.field("value", &self.read_copy::<char>().unwrap()),
-                TypeVariant::Dec(size) => match *size {
-                    2 => dbg.field("value", &self.read_copy::<f16>().unwrap()),
-                    4 => dbg.field("value", &self.read_copy::<f32>().unwrap()),
-                    8 => dbg.field("value", &self.read_copy::<f64>().unwrap()),
-                    _ => unreachable!(),
-                }
-                TypeVariant::Int(size) => match *size {
-                    1 => dbg.field("value", &self.read_copy::<i8>().unwrap()),
-                    2 => dbg.field("value", &self.read_copy::<i16>().unwrap()),
-                    4 => dbg.field("value", &self.read_copy::<i32>().unwrap()),
-                    8 => dbg.field("value", &self.read_copy::<i64>().unwrap()),
-                    _ => unreachable!(),
-                }
-                TypeVariant::UInt(size) => match *size {
-                    1 => dbg.field("value", &self.read_copy::<u8>().unwrap()),
-                    2 => dbg.field("value", &self.read_copy::<u16>().unwrap()),
-                    4 => dbg.field("value", &self.read_copy::<u32>().unwrap()),
-                    8 => dbg.field("value", &self.read_copy::<u64>().unwrap()),
-                    _ => unreachable!(),
-                }
-                TypeVariant::Struct(_) => dbg.field("value", &self.data),
-            };
-        }
+        match self.ty.as_ref().as_ref() {
+            TypeVariant::Void => dbg.field("value", &()),
+            TypeVariant::Char => dbg.field("value", self.as_ref::<char>().unwrap()),
+            TypeVariant::Dec(size) => match *size {
+                2 => dbg.field("value", self.as_ref::<f16>().unwrap()),
+                4 => dbg.field("value", self.as_ref::<f32>().unwrap()),
+                8 => dbg.field("value", self.as_ref::<f64>().unwrap()),
+                _ => unreachable!(),
+            }
+            TypeVariant::Int(size) => match *size {
+                1 => dbg.field("value", self.as_ref::<i8>().unwrap()),
+                2 => dbg.field("value", self.as_ref::<i16>().unwrap()),
+                4 => dbg.field("value", self.as_ref::<i32>().unwrap()),
+                8 => dbg.field("value", self.as_ref::<i64>().unwrap()),
+                _ => unreachable!(),
+            }
+            TypeVariant::UInt(size) => match *size {
+                1 => dbg.field("value", self.as_ref::<u8>().unwrap()),
+                2 => dbg.field("value", self.as_ref::<u16>().unwrap()),
+                4 => dbg.field("value", self.as_ref::<u32>().unwrap()),
+                8 => dbg.field("value", self.as_ref::<u64>().unwrap()),
+                _ => unreachable!(),
+            }
+            TypeVariant::Struct(_) => dbg.field("value", &self.data),
+        };
         dbg.finish()
     }
 }

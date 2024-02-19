@@ -163,6 +163,10 @@ impl Local {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    pub fn name_arc(&self) -> &Arc<str> {
+        &self.name
+    }
 }
 
 impl Debug for Local {
@@ -242,7 +246,7 @@ impl<'l> FunctionSignatureBuilder<'l> {
 pub type FunctionBodyBuilder = FunctionBuilder<builder_data::Body>;
 
 impl FunctionBodyBuilder {
-    pub fn declare_local(&mut self, name: &str, ty: &Arc<Type>) -> Result<usize, &Local> {
+    pub fn declare_local(&mut self, name: &str, ty: &Arc<Type>) -> Result<&Local, &Local> {
         if self.data.locals.contains_key(name) {
             return Err(&self.data.locals[name]);
         }
@@ -254,8 +258,7 @@ impl FunctionBodyBuilder {
             name: Arc::from(name),
         };
 
-        self.data.locals.insert(parameter.name.clone(), parameter);
-        Ok(id)
+        Ok(self.data.locals.entry(parameter.name.clone()).or_insert(parameter))
     }
 
     pub fn define(self) -> Arc<Function> {
@@ -268,30 +271,6 @@ impl FunctionBodyBuilder {
         }).unwrap();
 
         self.data.func
-    }
-
-    pub fn ret(&mut self) -> usize {
-        self.push_opcode(Opcode::Ret)
-    }
-
-    pub fn add(&mut self) -> usize {
-        self.push_opcode(Opcode::Add)
-    }
-
-    pub fn sub(&mut self) -> usize {
-        self.push_opcode(Opcode::Sub)
-    }
-
-    pub fn mul(&mut self) -> usize {
-        self.push_opcode(Opcode::Mul)
-    }
-
-    pub fn div(&mut self) -> usize {
-        self.push_opcode(Opcode::Div)
-    }
-
-    pub fn rem(&mut self) -> usize {
-        self.push_opcode(Opcode::Mod)
     }
 
     pub fn load_local(&mut self, name: &str) -> Option<usize> {

@@ -50,7 +50,7 @@ fn main() {
 				return;
 			};
 
-			let value = match interpret(main, vec![]) {
+			match interpret(main, vec![]) {
 				Ok(value) => println!("Result: {:?}", value),
 				Err(err) => println!("Error: {}", err),
 			};

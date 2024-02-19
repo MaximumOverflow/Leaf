@@ -30,6 +30,7 @@ pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Re
 
     let mut stack = Vec::<Value>::new();
     const POP_ERR: &str = "Unexpected end of stack";
+    const LOCAL_ERR: &str = "Invalid local id";
 
     let mut cursor = Cursor::new(body.opcodes());
     while cursor.position() != body.opcodes().len() as u64 {
@@ -83,6 +84,16 @@ pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Re
             Opcode::PushDecimal16(value) => stack.push(value.into()),
             Opcode::PushDecimal32(value) => stack.push(value.into()),
             Opcode::PushDecimal64(value) => stack.push(value.into()),
+            Opcode::PushLocal(id) => stack.push(locals.get(id).context(LOCAL_ERR)?.clone()),
+
+            Opcode::StoreLocal(id) => {
+                let value = stack.pop().context(POP_ERR)?;
+                let local = locals.get_mut(id).context(LOCAL_ERR)?;
+                if local.ty() != value.ty() {
+                    return Err(anyhow!("Mismatched local type. Expected '{}', got '{}'", local.ty(), value.ty()));
+                }
+                *local = value;
+            },
 
             _ => return Err(anyhow!("Unimplemented opcode {:?}", opcode)),
         }
