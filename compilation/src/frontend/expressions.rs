@@ -1,6 +1,6 @@
-use leaf_reflection::structured::functions::FunctionBodyBuilder;
-use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal};
 use crate::frontend::block::{Block, BlockRequirements, invalid_type_err};
+use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal};
+use leaf_reflection::structured::functions::FunctionBodyBuilder;
 use leaf_reflection::structured::types::TypeVariant;
 use crate::frontend::types::TypeResolver;
 use leaf_reflection::structured::Type;
@@ -124,11 +124,11 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
 
                     let local = builder.declare_local(&ty).id();
                     for i in 0..s_ty.fields().len() {
-                        builder.push_opcode(Opcode::PushLocalA(local));
-                        builder.push_opcode(Opcode::StoreField(i));
+                        builder.push_local_address(local);
+                        builder.store_field(i);
                     }
 
-                    builder.push_opcode(Opcode::PushLocal(local));
+                    builder.push_local(local);
                     Ok(Value::Temp(ty))
                 }
                 _ => Err(anyhow!("Type '{}' is not a struct", ty)),
@@ -175,11 +175,11 @@ impl Value {
     pub fn load(&self, opcodes: &mut FunctionBodyBuilder) -> anyhow::Result<usize> {
         match self {
             Value::Local(_, i, _, init) => match init {
-                true => Ok(opcodes.push_opcode(Opcode::PushLocal(*i))),
+                true => Ok(opcodes.push_local(*i).unwrap()),
                 false => Err(anyhow!("Value is uninitialized"))
             },
             Value::Param(_, i, ..) => {
-                Ok(opcodes.push_opcode(Opcode::PushParam(*i)))
+                Ok(opcodes.push_param_address(*i).unwrap())
             },
             _ => Ok(opcodes.ir_offset()),
         }

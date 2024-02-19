@@ -248,9 +248,133 @@ impl FunctionBodyBuilder {
         self.data.func
     }
 
-    pub fn load_parameter(&mut self, name: &str) -> Option<usize> {
-        let idx = self.data.func.parameters.iter().find(|n| n.name.as_ref() == name)?.id;
-        Some(self.push_opcode(Opcode::PushParam(idx)))
+    pub fn push_local(&mut self, local: usize) -> Option<usize> {
+        if local >= self.data.locals.len() {
+            return None;
+        }
+
+        let opcode = match local {
+            0 => Opcode::PushLocal0,
+            1 => Opcode::PushLocal1,
+            2 => Opcode::PushLocal2,
+            3 => Opcode::PushLocal3,
+            4 => Opcode::PushLocal4,
+            5 => Opcode::PushLocal5,
+            6 => Opcode::PushLocal6,
+            _ => Opcode::PushLocal(local),
+        };
+
+        Some(self.push_opcode(opcode))
+    }
+
+    pub fn push_local_address(&mut self, local: usize) -> Option<usize> {
+        if local >= self.data.locals.len() {
+            return None;
+        }
+
+        let opcode = match local {
+            0 => Opcode::PushLocalA0,
+            1 => Opcode::PushLocalA1,
+            2 => Opcode::PushLocalA2,
+            3 => Opcode::PushLocalA3,
+            4 => Opcode::PushLocalA4,
+            5 => Opcode::PushLocalA5,
+            6 => Opcode::PushLocalA6,
+            _ => Opcode::PushLocalA(local),
+        };
+
+        Some(self.push_opcode(opcode))
+    }
+
+    pub fn store_local(&mut self, local: usize) -> Option<usize> {
+        if local >= self.data.locals.len() {
+            return None;
+        }
+
+        let opcode = match local {
+            0 => Opcode::StoreLocal0,
+            1 => Opcode::StoreLocal1,
+            2 => Opcode::StoreLocal2,
+            3 => Opcode::StoreLocal3,
+            4 => Opcode::StoreLocal4,
+            5 => Opcode::StoreLocal5,
+            6 => Opcode::StoreLocal6,
+            _ => Opcode::StoreLocal(local),
+        };
+
+        Some(self.push_opcode(opcode))
+    }
+
+    pub fn push_param(&mut self, param: usize) -> Option<usize> {
+        if param >= self.data.func.parameters.len() {
+            return None;
+        }
+
+        let opcode = match param {
+            0 => Opcode::PushParam0,
+            1 => Opcode::PushParam1,
+            2 => Opcode::PushParam2,
+            3 => Opcode::PushParam3,
+            4 => Opcode::PushParam4,
+            5 => Opcode::PushParam5,
+            6 => Opcode::PushParam6,
+            _ => Opcode::PushParam(param),
+        };
+
+        Some(self.push_opcode(opcode))
+    }
+
+    pub fn push_param_address(&mut self, param: usize) -> Option<usize> {
+        if param >= self.data.func.parameters.len() {
+            return None;
+        }
+
+        let opcode = match param {
+            0 => Opcode::PushParamA0,
+            1 => Opcode::PushParamA1,
+            2 => Opcode::PushParamA2,
+            3 => Opcode::PushParamA3,
+            4 => Opcode::PushParamA4,
+            5 => Opcode::PushParamA5,
+            6 => Opcode::PushParamA6,
+            _ => Opcode::PushParamA(param),
+        };
+
+        Some(self.push_opcode(opcode))
+    }
+
+    pub fn store_param(&mut self, param: usize) -> Option<usize> {
+        if param >= self.data.func.parameters.len() {
+            return None;
+        }
+
+        let opcode = match param {
+            0 => Opcode::StoreParam0,
+            1 => Opcode::StoreParam1,
+            2 => Opcode::StoreParam2,
+            3 => Opcode::StoreParam3,
+            4 => Opcode::StoreParam4,
+            5 => Opcode::StoreParam5,
+            6 => Opcode::StoreParam6,
+            _ => Opcode::StoreParam(param),
+        };
+
+        Some(self.push_opcode(opcode))
+    }
+
+    pub fn store_field(&mut self, field: usize) -> usize {
+        let opcode = match field {
+            0 => Opcode::StoreField0,
+            1 => Opcode::StoreField1,
+            2 => Opcode::StoreField2,
+            3 => Opcode::StoreField3,
+            4 => Opcode::StoreField4,
+            5 => Opcode::StoreField5,
+            6 => Opcode::StoreField6,
+            _ => Opcode::StoreField(field),
+        };
+
+        self.push_opcode(opcode)
     }
 
     pub fn push_opcode(&mut self, opcode: Opcode) -> usize {

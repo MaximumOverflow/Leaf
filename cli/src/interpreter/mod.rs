@@ -54,6 +54,23 @@ pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Re
             };
         }
 
+        #[inline(never)]
+        fn push_local(id: usize, stack: &mut Vec<Value>, locals: &mut Vec<Value>) -> anyhow::Result<()> {
+            stack.push(locals.get(id).context(LOCAL_ERR)?.clone());
+            Ok(())
+        }
+
+        #[inline(never)]
+        fn store_local(id: usize, stack: &mut Vec<Value>, locals: &mut Vec<Value>) -> anyhow::Result<()> {
+            let value = stack.pop().context(POP_ERR)?;
+            let local = locals.get_mut(id).context(LOCAL_ERR)?;
+            if local.ty() != value.ty() {
+                return Err(anyhow!("Mismatched local type. Expected '{}', got '{}'", local.ty(), value.ty()));
+            }
+            *local = value;
+            Ok(())
+        }
+
         match opcode {
             Opcode::Ret => {
                 if function.return_ty() == Type::void() {
@@ -84,16 +101,24 @@ pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Re
             Opcode::PushDecimal16(value) => stack.push(value.into()),
             Opcode::PushDecimal32(value) => stack.push(value.into()),
             Opcode::PushDecimal64(value) => stack.push(value.into()),
-            Opcode::PushLocal(id) => stack.push(locals.get(id).context(LOCAL_ERR)?.clone()),
 
-            Opcode::StoreLocal(id) => {
-                let value = stack.pop().context(POP_ERR)?;
-                let local = locals.get_mut(id).context(LOCAL_ERR)?;
-                if local.ty() != value.ty() {
-                    return Err(anyhow!("Mismatched local type. Expected '{}', got '{}'", local.ty(), value.ty()));
-                }
-                *local = value;
-            },
+            Opcode::PushLocal0 => push_local(0, &mut stack, &mut locals)?,
+            Opcode::PushLocal1 => push_local(1, &mut stack, &mut locals)?,
+            Opcode::PushLocal2 => push_local(2, &mut stack, &mut locals)?,
+            Opcode::PushLocal3 => push_local(3, &mut stack, &mut locals)?,
+            Opcode::PushLocal4 => push_local(4, &mut stack, &mut locals)?,
+            Opcode::PushLocal5 => push_local(5, &mut stack, &mut locals)?,
+            Opcode::PushLocal6 => push_local(6, &mut stack, &mut locals)?,
+            Opcode::PushLocal(id) => push_local(id, &mut stack, &mut locals)?,
+
+            Opcode::StoreLocal0 => store_local(0, &mut stack, &mut locals)?,
+            Opcode::StoreLocal1 => store_local(1, &mut stack, &mut locals)?,
+            Opcode::StoreLocal2 => store_local(2, &mut stack, &mut locals)?,
+            Opcode::StoreLocal3 => store_local(3, &mut stack, &mut locals)?,
+            Opcode::StoreLocal4 => store_local(4, &mut stack, &mut locals)?,
+            Opcode::StoreLocal5 => store_local(5, &mut stack, &mut locals)?,
+            Opcode::StoreLocal6 => store_local(6, &mut stack, &mut locals)?,
+            Opcode::StoreLocal(id) => store_local(id, &mut stack, &mut locals)?,
 
             Opcode::StoreParam(id) => {
                 let value = stack.pop().context(POP_ERR)?;
