@@ -39,7 +39,7 @@ impl<'l> CompilationUnit<'l> {
 		unit.populate_structs(structs);
 
 		let functions = unit.define_functions(&root);
-		unit.compile_functions(functions);
+		unit.compile_functions(functions)?;
 
 		Ok(unit)
 	}
@@ -108,7 +108,7 @@ impl<'l> CompilationUnit<'l> {
 	fn compile_functions(
 		&mut self,
 		functions: Vec<(FunctionBodyBuilder, &leaf_parsing::ast::Function)>
-	) {
+	) -> anyhow::Result<()> {
 		struct Data<'l> {
 			return_type: Arc<Type>,
 			values: HashMap<Arc<str>, Value>,
@@ -139,7 +139,7 @@ impl<'l> CompilationUnit<'l> {
 			let func = builder.as_ref();
 			let mut values = HashMap::with_capacity(func.parameters().len());
 			for (i, param) in func.parameters().iter().enumerate() {
-				values.insert(param.name_arc().clone(), Value::Param(param.ty().clone(), i));
+				values.insert(param.name_arc().clone(), Value::Param(param.ty().clone(), i, false));
 			}
 
 			let mut data = Data {
@@ -150,9 +150,10 @@ impl<'l> CompilationUnit<'l> {
 
 			let mut block = Block::new(&mut data);
 			let func_name = func.name_arc().clone();
-			block.compile(ast_block, &mut builder).with_context(|| format!("Could not compile {:?}", func_name)).unwrap();
+			block.compile(ast_block, &mut builder).with_context(|| format!("Could not compile {:?}", func_name))?;
 			builder.define();
 		}
+		Ok(())
 	}
 }
 

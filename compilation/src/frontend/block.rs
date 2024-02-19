@@ -1,12 +1,13 @@
 use leaf_parsing::ast::{Block as BlockAST, Expression, Literal, Statement};
+use crate::frontend::expressions::{compile_expression, Mutability};
 use leaf_reflection::structured::functions::FunctionBodyBuilder;
-use crate::frontend::expressions::compile_expression;
 use crate::frontend::types::TypeResolver;
 use crate::frontend::expressions::Value;
 use leaf_reflection::structured::Type;
 use std::collections::HashMap;
 use leaf_reflection::Opcode;
 use std::sync::Arc;
+use anyhow::anyhow;
 
 pub struct Block<'l> {
     parent: &'l mut dyn BlockRequirements,
@@ -39,10 +40,10 @@ impl<'l> Block<'l> {
                 Statement::Return(Some(expr)) => {
                     let expected = self.parent.expected_type();
                     let expr = compile_expression(self, expr, builder)?;
-                    expr.load(builder);
+                    expr.load(builder)?;
 
-                    if expr.r#type() != expected {
-                        return Err(anyhow::Error::msg(format!("Expected type '{}', got '{}'", expected, expr.r#type())));
+                    if expr.ty() != expected {
+                        return Err(anyhow::Error::msg(format!("Expected type '{}', got '{}'", expected, expr.ty())));
                     }
                     builder.push_opcode(Opcode::Ret);
                 }
@@ -52,15 +53,53 @@ impl<'l> Block<'l> {
                     let local = builder.declare_local(&ty);
                     let id = local.id();
 
-                    match decl.value {
-                        Expression::Literal(Literal::Uninit) => {},
+                    let initialized = match decl.value {
+                        Expression::Literal(Literal::Uninit) => false,
                         _ => {
-                            compile_expression(self, &decl.value, builder)?;
-                            builder.push_opcode(Opcode::StoreLocal(id));
-                        }
-                    }
+                            let value = compile_expression(self, &decl.value, builder)?;
+                            if ty != *value.ty() {
+                                return Err(anyhow!("Expected type '{}', got '{}'", ty, value.ty()))
+                            }
 
-                    self.values.insert(Arc::from(decl.name), Value::Local(ty, id));
+                            value.load(builder)?;
+                            builder.push_opcode(Opcode::StoreLocal(id));
+                            true
+                        }
+                    };
+
+                    let mutability = match decl.mutable {
+                        true => Mutability::Mutable,
+                        false => Mutability::Immutable,
+                    };
+
+                    self.values.insert(Arc::from(decl.name), Value::Local(ty, id, mutability, initialized));
+                }
+
+                Statement::Assignment(to, value) => {
+                    let target = compile_expression(self, to, builder)?;
+                    let value = compile_expression(self, value, builder)?;
+                    value.load(builder)?;
+
+                    match &target {
+                        Value::Local(ty, id, mutability, ..) => {
+                            match mutability {
+                                Mutability::Mutable => match ty == value.ty() {
+                                    true => builder.push_opcode(Opcode::StoreLocal(*id)),
+                                    false => return Err(anyhow!("Expected type '{}', got '{}'", ty, value.ty())),
+                                },
+                                Mutability::Immutable => {
+                                    let name = self.values.iter().find_map(|(name, value)| {
+                                        match value {
+                                            Value::Local(_, l_id, ..) if l_id == id => Some(name),
+                                            _ => None,
+                                        }
+                                    }).unwrap();
+                                    return Err(anyhow!("Local '{}' is not mutable", name))
+                                },
+                            };
+                        }
+                        _ => unimplemented!("{:?} = {:?}", target, value),
+                    }
                 }
 
                 _ => unimplemented!("{:?}", statement),

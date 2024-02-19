@@ -170,6 +170,7 @@ pub enum Statement<'l> {
 	VarDecl(VarDecl<'l>),
 	Yield(Option<Expression<'l>>),
 	Return(Option<Expression<'l>>),
+	Assignment(Expression<'l>, Expression<'l>),
 }
 
 #[derive(Debug)]

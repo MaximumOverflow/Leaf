@@ -88,6 +88,9 @@ pub Statement: Statement<'input> = {
     "let" <mutable: "mut"?> <name: Identifier> <ty: TypeSpecifier?> "=" <value: Expression> ";"
         =>? Ok(Statement::VarDecl(VarDecl::new(name, mutable.is_some(), ty, value)?)),
 
+    <to: Expression> "=" <val: Expression> ";"
+        => Statement::Assignment(to, val),
+
     "return" <expr: Expression?> ";" =>
          Statement::Return(<>),
 

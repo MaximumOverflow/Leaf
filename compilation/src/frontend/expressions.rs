@@ -5,6 +5,7 @@ use leaf_reflection::structured::types::TypeVariant;
 use leaf_reflection::structured::Type;
 use leaf_reflection::Opcode;
 use std::sync::Arc;
+use anyhow::anyhow;
 
 pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut FunctionBodyBuilder) -> anyhow::Result<Value> {
     match expr {
@@ -35,13 +36,13 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
 
         Expression::Binary(lhs, op, rhs) => {
             let lhs = compile_expression(block, lhs, builder)?;
-            lhs.load(builder);
+            lhs.load(builder)?;
 
             let rhs = compile_expression(block, rhs, builder)?;
-            rhs.load(builder);
+            rhs.load(builder)?;
 
-            let rhs_type = rhs.r#type();
-            let lhs_type = lhs.r#type();
+            let rhs_type = rhs.ty();
+            let lhs_type = lhs.ty();
 
             if lhs_type != rhs_type {
                 unimplemented!();
@@ -71,29 +72,37 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
 pub enum Value {
     Temp(Arc<Type>),
     Const(Arc<Type>),
-    Local(Arc<Type>, usize),
-    Param(Arc<Type>, usize),
+    Param(Arc<Type>, usize, bool),
+    Local(Arc<Type>, usize, Mutability, bool),
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Mutability {
+    Mutable = 1,
+    Immutable = 0,
 }
 
 impl Value {
-    pub fn r#type(&self) -> &Arc<Type> {
+    pub fn ty(&self) -> &Arc<Type> {
         match self {
             Value::Temp(t) => t,
             Value::Const(t) => t,
-            Value::Local(t, _) => t,
-            Value::Param(t, _) => t,
+            Value::Local(t, ..) => t,
+            Value::Param(t, ..) => t,
         }
     }
 
-    pub fn load(&self, opcodes: &mut FunctionBodyBuilder) {
+    pub fn load(&self, opcodes: &mut FunctionBodyBuilder) -> anyhow::Result<usize> {
         match self {
-            Value::Local(_, i) => {
-                opcodes.push_opcode(Opcode::PushLocal(*i));
+            Value::Local(_, i, _, init) => match init {
+                true => Ok(opcodes.push_opcode(Opcode::PushLocal(*i))),
+                false => Err(anyhow!("Value is uninitialized"))
             },
-            Value::Param(_, i) => {
-                opcodes.push_opcode(Opcode::PushParam(*i));
+            Value::Param(_, i, ..) => {
+                Ok(opcodes.push_opcode(Opcode::PushParam(*i)))
             },
-            _ => {},
+            _ => Ok(opcodes.ir_offset()),
         }
     }
 }

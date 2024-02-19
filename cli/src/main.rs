@@ -32,7 +32,10 @@ fn main() {
 			let code = std::fs::read_to_string(&file).unwrap();
 
 			let mut assembly_builder = AssemblyBuilder::new();
-			CompilationUnit::new(&mut assembly_builder, &code).unwrap();
+
+			if let Err(err) = CompilationUnit::new(&mut assembly_builder, &code) {
+				return println!("{:#}", err);
+			}
 
 			let assembly = assembly_builder.build();
 			println!("{:#?}", assembly);

@@ -262,6 +262,10 @@ impl FunctionBodyBuilder {
         opcode.write(&mut cursor).unwrap();
         ir
     }
+
+    pub fn ir_offset(&self) -> usize {
+        self.data.opcodes.len()
+    }
 }
 
 impl AsRef<Arc<Function>> for FunctionBodyBuilder {
