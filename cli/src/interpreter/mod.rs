@@ -7,7 +7,12 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 mod value;
+mod memory;
+mod interpreter;
 
+pub use interpreter::Interpreter;
+
+/*
 pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Result<Value> {
     let good_params = params
         .iter()
@@ -135,4 +140,4 @@ pub fn interpret(function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Re
 
     Err(anyhow!("Function exited unexpectedly"))
 }
-
+*/

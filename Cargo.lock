@@ -331,6 +331,7 @@ name = "leaf_cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "clap",
  "half",
  "leaf_compilation",

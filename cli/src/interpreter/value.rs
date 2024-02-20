@@ -1,79 +1,236 @@
 use leaf_compilation::reflection::structured::types::TypeVariant;
 use leaf_compilation::reflection::structured::Type;
-use std::mem::{MaybeUninit, size_of};
 use std::fmt::{Debug, Formatter};
-use std::any::{Any, TypeId};
 use std::alloc::Layout;
-use std::ptr::NonNull;
 use std::sync::Arc;
 use anyhow::anyhow;
 use half::f16;
 
-#[derive(Clone)]
 pub struct Value {
     data: Data,
     ty: Arc<Type>,
 }
 
-#[derive(Debug, Clone)]
 enum Data {
-    Uninit,
-    Large(Arc<dyn Any>),
-    Small(MaybeUninit<u128>, usize, TypeId),
+    Void,
+    Dec(f64),
+    Int(i64),
+    UInt(u64),
+    Char(char),
+    Boxed(*mut u8, Layout),
+    Uninit(*mut u8, Layout),
 }
 
 impl Value {
-    pub fn new<T: 'static>(ty: Arc<Type>, value: T) -> Self {
-        let layout = Layout::new::<T>();
+    pub fn new(ty: &Arc<Type>, value: &[u8], layout: Layout) -> anyhow::Result<Self> {
+        if layout.size() != value.len() {
+            return Err(anyhow!("Invalid buffer size. Expected {}, found {}", layout.size(), value.len()));
+        }
 
-        let dummy = NonNull::<u128>::dangling();
-        let offset = dummy.as_ptr().align_offset(layout.align());
-        let total_size = layout.size() + offset;
-
-        let data = match !std::mem::needs_drop::<T>() && total_size <= size_of::<u128>() {
-            true => Data::Small(
-                unsafe {
-                    let mut data = 0u128;
-                    let ptr = (&mut data as *mut u128 as *mut u8).add(offset);
-                    std::ptr::write(ptr as *mut T, value);
-                    MaybeUninit::new(data)
-                },
-                offset,
-                TypeId::of::<T>(),
-            ),
-            false => Data::Large(Arc::new(value))
-        };
-        Self { ty, data }
+        let mut v = Self::new_uninit(ty, layout)?;
+        unsafe { v.init(|buf| Ok(buf.copy_from_slice(value)))? };
+        Ok(v)
     }
 
-    pub fn as_ref<T: 'static>(&self) -> Option<&T> {
-        match &self.data {
-            Data::Uninit => None,
-            Data::Large(arc) => arc.downcast_ref(),
-            Data::Small(data, offset, type_id) => unsafe {
-                if TypeId::of::<T>() != *type_id {
-                    return None;
+    pub fn new_uninit(ty: &Arc<Type>, layout: Layout) -> anyhow::Result<Self> {
+        macro_rules! assert_known_type_validity {
+            ($layout: expr) => {
+                if layout != $layout {
+                    return Err(anyhow!("Layout or value mismatch"));
                 }
+            };
+        }
 
-                let ptr = data.as_ptr().add(*offset) as *const T;
-                Some(&*ptr)
+        match ty.as_ref().as_ref() {
+            TypeVariant::Void => {
+                assert_known_type_validity!(Layout::new::<()>());
+                Ok(Self { ty: ty.clone(), data: Data::Void })
+            }
+            TypeVariant::Char => {
+                assert_known_type_validity!(Layout::new::<char>());
+                Ok(Self { ty: ty.clone(), data: Data::Char('\0') })
+            }
+            TypeVariant::Dec(size) => match *size {
+                2 => {
+                    assert_known_type_validity!(Layout::new::<f16>());
+                    let mut v = f16::default();
+                    let p = &mut v as *mut f16 as *mut u8;
+                    Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
+                },
+                4 => {
+                    assert_known_type_validity!(Layout::new::<f32>());
+                    Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
+                },
+                8 => {
+                    assert_known_type_validity!(Layout::new::<f64>());
+                    Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
+                },
+                _ => unreachable!(),
+            }
+            TypeVariant::Int(size) => match *size {
+                1 => {
+                    assert_known_type_validity!(Layout::new::<i8>());
+                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+                },
+                2 => {
+                    assert_known_type_validity!(Layout::new::<i16>());
+                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+                },
+                4 => {
+                    assert_known_type_validity!(Layout::new::<i32>());
+                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+                },
+                8 => {
+                    assert_known_type_validity!(Layout::new::<i64>());
+                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+                },
+                _ => unreachable!(),
+            }
+            TypeVariant::UInt(size) => match *size {
+                1 => {
+                    assert_known_type_validity!(Layout::new::<u8>());
+                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
+                },
+                2 => {
+                    assert_known_type_validity!(Layout::new::<u16>());
+                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
+                },
+                4 => {
+                    assert_known_type_validity!(Layout::new::<u32>());
+                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
+                },
+                8 => {
+                    assert_known_type_validity!(Layout::new::<u64>());
+                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
+                },
+                _ => unreachable!(),
+            }
+            _ => {
+                let data = unsafe {
+                    let buffer = std::alloc::alloc(layout);
+                    if buffer.is_null() {
+                        return Err(anyhow!("Failed to allocate buffer"));
+                    }
+                    buffer
+                };
+
+                Ok(Self {
+                    ty: ty.clone(),
+                    data: Data::Uninit(data, layout),
+                })
             }
         }
     }
 
-    pub unsafe fn as_ref_unchecked<T: 'static>(&self) -> Option<&T> {
-        match &self.data {
-            Data::Uninit => None,
-            Data::Large(arc) => arc.downcast_ref(),
-            Data::Small(data, offset, ..) => unsafe {
-                let ptr = data.as_ptr().add(*offset) as *const T;
-                Some(&*ptr)
-            }
-        }
+    pub unsafe fn init<T>(&mut self, func: impl FnOnce(&mut [u8]) -> anyhow::Result<T>) -> anyhow::Result<T> {
+       match self.ty.as_ref().as_ref() {
+           TypeVariant::Void => {
+               func(&mut [])
+           },
+           TypeVariant::Char => {
+               let Data::Char(ch) = &mut self.data else { unreachable!() };
+               let mut v = 0u32;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *ch = char::from_u32(v).unwrap();
+               Ok(res)
+           }
+           TypeVariant::Dec(size) => match *size {
+               2 => {
+                   let Data::Dec(f) = &mut self.data else { unreachable!() };
+                   let mut v = f16::default();
+                   let slice = std::slice::from_raw_parts_mut(&mut v as *mut f16 as *mut u8, 2);
+                   let res = func(slice)?;
+                   *f = v.to_f64();
+                   Ok(res)
+               },
+               4 => {
+                   let Data::Dec(f) = &mut self.data else { unreachable!() };
+                   let mut v = 0f32;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *f = v as f64;
+                   Ok(res)
+               },
+               8 => {
+                   let Data::Dec(f) = &mut self.data else { unreachable!() };
+                   func(bytemuck::bytes_of_mut(f))
+               },
+               _ => unreachable!(),
+           }
+           TypeVariant::Int(size) => match *size {
+               1 => {
+                   let Data::Int(i) = &mut self.data else { unreachable!() };
+                   let mut v = 0i8;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *i = v as i64;
+                   Ok(res)
+               },
+               2 => {
+                   let Data::Int(i) = &mut self.data else { unreachable!() };
+                   let mut v = 0i16;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *i = v as i64;
+                   Ok(res)
+               },
+               4 => {
+                   let Data::Int(i) = &mut self.data else { unreachable!() };
+                   let mut v = 0i32;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *i = v as i64;
+                   Ok(res)
+               },
+               8 => {
+                   let Data::Int(i) = &mut self.data else { unreachable!() };
+                   func(bytemuck::bytes_of_mut(i))
+               },
+               _ => unreachable!(),
+           }
+           TypeVariant::UInt(size) => match *size {
+               1 => {
+                   let Data::UInt(i) = &mut self.data else { unreachable!() };
+                   let mut v = 0u8;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *i = v as u64;
+                   Ok(res)
+               },
+               2 => {
+                   let Data::UInt(i) = &mut self.data else { unreachable!() };
+                   let mut v = 0u16;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *i = v as u64;
+                   Ok(res)
+               },
+               4 => {
+                   let Data::UInt(i) = &mut self.data else { unreachable!() };
+                   let mut v = 0u32;
+                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
+                   *i = v as u64;
+                   Ok(res)
+               },
+               8 => {
+                   let Data::UInt(i) = &mut self.data else { unreachable!() };
+                   func(bytemuck::bytes_of_mut(i))
+               },
+               _ => unreachable!(),
+           }
+           _ => {
+               match &self.data {
+                   Data::Uninit(ptr, layout) => {
+                       let slice = std::slice::from_raw_parts_mut(*ptr, layout.size());
+                       let result = func(slice)?;
+                       self.data = Data::Boxed(*ptr, *layout);
+                       Ok(result)
+                   }
+                   _ => Err(anyhow!("Value is already initialized or should contain no data")),
+               }
+           },
+       }
     }
 
-    pub fn new_uninit(ty: Arc<Type>) -> Self {
-        Self { ty, data: Data::Uninit }
+    pub fn void() -> Self {
+        Self {
+            data: Data::Void,
+            ty: Type::void().clone(),
+        }
     }
 
     pub fn ty(&self) -> &Arc<Type> {
@@ -81,43 +238,13 @@ impl Value {
     }
 }
 
-macro_rules! impl_try_into {
-    ($($ty: ident),+) => {
-        $(
-            impl TryInto<$ty> for Value {
-                type Error = anyhow::Error;
-                fn try_into(self) -> Result<$ty, Self::Error> {
-                    match &self.data {
-                        Data::Uninit => Err(anyhow!("Value is not initialized")),
-                        _ => match self.as_ref::<$ty>() {
-                            Some(value) => Ok(*value),
-                            None => Err(make_read_error(Some(&self.ty), Type::$ty())),
-                        }
-                    }
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! impl_into_value {
-    ($($ty: ident),+) => {
-        $(
-            impl From<$ty> for Value {
-                fn from(value: $ty) -> Self {
-                    Value::new(Type::$ty().clone(), value)
-                }
-            }
-        )*
-    };
-}
-
-impl_into_value!(i8, i16, i32, i64, u8, u16, u32, u64, f16, f32, f64);
-impl_try_into!(char, i8, i16, i32, i64, u8, u16, u32, u64, f16, f32, f64);
-
-impl From<()> for Value {
-    fn from(value: ()) -> Self {
-        Value::new(Type::void().clone(), value)
+impl Drop for Value {
+    fn drop(&mut self) {
+        match &self.data {
+            Data::Boxed(ptr, layout) => unsafe { std::alloc::dealloc(*ptr, *layout) }
+            Data::Uninit(ptr, layout) => unsafe { std::alloc::dealloc(*ptr, *layout) }
+            _ => {},
+        }
     }
 }
 
@@ -125,42 +252,22 @@ impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut dbg = f.debug_struct("Value");
         dbg.field("type", &format_args!("{}", self.ty));
-        match self.ty.as_ref().as_ref() {
-            TypeVariant::Void => dbg.field("value", &()),
-            TypeVariant::Char => dbg.field("value", self.as_ref::<char>().unwrap()),
-            TypeVariant::Dec(size) => match *size {
-                2 => dbg.field("value", self.as_ref::<f16>().unwrap()),
-                4 => dbg.field("value", self.as_ref::<f32>().unwrap()),
-                8 => dbg.field("value", self.as_ref::<f64>().unwrap()),
-                _ => unreachable!(),
-            }
-            TypeVariant::Int(size) => match *size {
-                1 => dbg.field("value", self.as_ref::<i8>().unwrap()),
-                2 => dbg.field("value", self.as_ref::<i16>().unwrap()),
-                4 => dbg.field("value", self.as_ref::<i32>().unwrap()),
-                8 => dbg.field("value", self.as_ref::<i64>().unwrap()),
-                _ => unreachable!(),
-            }
-            TypeVariant::UInt(size) => match *size {
-                1 => dbg.field("value", self.as_ref::<u8>().unwrap()),
-                2 => dbg.field("value", self.as_ref::<u16>().unwrap()),
-                4 => dbg.field("value", self.as_ref::<u32>().unwrap()),
-                8 => dbg.field("value", self.as_ref::<u64>().unwrap()),
-                _ => unreachable!(),
-            }
-            TypeVariant::Pointer(..) | TypeVariant::Reference(..) => {
-                match self.data {
-                    Data::Small(..) => unsafe {
-                        dbg.field("value", self.as_ref_unchecked::<*const u8>().unwrap())
-                    }
-                    _ => {
-                        dbg.field("value", &"pointer")
-                    }
-                }
-            }
-            TypeVariant::Struct(_) => dbg.field("value", &self.data),
-        };
+        dbg.field("data", &self.data);
         dbg.finish()
+    }
+}
+
+impl Debug for Data {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Data::Void => f.write_str("void"),
+            Data::Dec(v) => write!(f, "Data::Dec({})", v),
+            Data::Int(v) => write!(f, "Data::Int({})", v),
+            Data::UInt(v) => write!(f, "Data::UInt({})", v),
+            Data::Char(v) => write!(f, "Data::Char({})", v),
+            Data::Boxed(ptr, layout) => write!(f, "Data::Boxed({:?}, {:?})", ptr, layout),
+            Data::Uninit(ptr, layout) => write!(f, "Data::Uninit({:?}, {:?})", ptr, layout),
+        }
     }
 }
 

@@ -225,7 +225,7 @@ impl Display for Type {
             TypeVariant::Reference(base, true) => {
                 write!(f, "&mut {}", base.upgrade().unwrap())
             }
-            _ => f.write_str(self.name().unwrap()),
+            _ => write!(f, "{}", self.name().unwrap()),
         }
     }
 }

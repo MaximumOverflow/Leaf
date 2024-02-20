@@ -104,28 +104,31 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
             let ty = block.resolve_type(&new_struct.ty)?;
             match ty.as_ref().as_ref() {
                 TypeVariant::Struct(s_ty) => {
-                    for field in s_ty.fields().iter().rev() {
-                        let value = match new_struct.values.get(field.name().as_ref()) {
-                            Some(value) => compile_expression(block, value, builder)?,
-                            None => return Err(anyhow!("Missing field '{}'", field.name())),
+                    let local = builder.declare_local(&ty).id();
+                    let mut fields: Vec<_> = new_struct.values.iter().collect();
+                    fields.sort_by_key(|(_, (i, _))| i);
+
+                    for (name, (_, value)) in fields {
+                        let Some(field_idx) = s_ty.fields().iter().position(|f| &**f.name() == *name) else {
+                            return Err(anyhow!("Type '{}' does not contain field '{}'", ty, name));
                         };
 
-                        if value.ty().is_none() {
+                        let field = &s_ty.fields()[field_idx];
+                        let field_ty = field.ty();
+
+                        let value = compile_expression(block, value, builder)?;
+
+                        if value == Value::Uninit {
                             continue;
                         }
 
-                        let field_ty = field.ty();
                         if value.ty() != Some(&field_ty) {
                             return Err(invalid_type_err(&field_ty, value.ty()));
                         }
 
                         value.load(builder)?;
-                    }
-
-                    let local = builder.declare_local(&ty).id();
-                    for i in 0..s_ty.fields().len() {
                         builder.push_local_address(local);
-                        builder.store_field(i);
+                        builder.store_field(field_idx);
                     }
 
                     builder.push_local(local);

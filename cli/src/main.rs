@@ -5,7 +5,7 @@ use std::time::SystemTime;
 use clap::Parser;
 use leaf_compilation::frontend::CompilationUnit;
 use leaf_compilation::reflection::structured::assembly::AssemblyBuilder;
-use crate::interpreter::interpret;
+use crate::interpreter::{Interpreter};
 
 #[derive(Debug, clap::Parser)]
 enum Args {
@@ -53,9 +53,16 @@ fn main() {
 				return;
 			};
 
-			match interpret(main, vec![]) {
-				Ok(value) => println!("Result: {:?}", value),
-				Err(err) => println!("Error: {}", err),
+			let mut interpreter = Interpreter::new();
+
+			match interpreter.interpret(main, vec![]) {
+				Ok(value) => {
+					println!("Result: {:#?}", value);
+				},
+				Err(err) => {
+					println!("Stack dump: {:#?}", interpreter.stack());
+					println!("Error: {}", err);
+				},
 			};
 		},
 		Args::Compile(CompileArgs { file, .. }) => {

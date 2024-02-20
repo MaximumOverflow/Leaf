@@ -49,7 +49,7 @@ pub Expression: Expression<'input> = {
         => Expression::Cast(Box::new(expr), ty),
 
     "new" <ty: Type> "{" <values: CommaSeparatedList<NewStructValue>> "}"
-        => Expression::NewStruct(NewStruct { ty, values: std::collections::HashMap::from_iter(values) }),
+        => Expression::NewStruct(NewStruct::new(ty, values)),
 
     <func: Expression> "(" <params: CommaSeparatedList<Expression>> ")"
         => Expression::FunctionCall(Box::new(FunctionCall { <> })),
@@ -105,6 +105,16 @@ pub Type: Type<'input> = {
     "&" <base: Type> => Type::Reference(Box::new(base), false),
     "*" "mut" <base: Type> => Type::Pointer(Box::new(base), true),
     "&" "mut" <base: Type> => Type::Reference(Box::new(base), true),
+
+    "[" <base: Type> "]" => Type::Array {
+        length: None,
+        base: Box::new(base),
+    },
+
+    "[" <base: Type> ";"  <length: Expression> "]" => Type::Array {
+        base: Box::new(base),
+        length: Some(Box::new(length)),
+    },
 }
 
 // ### Statements ###

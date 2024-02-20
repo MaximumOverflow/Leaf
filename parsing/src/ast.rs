@@ -92,7 +92,7 @@ pub enum Expression<'l> {
 }
 
 macro_rules! impl_binary_expr {
-    ($trait: ident, $func: ident, $oper: ident, $op: tt) => {
+    ($trait: ident, $func: ident, $operator: ident, $operation_i: ident) => {
 		impl<'l> $trait for Expression<'l> {
 			type Output = Expression<'l>;
 			fn $func(self, rhs: Self) -> Self::Output {
@@ -100,58 +100,68 @@ macro_rules! impl_binary_expr {
 					(
 						Expression::Literal(Literal::Integer(Integer::Int8(lhs))),
 						Expression::Literal(Literal::Integer(Integer::Int8(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::Int8(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::Int8(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int16(lhs))),
 						Expression::Literal(Literal::Integer(Integer::Int16(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::Int16(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::Int16(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int32(lhs))),
 						Expression::Literal(Literal::Integer(Integer::Int32(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::Int32(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::Int32(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt8(lhs))),
 						Expression::Literal(Literal::Integer(Integer::UInt8(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt8(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt8(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt16(lhs))),
 						Expression::Literal(Literal::Integer(Integer::UInt16(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt16(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt16(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt32(lhs))),
 						Expression::Literal(Literal::Integer(Integer::UInt32(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt32(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt32(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt64(lhs))),
 						Expression::Literal(Literal::Integer(Integer::UInt64(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt64(lhs $op rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt64(lhs.$operation_i(*rhs)))),
 
 					(Expression::Literal(Literal::Decimal(lhs)), Expression::Literal(Literal::Decimal(rhs)))
-						=> Expression::Literal(Literal::Decimal(lhs $op rhs)),
+						=> Expression::Literal(Literal::Decimal(lhs.$func(rhs))),
 
-					_ => Expression::Binary(Box::new(self), BinaryOperator::$oper, Box::new(rhs)),
+					_ => Expression::Binary(Box::new(self), BinaryOperator::$operator, Box::new(rhs)),
 				}
 			}
 		}
 	};
 }
 
-impl_binary_expr!(Add, add, Add, +);
-impl_binary_expr!(Sub, sub, Sub, -);
-impl_binary_expr!(Mul, mul, Mul, *);
-impl_binary_expr!(Div, div, Div, %);
-impl_binary_expr!(Rem, rem, Mod, %);
+impl_binary_expr!(Add, add, Add, wrapping_add);
+impl_binary_expr!(Sub, sub, Sub, wrapping_sub);
+impl_binary_expr!(Mul, mul, Mul, wrapping_mul);
+impl_binary_expr!(Div, div, Div, wrapping_div);
+impl_binary_expr!(Rem, rem, Mod, wrapping_rem);
 
 #[derive(Debug, PartialEq)]
 pub struct NewStruct<'l> {
 	pub ty: Type<'l>,
-	pub values: HashMap<&'l str, Expression<'l>>,
+	pub values: HashMap<&'l str, (usize, Expression<'l>)>,
+}
+
+impl<'l> NewStruct<'l> {
+	pub(crate) fn new(ty: Type<'l>, fields: impl IntoIterator<Item=(&'l str, Expression<'l>)>) -> Self {
+		let mut values = HashMap::new();
+		for (i, (key, value)) in fields.into_iter().enumerate() {
+			values.insert(key, (i, value));
+		}
+		Self { ty, values, }
+	}
 }
 
 #[derive(Debug, PartialEq)]
@@ -274,6 +284,10 @@ pub enum Type<'l> {
 	Id(&'l str),
 	Pointer(Box<Type<'l>>, bool),
 	Reference(Box<Type<'l>>, bool),
+	Array {
+		base: Box<Type<'l>>,
+		length: Option<Box<Expression<'l>>>,
+	},
 }
 
 #[derive(Debug)]
