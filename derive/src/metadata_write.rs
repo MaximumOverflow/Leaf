@@ -1,3 +1,4 @@
+use crate::utils::get_discriminant;
 use quote::{format_ident, quote};
 use proc_macro::{TokenStream};
 use syn::{Data, DeriveInput};
@@ -29,23 +30,21 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 			let mut cases = vec![];
 			let mut writes = vec![];
 			let mut fields = vec![];
-			let mut discriminants = vec![];
+
+			let discriminant_ty = get_discriminant(&ast.attrs);
+			let raw_discriminant = ast.attrs.iter()
+				.filter_map(|a| a.path().get_ident())
+				.any(|i| i == "raw_discriminant");
 
 			for variant in &data.variants {
 				writes.clear();
 				let variant_name = &variant.ident;
-				let Some((_, discriminant)) = &variant.discriminant else {
-					panic!("Enum variant {} is lacking an explicit discriminant required by MetadataWrite", variant.ident)
-				};
-
-				let variant_value_name = format_ident!("DISCRIMINANT_{}", discriminants.len());
-				discriminants.push(quote!(const #variant_value_name: usize = (#discriminant) as usize;));
-				writes.push(quote!(crate::metadata::MetadataWrite::write(&#variant_value_name, stream)?;));
 
 				if variant.fields.is_empty() {
-					cases.push(quote!(#name::#variant_name => { #(#writes)* }))
+					continue;
 				}
-				else if variant.fields.iter().all(|f| f.ident.is_none()) {
+
+				if variant.fields.iter().all(|f| f.ident.is_none()) {
 					fields.clear();
 					fields.extend((0..variant.fields.len()).map(|i| format_ident!("fld_{i}")));
 
@@ -60,13 +59,21 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 				}
 			}
 
+			let write_discriminant = match raw_discriminant {
+				true => quote!(stream.write_all(bytemuck::bytes_of(&discriminant))?;),
+				false => quote!(crate::metadata::MetadataWrite::write(&discriminant, stream)?;)
+			};
+
 			let implementation = quote! {
 				impl crate::metadata::MetadataWrite for #name {
 					#[allow(unused_parens)]
 					fn write<T: std::io::Write>(&self, stream: &mut T) -> std::result::Result<(), std::io::Error> {
-						#(#discriminants)*
+						let discriminant: #discriminant_ty = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
+						#write_discriminant
+
 						match self {
 							#(#cases)*
+							_ => {},
 						}
 						std::result::Result::Ok(())
 					}

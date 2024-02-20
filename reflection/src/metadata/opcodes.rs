@@ -4,6 +4,7 @@ use crate::MetadataWrite;
 
 #[repr(u8)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, MetadataRead, MetadataWrite)]
+#[raw_discriminant]
 pub enum Opcode {
 	#[default]
 	Nop = 0x00,

@@ -1,3 +1,4 @@
+use crate::utils::get_discriminant;
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput};
 use proc_macro::TokenStream;
@@ -14,37 +15,52 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
             let mut reads = vec![];
             let mut discriminants = vec![];
 
+            let discriminant_ty = get_discriminant(&ast.attrs);
+            let raw_discriminant = ast.attrs.iter()
+                .filter_map(|a| a.path().get_ident())
+                .any(|i| i == "raw_discriminant");
+
             for variant in &data.variants {
                 reads.clear();
                 let variant_name = &variant.ident;
 
                 let Some((_, discriminant)) = &variant.discriminant else {
-                    panic!("Enum variant {} is lacking an explicit discriminant required by MetadataWrite", variant.ident)
+                    panic!("Enum variant {} is lacking an explicit discriminant required by MetadataRead", variant.ident)
                 };
 
-                let variant_value_name = format_ident!("DISCRIMINANT_{}", discriminants.len());
-                discriminants.push(quote!(const #variant_value_name: usize = (#discriminant) as usize;));
+                let discriminant_name = format_ident!("DISCRIMINANT_{}", discriminants.len());
+                discriminants.push(quote!(const #discriminant_name: #discriminant_ty = #discriminant;));
 
                 if variant.fields.is_empty() {
-                    cases.push(quote!(#variant_value_name => #name::#variant_name,))
+                    cases.push(quote!(#discriminant_name => #name::#variant_name,))
                 }
                 else if variant.fields.iter().all(|f| f.ident.is_none()) {
                     reads.clear();
                     for _ in 0..variant.fields.len() {
                         reads.push(quote!(crate::metadata::MetadataRead::read(stream)?))
                     }
-                    cases.push(quote!(#variant_value_name => #name::#variant_name(#(#reads),*),))
+                    cases.push(quote!(#discriminant_name => #name::#variant_name(#(#reads),*),))
                 }
                 else {
                     unimplemented!();
                 }
             }
 
+            let read_discriminant = match raw_discriminant {
+                true => quote! {
+                    let mut discriminant: #discriminant_ty = std::default::Default::default();
+                    stream.read_exact(bytemuck::bytes_of_mut(&mut discriminant))?;
+                },
+                false => quote! {
+                    let discriminant = <#discriminant_ty as crate::metadata::MetadataRead>::read(stream)?;
+                }
+            };
+
             let implementation = quote! {
                 impl crate::metadata::MetadataRead for #name {
                     fn read<T: std::io::Read>(stream: &mut T) -> std::result::Result<Self, std::io::Error> {
                         #(#discriminants)*
-                        let discriminant = <usize as crate::metadata::MetadataRead>::read(stream)?;
+                        #read_discriminant
                         let value = match discriminant {
                             #(#cases)*
                             _ => return std::result::Result::Err(

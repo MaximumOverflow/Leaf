@@ -6,6 +6,7 @@ use std::io::{Error, Write};
 
 #[repr(u8)]
 #[derive(Copy, Clone, MetadataRead, MetadataWrite)]
+#[raw_discriminant]
 pub enum TypeSignatureTag {
 	TypeDef = 0x00,
 	TypeRef = 0x01,
@@ -84,6 +85,7 @@ pub struct TypeRef {}
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, MetadataRead, MetadataWrite)]
+#[raw_discriminant]
 pub enum TypeDefOrRef {
 	Def(ElementRef<TypeDef>) = TypeSignatureTag::TypeDef as u8,
 	Ref(ElementRef<TypeRef>) = TypeSignatureTag::TypeRef as u8,
