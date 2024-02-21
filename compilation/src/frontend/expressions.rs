@@ -88,8 +88,14 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
             }
 
             match ((**lhs_type).as_ref(), (**rhs_type).as_ref()) {
-                | (TypeVariant::Int(_), TypeVariant::Int(_))
-                | (TypeVariant::UInt(_), TypeVariant::UInt(_)) => {
+                | (TypeVariant::Int8, TypeVariant::Int8)
+                | (TypeVariant::Int16, TypeVariant::Int16)
+                | (TypeVariant::Int32, TypeVariant::Int32)
+                | (TypeVariant::Int64, TypeVariant::Int64)
+                | (TypeVariant::UInt8, TypeVariant::UInt8)
+                | (TypeVariant::UInt16, TypeVariant::UInt16)
+                | (TypeVariant::UInt32, TypeVariant::UInt32)
+                | (TypeVariant::UInt64, TypeVariant::UInt64) => {
                     match op {
                         BinaryOperator::Add => builder.push_opcode(Opcode::Add),
                         BinaryOperator::Sub => builder.push_opcode(Opcode::Sub),

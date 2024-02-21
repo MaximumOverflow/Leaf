@@ -26,26 +26,17 @@ impl TypeLayoutCache {
 			TypeVariant::Bool => Layout::new::<bool>(),
 			TypeVariant::Pointer(_, _) => Layout::new::<*const u8>(),
 			TypeVariant::Reference(_, _) => Layout::new::<*const u8>(),
-			TypeVariant::Dec(size) => match *size {
-				2 => Layout::new::<f16>(),
-				4 => Layout::new::<f32>(),
-				8 => Layout::new::<f64>(),
-				_ => unreachable!(),
-			}
-			TypeVariant::Int(size) => match *size {
-				1 => Layout::new::<i8>(),
-				2 => Layout::new::<i16>(),
-				4 => Layout::new::<i32>(),
-				8 => Layout::new::<i64>(),
-				_ => unreachable!(),
-			}
-			TypeVariant::UInt(size) => match *size {
-				1 => Layout::new::<u8>(),
-				2 => Layout::new::<u16>(),
-				4 => Layout::new::<u32>(),
-				8 => Layout::new::<u64>(),
-				_ => unreachable!(),
-			}
+			TypeVariant::Int8 => Layout::new::<i8>(),
+			TypeVariant::Int16 => Layout::new::<i16>(),
+			TypeVariant::Int32 => Layout::new::<i32>(),
+			TypeVariant::Int64 => Layout::new::<i64>(),
+			TypeVariant::UInt8 => Layout::new::<u8>(),
+			TypeVariant::UInt16 => Layout::new::<u16>(),
+			TypeVariant::UInt32 => Layout::new::<u32>(),
+			TypeVariant::UInt64 => Layout::new::<u64>(),
+			TypeVariant::Float16 => Layout::new::<f16>(),
+			TypeVariant::Float32 => Layout::new::<f32>(),
+			TypeVariant::Float64 => Layout::new::<f64>(),
 			TypeVariant::Struct(data) => {
 				if let Some(layout) = self.layouts.borrow().get(ty).cloned() {
 					return layout;
@@ -272,25 +263,16 @@ impl Debug for Stack {
 
 			value.clear();
 			match ty.as_ref().as_ref() {
-				TypeVariant::Dec(s) => match *s {
-					4 => write!(value, "{}", bytemuck::pod_read_unaligned::<f32>(&self[sp..sp+size]))?,
-					8 => write!(value, "{}", bytemuck::pod_read_unaligned::<f64>(&self[sp..sp+size]))?,
-					_ => {},
-				}
-				TypeVariant::Int(s) => match *s {
-					1 => write!(value, "{}", bytemuck::pod_read_unaligned::<i8>(&self[sp..sp+size]))?,
-					2 => write!(value, "{}", bytemuck::pod_read_unaligned::<i16>(&self[sp..sp+size]))?,
-					4 => write!(value, "{}", bytemuck::pod_read_unaligned::<i32>(&self[sp..sp+size]))?,
-					8 => write!(value, "{}", bytemuck::pod_read_unaligned::<i64>(&self[sp..sp+size]))?,
-					_ => {},
-				}
-				TypeVariant::UInt(s) => match *s {
-					1 => write!(value, "{}", bytemuck::pod_read_unaligned::<u8>(&self[sp..sp+size]))?,
-					2 => write!(value, "{}", bytemuck::pod_read_unaligned::<u16>(&self[sp..sp+size]))?,
-					4 => write!(value, "{}", bytemuck::pod_read_unaligned::<u32>(&self[sp..sp+size]))?,
-					8 => write!(value, "{}", bytemuck::pod_read_unaligned::<u64>(&self[sp..sp+size]))?,
-					_ => {},
-				}
+				TypeVariant::Int8 => write!(value, "{}", bytemuck::pod_read_unaligned::<i8>(&self[sp..sp+size]))?,
+				TypeVariant::Int16 => write!(value, "{}", bytemuck::pod_read_unaligned::<i16>(&self[sp..sp+size]))?,
+				TypeVariant::Int32 => write!(value, "{}", bytemuck::pod_read_unaligned::<i32>(&self[sp..sp+size]))?,
+				TypeVariant::Int64 => write!(value, "{}", bytemuck::pod_read_unaligned::<i64>(&self[sp..sp+size]))?,
+				TypeVariant::UInt8 => write!(value, "{}", bytemuck::pod_read_unaligned::<u8>(&self[sp..sp+size]))?,
+				TypeVariant::UInt16 => write!(value, "{}", bytemuck::pod_read_unaligned::<u16>(&self[sp..sp+size]))?,
+				TypeVariant::UInt32 => write!(value, "{}", bytemuck::pod_read_unaligned::<u32>(&self[sp..sp+size]))?,
+				TypeVariant::UInt64 => write!(value, "{}", bytemuck::pod_read_unaligned::<u64>(&self[sp..sp+size]))?,
+				TypeVariant::Float32 => write!(value, "{}", bytemuck::pod_read_unaligned::<f32>(&self[sp..sp+size]))?,
+				TypeVariant::Float64 => write!(value, "{}", bytemuck::pod_read_unaligned::<f64>(&self[sp..sp+size]))?,
 				_ => {},
 			};
 

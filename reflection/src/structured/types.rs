@@ -20,9 +20,17 @@ pub enum TypeVariant {
     Void,
     Char,
     Bool,
-    Dec(u32),
-    Int(u32),
-    UInt(u32),
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+    Float16,
+    Float32,
+    Float64,
     Struct(StructType),
     Pointer(Weak<Type>, bool),
     Reference(Weak<Type>, bool),
@@ -65,57 +73,57 @@ impl Type {
 
     pub fn i8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(1), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int8, ElementRef::default()))
     }
 
     pub fn i16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(2), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int16, ElementRef::default()))
     }
 
     pub fn i32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(4), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int32, ElementRef::default()))
     }
 
     pub fn i64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int(8), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Int64, ElementRef::default()))
     }
 
     pub fn u8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(1), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt8, ElementRef::default()))
     }
 
     pub fn u16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(2), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt16, ElementRef::default()))
     }
 
     pub fn u32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(4), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt32, ElementRef::default()))
     }
 
     pub fn u64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt(8), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::UInt64, ElementRef::default()))
     }
 
     pub fn f16() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(2), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Float16, ElementRef::default()))
     }
 
     pub fn f32() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(4), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Float32, ElementRef::default()))
     }
 
     pub fn f64() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Dec(8), ElementRef::default()))
+        TYPE.get_or_init(|| Self::new(TypeVariant::Float64, ElementRef::default()))
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -123,26 +131,17 @@ impl Type {
             TypeVariant::Void => Some("void"),
             TypeVariant::Char => Some("char"),
             TypeVariant::Bool => Some("bool"),
-            TypeVariant::Dec(size) => match *size {
-                2 => Some("f16"),
-                4 => Some("f32"),
-                8 => Some("f64"),
-                _ => unreachable!(),
-            }
-            TypeVariant::Int(size) => match *size {
-                1 => Some("i8"),
-                2 => Some("i16"),
-                4 => Some("i32"),
-                8 => Some("i64"),
-                _ => unreachable!(),
-            }
-            TypeVariant::UInt(size) => match *size {
-                1 => Some("u8"),
-                2 => Some("u16"),
-                4 => Some("u32"),
-                8 => Some("u64"),
-                _ => unreachable!(),
-            }
+            TypeVariant::Int8 => Some("i8"),
+            TypeVariant::Int16 => Some("i16"),
+            TypeVariant::Int32 => Some("i32"),
+            TypeVariant::Int64 => Some("i64"),
+            TypeVariant::UInt8 => Some("u8"),
+            TypeVariant::UInt16 => Some("u16"),
+            TypeVariant::UInt32 => Some("u32"),
+            TypeVariant::UInt64 => Some("u64"),
+            TypeVariant::Float16 => Some("f16"),
+            TypeVariant::Float32 => Some("f32"),
+            TypeVariant::Float64 => Some("f64"),
             TypeVariant::Struct(data) => Some(&data.name),
             _ => None,
         }

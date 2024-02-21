@@ -46,9 +46,9 @@ pub enum Opcode {
 	PushUInt32(Encoded<u32>) = 0xA6,
 	PushUInt64(Encoded<u64>) = 0xA7,
 
-	PushDecimal16(f32) = 0xA8,
-	PushDecimal32(f32) = 0xA9,
-	PushDecimal64(f64) = 0xAA,
+	PushFloat16(f32) = 0xA8,
+	PushFloat32(f32) = 0xA9,
+	PushFloat64(f64) = 0xAA,
 	PushBool(bool) = 0xAB,
 
 	SignExtend(u8) = 0xAC,

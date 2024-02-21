@@ -19,6 +19,7 @@ pub struct CompilationUnit<'l> {
 }
 
 impl<'l> CompilationUnit<'l> {
+	#[inline(never)]
 	pub fn new(assembly_builder: &'l mut AssemblyBuilder, code: &str) -> anyhow::Result<Self> {
 		static PARSER: OnceLock<CompilationUnitParser> = OnceLock::new();
 		let parser = PARSER.get_or_init(CompilationUnitParser::new);

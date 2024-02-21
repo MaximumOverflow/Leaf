@@ -21,6 +21,7 @@ impl Interpreter {
 		Self { stack, layout_cache }
 	}
 
+	#[inline(never)]
 	pub fn interpret(&mut self, function: &Arc<Function>, mut params: Vec<Value>) -> anyhow::Result<Value> {
 		let good_params = params
 			.iter()
@@ -64,7 +65,7 @@ impl Interpreter {
 								let res = ($op lhs) as u8;
 								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
 							}
-							TypeVariant::Int(4) => {
+							TypeVariant::Int32 => {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let res = $op lhs;
 								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
@@ -95,7 +96,7 @@ impl Interpreter {
 						};
 
 						match (lhs_ty.as_ref().as_ref(), rhs_ty.as_ref().as_ref()) {
-							(TypeVariant::Int(4), TypeVariant::Int(4)) => {
+							(TypeVariant::Int32, TypeVariant::Int32) => {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
 								let res = lhs $op rhs;
@@ -127,7 +128,7 @@ impl Interpreter {
 						};
 
 						match (lhs_ty.as_ref().as_ref(), rhs_ty.as_ref().as_ref()) {
-							(TypeVariant::Int(4), TypeVariant::Int(4)) => {
+							(TypeVariant::Int32, TypeVariant::Int32) => {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
 								let res = lhs $op rhs;
@@ -148,9 +149,9 @@ impl Interpreter {
 				Opcode::PushUInt16(value) => self.stack.push_value_discard(value.0)?,
 				Opcode::PushUInt32(value) => self.stack.push_value_discard(value.0)?,
 				Opcode::PushUInt64(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushDecimal16(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushDecimal32(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushDecimal64(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushFloat16(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushFloat32(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushFloat64(value) => self.stack.push_value_discard(value)?,
 				Opcode::PushBool(value) => self.stack.push_value_discard(value)?,
 
 				Opcode::PushLocal0 => self.push_local(locals.get(0))?,

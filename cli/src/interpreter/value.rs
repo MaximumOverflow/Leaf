@@ -13,7 +13,7 @@ pub struct Value {
 
 enum Data {
     Void,
-    Dec(f64),
+    Float(f64),
     Int(i64),
     UInt(u64),
     Char(char),
@@ -55,58 +55,49 @@ impl Value {
                 assert_known_type_validity!(Layout::new::<char>());
                 Ok(Self { ty: ty.clone(), data: Data::Bool(false) })
             }
-            TypeVariant::Dec(size) => match *size {
-                2 => {
-                    assert_known_type_validity!(Layout::new::<f16>());
-                    Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
-                },
-                4 => {
-                    assert_known_type_validity!(Layout::new::<f32>());
-                    Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
-                },
-                8 => {
-                    assert_known_type_validity!(Layout::new::<f64>());
-                    Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
-                },
-                _ => unreachable!(),
+            TypeVariant::Int8 => {
+                assert_known_type_validity!(Layout::new::<i8>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
             }
-            TypeVariant::Int(size) => match *size {
-                1 => {
-                    assert_known_type_validity!(Layout::new::<i8>());
-                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
-                },
-                2 => {
-                    assert_known_type_validity!(Layout::new::<i16>());
-                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
-                },
-                4 => {
-                    assert_known_type_validity!(Layout::new::<i32>());
-                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
-                },
-                8 => {
-                    assert_known_type_validity!(Layout::new::<i64>());
-                    Ok(Self { ty: ty.clone(), data: Data::Int(0) })
-                },
-                _ => unreachable!(),
+            TypeVariant::Int16 => {
+                assert_known_type_validity!(Layout::new::<i16>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
             }
-            TypeVariant::UInt(size) => match *size {
-                1 => {
-                    assert_known_type_validity!(Layout::new::<u8>());
-                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
-                },
-                2 => {
-                    assert_known_type_validity!(Layout::new::<u16>());
-                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
-                },
-                4 => {
-                    assert_known_type_validity!(Layout::new::<u32>());
-                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
-                },
-                8 => {
-                    assert_known_type_validity!(Layout::new::<u64>());
-                    Ok(Self { ty: ty.clone(), data: Data::UInt(0) })
-                },
-                _ => unreachable!(),
+            TypeVariant::Int32 => {
+                assert_known_type_validity!(Layout::new::<i32>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+            }
+            TypeVariant::Int64 => {
+                assert_known_type_validity!(Layout::new::<i64>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+            }
+            TypeVariant::UInt8 => {
+                assert_known_type_validity!(Layout::new::<u8>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+            }
+            TypeVariant::UInt16 => {
+                assert_known_type_validity!(Layout::new::<u16>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+            }
+            TypeVariant::UInt32 => {
+                assert_known_type_validity!(Layout::new::<u32>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+            }
+            TypeVariant::UInt64 => {
+                assert_known_type_validity!(Layout::new::<u64>());
+                Ok(Self { ty: ty.clone(), data: Data::Int(0) })
+            }
+            TypeVariant::Float16 => {
+                assert_known_type_validity!(Layout::new::<f16>());
+                Ok(Self { ty: ty.clone(), data: Data::Float(0.0) })
+            }
+            TypeVariant::Float32 => {
+                assert_known_type_validity!(Layout::new::<f32>());
+                Ok(Self { ty: ty.clone(), data: Data::Float(0.0) })
+            }
+            TypeVariant::Float64 => {
+                assert_known_type_validity!(Layout::new::<f64>());
+                Ok(Self { ty: ty.clone(), data: Data::Float(0.0) })
             }
             _ => {
                 let data = unsafe {
@@ -144,83 +135,74 @@ impl Value {
                *ch = char::from_u32(v).unwrap();
                Ok(res)
            }
-           TypeVariant::Dec(size) => match *size {
-               2 => {
-                   let Data::Dec(f) = &mut self.data else { unreachable!() };
-                   let mut v = f16::default();
-                   let slice = std::slice::from_raw_parts_mut(&mut v as *mut f16 as *mut u8, 2);
-                   let res = func(slice)?;
-                   *f = v.to_f64();
-                   Ok(res)
-               },
-               4 => {
-                   let Data::Dec(f) = &mut self.data else { unreachable!() };
-                   let mut v = 0f32;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *f = v as f64;
-                   Ok(res)
-               },
-               8 => {
-                   let Data::Dec(f) = &mut self.data else { unreachable!() };
-                   func(bytemuck::bytes_of_mut(f))
-               },
-               _ => unreachable!(),
+           TypeVariant::Int8 => {
+               let Data::Int(i) = &mut self.data else { unreachable!() };
+               let mut v = 0i8;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v as i64;
+               Ok(res)
            }
-           TypeVariant::Int(size) => match *size {
-               1 => {
-                   let Data::Int(i) = &mut self.data else { unreachable!() };
-                   let mut v = 0i8;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *i = v as i64;
-                   Ok(res)
-               },
-               2 => {
-                   let Data::Int(i) = &mut self.data else { unreachable!() };
-                   let mut v = 0i16;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *i = v as i64;
-                   Ok(res)
-               },
-               4 => {
-                   let Data::Int(i) = &mut self.data else { unreachable!() };
-                   let mut v = 0i32;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *i = v as i64;
-                   Ok(res)
-               },
-               8 => {
-                   let Data::Int(i) = &mut self.data else { unreachable!() };
-                   func(bytemuck::bytes_of_mut(i))
-               },
-               _ => unreachable!(),
+           TypeVariant::Int16 => {
+               let Data::Int(i) = &mut self.data else { unreachable!() };
+               let mut v = 0i16;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v as i64;
+               Ok(res)
            }
-           TypeVariant::UInt(size) => match *size {
-               1 => {
-                   let Data::UInt(i) = &mut self.data else { unreachable!() };
-                   let mut v = 0u8;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *i = v as u64;
-                   Ok(res)
-               },
-               2 => {
-                   let Data::UInt(i) = &mut self.data else { unreachable!() };
-                   let mut v = 0u16;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *i = v as u64;
-                   Ok(res)
-               },
-               4 => {
-                   let Data::UInt(i) = &mut self.data else { unreachable!() };
-                   let mut v = 0u32;
-                   let res = func(bytemuck::bytes_of_mut(&mut v))?;
-                   *i = v as u64;
-                   Ok(res)
-               },
-               8 => {
-                   let Data::UInt(i) = &mut self.data else { unreachable!() };
-                   func(bytemuck::bytes_of_mut(i))
-               },
-               _ => unreachable!(),
+           TypeVariant::Int32 => {
+               let Data::Int(i) = &mut self.data else { unreachable!() };
+               let mut v = 0i32;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v as i64;
+               Ok(res)
+           }
+           TypeVariant::Int64 => {
+               let Data::Int(i) = &mut self.data else { unreachable!() };
+               func(bytemuck::bytes_of_mut(i))
+           }
+           TypeVariant::UInt8 => {
+               let Data::UInt(i) = &mut self.data else { unreachable!() };
+               let mut v = 0u8;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v as u64;
+               Ok(res)
+           }
+           TypeVariant::UInt16 => {
+               let Data::UInt(i) = &mut self.data else { unreachable!() };
+               let mut v = 0u16;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v as u64;
+               Ok(res)
+           }
+           TypeVariant::UInt32 => {
+               let Data::UInt(i) = &mut self.data else { unreachable!() };
+               let mut v = 0u32;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v as u64;
+               Ok(res)
+           }
+           TypeVariant::UInt64 => {
+               let Data::UInt(i) = &mut self.data else { unreachable!() };
+               func(bytemuck::bytes_of_mut(i))
+           }
+           TypeVariant::Float16 => {
+               let Data::Float(f) = &mut self.data else { unreachable!() };
+               let mut v = f16::default();
+               let slice = std::slice::from_raw_parts_mut(&mut v as *mut f16 as *mut u8, 2);
+               let res = func(slice)?;
+               *f = v.to_f64();
+               Ok(res)
+           }
+           TypeVariant::Float32 => {
+               let Data::Float(f) = &mut self.data else { unreachable!() };
+               let mut v = 0f32;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *f = v as f64;
+               Ok(res)
+           }
+           TypeVariant::Float64 => {
+               let Data::Float(f) = &mut self.data else { unreachable!() };
+               func(bytemuck::bytes_of_mut(f))
            }
            _ => {
                match &self.data {
@@ -271,7 +253,7 @@ impl Debug for Data {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Data::Void => f.write_str("void"),
-            Data::Dec(v) => write!(f, "Data::Dec({})", v),
+            Data::Float(v) => write!(f, "Data::Dec({})", v),
             Data::Int(v) => write!(f, "Data::Int({})", v),
             Data::UInt(v) => write!(f, "Data::UInt({})", v),
             Data::Char(v) => write!(f, "Data::Char({})", v),
