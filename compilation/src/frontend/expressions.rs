@@ -4,7 +4,7 @@ use leaf_reflection::structured::functions::FunctionBodyBuilder;
 use leaf_reflection::structured::types::TypeVariant;
 use crate::frontend::types::TypeResolver;
 use leaf_reflection::structured::Type;
-use leaf_reflection::Opcode;
+use leaf_reflection::{Encoded, Opcode};
 use std::sync::Arc;
 use anyhow::anyhow;
 
@@ -15,11 +15,11 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 let required_bits = 64 - integer.leading_zeros().min(64);
                 match required_bits <= 32 {
                     true => {
-                        builder.push_opcode(Opcode::PushInt32(*integer as i32));
+                        builder.push_opcode(Opcode::PushInt32(Encoded(*integer as i32)));
                         Ok(Value::Const(Type::i32().clone()))
                     }
                     false => {
-                        builder.push_opcode(Opcode::PushInt64(*integer as i64));
+                        builder.push_opcode(Opcode::PushInt64(Encoded(*integer as i64)));
                         Ok(Value::Const(Type::i64().clone()))
                     }
                 }
@@ -29,15 +29,15 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 Ok(Value::Const(Type::i8().clone()))
             }
             Literal::Integer(Integer::Int16(integer)) => {
-                builder.push_opcode(Opcode::PushInt16(*integer));
+                builder.push_opcode(Opcode::PushInt16(Encoded(*integer)));
                 Ok(Value::Const(Type::i16().clone()))
             }
             Literal::Integer(Integer::Int32(integer)) => {
-                builder.push_opcode(Opcode::PushInt32(*integer));
+                builder.push_opcode(Opcode::PushInt32(Encoded(*integer)));
                 Ok(Value::Const(Type::i32().clone()))
             }
             Literal::Integer(Integer::Int64(integer)) => {
-                builder.push_opcode(Opcode::PushInt64(*integer));
+                builder.push_opcode(Opcode::PushInt64(Encoded(*integer)));
                 Ok(Value::Const(Type::i64().clone()))
             }
             Literal::Integer(Integer::UInt8(integer)) => {
@@ -45,15 +45,15 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 Ok(Value::Const(Type::u8().clone()))
             }
             Literal::Integer(Integer::UInt16(integer)) => {
-                builder.push_opcode(Opcode::PushUInt16(*integer));
+                builder.push_opcode(Opcode::PushUInt16(Encoded(*integer)));
                 Ok(Value::Const(Type::u16().clone()))
             }
             Literal::Integer(Integer::UInt32(integer)) => {
-                builder.push_opcode(Opcode::PushUInt32(*integer));
+                builder.push_opcode(Opcode::PushUInt32(Encoded(*integer)));
                 Ok(Value::Const(Type::u32().clone()))
             }
             Literal::Integer(Integer::UInt64(integer)) => {
-                builder.push_opcode(Opcode::PushUInt64(*integer));
+                builder.push_opcode(Opcode::PushUInt64(Encoded(*integer)));
                 Ok(Value::Const(Type::u64().clone()))
             }
 
@@ -127,11 +127,11 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                         }
 
                         value.load(builder)?;
-                        builder.push_local_address(local);
+                        builder.push_local_address(local).unwrap();
                         builder.store_field(field_idx);
                     }
 
-                    builder.push_local(local);
+                    builder.push_local(local).unwrap();
                     Ok(Value::Temp(ty))
                 }
                 _ => Err(anyhow!("Type '{}' is not a struct", ty)),
@@ -175,7 +175,7 @@ impl Value {
         }
     }
 
-    pub fn load(&self, opcodes: &mut FunctionBodyBuilder) -> anyhow::Result<usize> {
+    pub fn load(&self, opcodes: &mut FunctionBodyBuilder) -> anyhow::Result<()> {
         match self {
             Value::Local(_, i, _, init) => match init {
                 true => Ok(opcodes.push_local(*i).unwrap()),
@@ -184,7 +184,7 @@ impl Value {
             Value::Param(_, i, ..) => {
                 Ok(opcodes.push_param_address(*i).unwrap())
             },
-            _ => Ok(opcodes.ir_offset()),
+            _ => Ok(()),
         }
     }
 }

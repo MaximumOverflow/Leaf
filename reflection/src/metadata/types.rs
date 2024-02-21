@@ -1,8 +1,7 @@
-use crate::{ElementRef, MetadataWrite, SliceRef};
 use leaf_derive::{MetadataRead, MetadataWrite};
+use crate::{ElementRef, SliceRef};
 use std::fmt::{Debug, Formatter};
 use bytemuck::{Pod, Zeroable};
-use std::io::{Error, Write};
 
 #[repr(u8)]
 #[derive(Copy, Clone, MetadataRead, MetadataWrite)]
@@ -36,27 +35,20 @@ pub enum TypeSignatureTag {
 
 pub type TypeSignature = [u8];
 
-#[repr(u32)]
-#[derive(Default, Copy, Clone)]
+#[repr(u8)]
+#[derive(Default, Copy, Clone, MetadataRead, MetadataWrite)]
+#[raw_discriminant]
 pub enum TypeKind {
 	#[default]
-	Struct,
-	Enum,
-	Union,
-	Interface,
+	Struct = 0x0,
+	Enum = 0x1,
+	Union = 0x2,
+	Interface = 0x3,
 }
 unsafe impl Pod for TypeKind {}
 unsafe impl Zeroable for TypeKind {}
 
-impl MetadataWrite for TypeKind {
-	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
-		let value = *self as u32;
-		value.write(stream)
-	}
-}
-
-#[repr(C)]
-#[derive(Default, Copy, Clone, MetadataWrite)]
+#[derive(Default, Copy, Clone, MetadataRead, MetadataWrite)]
 pub struct TypeDef {
 	pub(crate) kind: TypeKind,
 	pub(crate) name: ElementRef<str>,
@@ -112,8 +104,7 @@ impl Debug for TypeDefOrRef {
 	}
 }
 
-#[repr(C)]
-#[derive(Default, Copy, Clone, MetadataWrite)]
+#[derive(Default, Copy, Clone, MetadataRead, MetadataWrite)]
 pub struct FieldDef {
 	pub(crate) name: ElementRef<str>,
 	pub(crate) signature: SliceRef<TypeSignature>,

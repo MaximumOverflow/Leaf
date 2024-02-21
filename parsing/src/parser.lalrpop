@@ -45,6 +45,24 @@ pub Expression: Expression<'input> = {
     <l:Expression> "+" <r:Factor> => l + r,
     <l:Expression> "-" <r:Factor> => l - r,
 
+    <l:Expression> "<" <r:Factor>
+        => Expression::Binary(l.into(), BinaryOperator::Lt, r.into()),
+
+    <l:Expression> ">" <r:Factor>
+        => Expression::Binary(l.into(), BinaryOperator::Gt, r.into()),
+
+    <l:Expression> "<=" <r:Factor>
+        => Expression::Binary(l.into(), BinaryOperator::Le, r.into()),
+
+    <l:Expression> ">=" <r:Factor>
+        => Expression::Binary(l.into(), BinaryOperator::Ge, r.into()),
+
+    <l:Expression> "==" <r:Factor>
+        => Expression::Binary(l.into(), BinaryOperator::Eq, r.into()),
+
+    <l:Expression> "!=" <r:Factor>
+        => Expression::Binary(l.into(), BinaryOperator::Neq, r.into()),
+
     <expr: Expression> "as" <ty: Type>
         => Expression::Cast(Box::new(expr), ty),
 

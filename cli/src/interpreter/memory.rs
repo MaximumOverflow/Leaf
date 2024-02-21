@@ -23,6 +23,7 @@ impl TypeLayoutCache {
 		match ty.as_ref().as_ref() {
 			TypeVariant::Void => Layout::new::<()>(),
 			TypeVariant::Char => Layout::new::<char>(),
+			TypeVariant::Bool => Layout::new::<bool>(),
 			TypeVariant::Pointer(_, _) => Layout::new::<*const u8>(),
 			TypeVariant::Reference(_, _) => Layout::new::<*const u8>(),
 			TypeVariant::Dec(size) => match *size {

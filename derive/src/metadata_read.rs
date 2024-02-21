@@ -7,8 +7,27 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
     let name = &ast.ident;
 
     match &ast.data {
-        Data::Struct(_) => {
-            panic!("Cannot #[derive(MetadataRead)] on a struct")
+        Data::Struct(data) => {
+            let mut reads = vec![];
+
+            for field in &data.fields {
+                let ident = field.ident.as_ref().unwrap();
+                reads.push(quote!(#ident: crate::metadata::MetadataRead::read(stream)?,))
+            }
+
+            let implementation = quote! {
+				impl crate::metadata::MetadataRead for #name {
+                    fn read<T: std::io::Read>(stream: &mut T) -> std::result::Result<Self, std::io::Error> {
+                        std::result::Result::Ok(
+                            #name {
+                                #(#reads)*
+                            }
+                        )
+                    }
+                }
+			};
+
+            implementation.into()
         },
         Data::Enum(data) => {
             let mut cases = vec![];
@@ -25,7 +44,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
                 let variant_name = &variant.ident;
 
                 let Some((_, discriminant)) = &variant.discriminant else {
-                    panic!("Enum variant {} is lacking an explicit discriminant required by MetadataRead", variant.ident)
+                    panic!("Enum variant '{}' is lacking an explicit discriminant required by MetadataRead", variant.ident)
                 };
 
                 let discriminant_name = format_ident!("DISCRIMINANT_{}", discriminants.len());

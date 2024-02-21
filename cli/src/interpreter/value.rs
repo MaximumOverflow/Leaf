@@ -17,6 +17,7 @@ enum Data {
     Int(i64),
     UInt(u64),
     Char(char),
+    Bool(bool),
     Boxed(*mut u8, Layout),
     Uninit(*mut u8, Layout),
 }
@@ -50,11 +51,13 @@ impl Value {
                 assert_known_type_validity!(Layout::new::<char>());
                 Ok(Self { ty: ty.clone(), data: Data::Char('\0') })
             }
+            TypeVariant::Bool => {
+                assert_known_type_validity!(Layout::new::<char>());
+                Ok(Self { ty: ty.clone(), data: Data::Bool(false) })
+            }
             TypeVariant::Dec(size) => match *size {
                 2 => {
                     assert_known_type_validity!(Layout::new::<f16>());
-                    let mut v = f16::default();
-                    let p = &mut v as *mut f16 as *mut u8;
                     Ok(Self { ty: ty.clone(), data: Data::Dec(0.0) })
                 },
                 4 => {
@@ -127,6 +130,13 @@ impl Value {
            TypeVariant::Void => {
                func(&mut [])
            },
+           TypeVariant::Bool => {
+               let Data::Bool(i) = &mut self.data else { unreachable!() };
+               let mut v = 0i8;
+               let res = func(bytemuck::bytes_of_mut(&mut v))?;
+               *i = v != 0;
+               Ok(res)
+           }
            TypeVariant::Char => {
                let Data::Char(ch) = &mut self.data else { unreachable!() };
                let mut v = 0u32;
@@ -265,6 +275,7 @@ impl Debug for Data {
             Data::Int(v) => write!(f, "Data::Int({})", v),
             Data::UInt(v) => write!(f, "Data::UInt({})", v),
             Data::Char(v) => write!(f, "Data::Char({})", v),
+            Data::Bool(v) => write!(f, "Data::Bool({})", v),
             Data::Boxed(ptr, layout) => write!(f, "Data::Boxed({:?}, {:?})", ptr, layout),
             Data::Uninit(ptr, layout) => write!(f, "Data::Uninit({:?}, {:?})", ptr, layout),
         }

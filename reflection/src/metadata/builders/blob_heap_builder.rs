@@ -1,13 +1,14 @@
-use crate::{MetadataRead, SliceRef};
+use crate::{Encoded, MetadataRead, SliceRef};
+use core::marker::PhantomData;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
 
 #[derive(Default)]
 pub struct BlobHeapBuilder {
-	offset: u32,
-	map: HashMap<Arc<[u8]>, (u32, Arc<[u8]>)>,
-	rev_map: HashMap<u32, Arc<[u8]>>,
+	offset: u64,
+	map: HashMap<Arc<[u8]>, (u64, Arc<[u8]>)>,
+	rev_map: HashMap<u64, Arc<[u8]>>,
 }
 
 #[allow(unused)]
@@ -24,23 +25,23 @@ impl BlobHeapBuilder {
 		match self.map.get(bytes) {
 			Some((offset, buf)) => {
 				let buf_ref = SliceRef {
-					offset: *offset,
-					len: bytes.len() as u32,
-					ph: Default::default(),
+					offset: Encoded(*offset),
+					len: Encoded(bytes.len() as u64),
+					ph: PhantomData,
 				};
 				(buf_ref, buf.clone())
 			},
 			None => {
 				let buf: Arc<[u8]> = Arc::from(bytes);
 				let buf_ref = SliceRef {
-					offset: self.offset,
-					len: buf.len() as u32,
-					ph: Default::default(),
+					offset: Encoded(self.offset),
+					len: Encoded(buf.len() as u64),
+					ph: PhantomData,
 				};
 
-				self.offset += buf_ref.len;
-				self.map.insert(buf.clone(), (buf_ref.offset, buf.clone()));
-				self.rev_map.insert(buf_ref.offset, buf.clone());
+				self.offset += buf_ref.len.0;
+				self.map.insert(buf.clone(), (buf_ref.offset.0, buf.clone()));
+				self.rev_map.insert(buf_ref.offset.0, buf.clone());
 				(buf_ref, buf)
 			},
 		}
@@ -71,16 +72,16 @@ impl BlobHeapBuilder {
 
 	pub fn get_blob(&self, blob_ref: SliceRef<[u8]>) -> Option<&[u8]> {
 		let blob = self.rev_map.get(&blob_ref.offset)?;
-		match blob.len() == blob_ref.len as usize {
+		match blob.len() == blob_ref.len.0 as usize {
 			false => None,
 			true => Some(blob),
 		}
 	}
 
 	pub fn get_blob_items<T: MetadataRead>(&self, blob_ref: SliceRef<T>) -> Option<impl Iterator<Item=T> + '_> {
-		let blob = self.rev_map.get(&blob_ref.offset)?;
+		let blob = self.rev_map.get(&blob_ref.offset.0)?;
 		let mut cursor = Cursor::new(&**blob);
-		let iter = (0..blob_ref.len).map(move |i| {
+		let iter = (0..blob_ref.len.0).map(move |i| {
 			T::read(&mut cursor).unwrap()
 		});
 

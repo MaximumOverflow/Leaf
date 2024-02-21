@@ -1,6 +1,6 @@
 use leaf_derive::{MetadataRead, MetadataWrite};
+use crate::{Encoded, MetadataWrite};
 use std::io::{Error, Write};
-use crate::MetadataWrite;
 
 #[repr(u8)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, MetadataRead, MetadataWrite)]
@@ -9,7 +9,10 @@ pub enum Opcode {
 	#[default]
 	Nop = 0x00,
 	Ret = 0x01,
-	Swap = 0x02,
+	Dup = 0x02,
+	Swap = 0x03,
+	Jump(u32) = 0x04,
+	CondJump(u32) = 0x05,
 
 	Add = 0x10,
 	Sub = 0x11,
@@ -24,22 +27,30 @@ pub enum Opcode {
 	Not = 0x1A,
 	Neg = 0x1B,
 
+	Eq = 0x20,
+	Neq = 0x21,
+	Lt = 0x22,
+	Gt = 0x23,
+	Le = 0x24,
+	Ge = 0x25,
+
 	PushInt8(i8) = 0xA0,
-	PushInt16(i16) = 0xA1,
-	PushInt32(i32) = 0xA2,
-	PushInt64(i64) = 0xA3,
+	PushInt16(Encoded<i16>) = 0xA1,
+	PushInt32(Encoded<i32>) = 0xA2,
+	PushInt64(Encoded<i64>) = 0xA3,
 
 	PushUInt8(u8) = 0xA4,
-	PushUInt16(u16) = 0xA5,
-	PushUInt32(u32) = 0xA6,
-	PushUInt64(u64) = 0xA7,
+	PushUInt16(Encoded<u16>) = 0xA5,
+	PushUInt32(Encoded<u32>) = 0xA6,
+	PushUInt64(Encoded<u64>) = 0xA7,
 
 	PushDecimal16(f32) = 0xA8,
 	PushDecimal32(f32) = 0xA9,
 	PushDecimal64(f64) = 0xAA,
+	PushBool(bool) = 0xAB,
 
-	SignExtend(u32) = 0xAB,
-	ConvDecimal(u32) = 0xAC,
+	SignExtend(u8) = 0xAC,
+	ConvDecimal(u8) = 0xAD,
 
 	PushLocal0 = 0xB0,
 	PushLocal1 = 0xB1,
@@ -48,7 +59,7 @@ pub enum Opcode {
 	PushLocal4 = 0xB4,
 	PushLocal5 = 0xB5,
 	PushLocal6 = 0xB6,
-	PushLocal(usize) = 0xB7,
+	PushLocal(Encoded<usize>) = 0xB7,
 
 	PushLocalA0 = 0xB8,
 	PushLocalA1 = 0xB9,
@@ -57,7 +68,7 @@ pub enum Opcode {
 	PushLocalA4 = 0xBC,
 	PushLocalA5 = 0xBD,
 	PushLocalA6 = 0xBE,
-	PushLocalA(usize) = 0xBF,
+	PushLocalA(Encoded<usize>) = 0xBF,
 
 	PushParam0 = 0xC0,
 	PushParam1 = 0xC1,
@@ -66,7 +77,7 @@ pub enum Opcode {
 	PushParam4 = 0xC4,
 	PushParam5 = 0xC5,
 	PushParam6 = 0xC6,
-	PushParam(usize) = 0xC7,
+	PushParam(Encoded<usize>) = 0xC7,
 
 	PushParamA0 = 0xC8,
 	PushParamA1 = 0xC9,
@@ -75,7 +86,7 @@ pub enum Opcode {
 	PushParamA4 = 0xCC,
 	PushParamA5 = 0xCD,
 	PushParamA6 = 0xCE,
-	PushParamA(usize) = 0xCF,
+	PushParamA(Encoded<usize>) = 0xCF,
 
 	StoreLocal0 = 0xD0,
 	StoreLocal1 = 0xD1,
@@ -84,7 +95,7 @@ pub enum Opcode {
 	StoreLocal4 = 0xD4,
 	StoreLocal5 = 0xD5,
 	StoreLocal6 = 0xD6,
-	StoreLocal(usize) = 0xD7,
+	StoreLocal(Encoded<usize>) = 0xD7,
 
 	StoreParam0 = 0xD8,
 	StoreParam1 = 0xD9,
@@ -93,7 +104,7 @@ pub enum Opcode {
 	StoreParam4 = 0xDC,
 	StoreParam5 = 0xDD,
 	StoreParam6 = 0xDE,
-	StoreParam(usize) = 0xDF,
+	StoreParam(Encoded<usize>) = 0xDF,
 
 	PushField0 = 0xE0,
 	PushField1 = 0xE1,
@@ -102,7 +113,7 @@ pub enum Opcode {
 	PushField4 = 0xE4,
 	PushField5 = 0xE5,
 	PushField6 = 0xE6,
-	PushField(usize) = 0xE7,
+	PushField(Encoded<usize>) = 0xE7,
 
 	PushFieldA0 = 0xE8,
 	PushFieldA1 = 0xE9,
@@ -111,7 +122,7 @@ pub enum Opcode {
 	PushFieldA4 = 0xEC,
 	PushFieldA5 = 0xED,
 	PushFieldA6 = 0xEE,
-	PushFieldA(usize) = 0xEF,
+	PushFieldA(Encoded<usize>) = 0xEF,
 
 	StoreField0 = 0xF0,
 	StoreField1 = 0xF1,
@@ -120,7 +131,7 @@ pub enum Opcode {
 	StoreField4 = 0xF4,
 	StoreField5 = 0xF5,
 	StoreField6 = 0xF6,
-	StoreField(usize) = 0xF7,
+	StoreField(Encoded<usize>) = 0xF7,
 }
 
 impl MetadataWrite for &[Opcode] {

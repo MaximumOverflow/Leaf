@@ -1,5 +1,6 @@
-use crate::{ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, SliceRef, TypeDef, TypeKind, MetadataWrite, FunctionBody, Opcode, TypeSignature};
+use crate::{ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, SliceRef, TypeDef, TypeKind, MetadataWrite, FunctionBody, Opcode, TypeSignature, Encoded};
 use crate::builders::{BlobHeapBuilder, StringHeapBuilder, TypeSignatureBytes};
+use std::marker::PhantomData;
 use std::io::{Cursor, Write};
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -39,8 +40,8 @@ impl MetadataBuilder {
 		&mut self, kind: TypeKind, name: &str, namespace: &str,
 	) -> ElementRef<TypeDef> {
 		let element_ref = ElementRef {
-			ph: Default::default(),
-			offset: self.type_defs.len() as u32,
+			ph: PhantomData,
+			offset: Encoded(self.type_defs.len() as u64),
 		};
 		self.type_defs.push(TypeDef {
 			kind,
@@ -53,8 +54,8 @@ impl MetadataBuilder {
 
 	pub fn declare_function(&mut self, name: &str, namespace: &str) -> ElementRef<FunctionDef> {
 		let element_ref = ElementRef {
-			ph: Default::default(),
-			offset: self.function_defs.len() as u32,
+			ph: PhantomData,
+			offset: Encoded(self.function_defs.len() as u64),
 		};
 		self.function_defs.push(FunctionDef {
 			namespace: self.strings.alloc(namespace),
@@ -86,22 +87,22 @@ impl MetadataBuilder {
 		T::IntoIter: ExactSizeIterator,
 	{
 		let fields = fields.into_iter();
-		let types = &mut self.type_defs[ty.offset as usize..];
+		let types = &mut self.type_defs[ty.offset.0 as usize..];
 		let ty = &mut types[0];
 
-		let len = ty.fields.len as usize;
-		let offset = ty.fields.offset as usize;
+		let len = ty.fields.len.0 as usize;
+		let offset = ty.fields.offset.0 as usize;
 		let difference = fields.len() as isize - len as isize;
 
-		let diff = difference.unsigned_abs() as u32;
-		ty.fields.len = fields.len() as u32;
+		let diff = difference.unsigned_abs();
+		ty.fields.len = Encoded(fields.len() as u64);
 
 		self.field_defs.splice(offset..offset + len, fields);
 
 		match difference.cmp(&0) {
 			Ordering::Equal => {},
-			Ordering::Less => types.iter_mut().skip(1).for_each(|ty| ty.fields.offset -= diff),
-			Ordering::Greater => types.iter_mut().skip(1).for_each(|ty| ty.fields.offset += diff),
+			Ordering::Less => types.iter_mut().skip(1).for_each(|ty| ty.fields.offset.0 -= diff as u64),
+			Ordering::Greater => types.iter_mut().skip(1).for_each(|ty| ty.fields.offset.0 += diff as u64),
 		}
 	}
 
@@ -111,27 +112,27 @@ impl MetadataBuilder {
 		T::IntoIter: ExactSizeIterator,
 	{
 		let params = params.into_iter();
-		let funcs = &mut self.function_defs[func.offset as usize..];
+		let funcs = &mut self.function_defs[func.offset.0 as usize..];
 		let func = &mut funcs[0];
 
-		let len = func.params.len as usize;
-		let offset = func.params.offset as usize;
+		let len = func.params.len.0 as usize;
+		let offset = func.params.offset.0 as usize;
 		let difference = params.len() as isize - len as isize;
 
-		let diff = difference.unsigned_abs() as u32;
-		func.params.len = params.len() as u32;
+		let diff = difference.unsigned_abs();
+		func.params.len = Encoded(params.len() as u64);
 
 		self.parameter_defs.splice(offset..offset + len, params);
 
 		match difference.cmp(&0) {
 			Ordering::Equal => {},
-			Ordering::Less => funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset -= diff),
-			Ordering::Greater => funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset += diff),
+			Ordering::Less => funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset.0 -= diff as u64),
+			Ordering::Greater => funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset.0 += diff as u64),
 		}
 	}
 
 	pub fn set_return_type(&mut self, func: ElementRef<FunctionDef>, signature: &TypeSignature) {
-		let func = &mut self.function_defs[func.offset as usize];
+		let func = &mut self.function_defs[func.offset.0 as usize];
 		func.return_ty = self.blobs.alloc(&signature).0;
 	}
 
@@ -142,18 +143,18 @@ impl MetadataBuilder {
 		}
 		let (local_refs, _) = self.blobs.alloc(&local_refs);
 
-		let func = &mut self.function_defs[func.offset as usize];
+		let func = &mut self.function_defs[func.offset.0 as usize];
 		func.body.locals = SliceRef {
 			offset: local_refs.offset,
-			len: locals.len() as u32,
-			ph: Default::default(),
+			len: Encoded(locals.len() as u64),
+			ph: PhantomData,
 		};
 	}
 
 	pub fn set_instructions(&mut self, func: ElementRef<FunctionDef>, opcodes: &[Opcode]) -> Arc<[u8]> {
 		let mut data = vec![];
 		opcodes.write(&mut data).unwrap();
-		let func = &mut self.function_defs[func.offset as usize];
+		let func = &mut self.function_defs[func.offset.0 as usize];
 		let (opcodes, buffer) = self.blobs.alloc(&data);
 		func.body.opcodes = opcodes;
 		buffer
@@ -169,40 +170,40 @@ impl MetadataBuilder {
 		offsets.write(&mut buffer)?;
 
 		if !self.type_defs.is_empty() {
-			offsets.type_table = buffer.len() as u64;
+			offsets.type_table = Encoded(buffer.len() as u64);
 			for def in &self.type_defs {
 				def.write(&mut buffer)?;
 			}
 		}
 
 		if !self.field_defs.is_empty() {
-			offsets.field_table = buffer.len() as u64;
+			offsets.field_table = Encoded(buffer.len() as u64);
 			for def in &self.type_defs {
 				def.write(&mut buffer)?;
 			}
 		}
 
 		if !self.function_defs.is_empty() {
-			offsets.function_table = buffer.len() as u64;
+			offsets.function_table = Encoded(buffer.len() as u64);
 			for def in &self.type_defs {
 				def.write(&mut buffer)?;
 			}
 		}
 
 		if !self.parameter_defs.is_empty() {
-			offsets.parameter_table = buffer.len() as u64;
+			offsets.parameter_table = Encoded(buffer.len() as u64);
 			for def in &self.type_defs {
 				def.write(&mut buffer)?;
 			}
 		}
 
 		if !self.strings.is_empty() {
-			offsets.string_heap = buffer.len() as u64;
+			offsets.string_heap = Encoded(buffer.len() as u64);
 			self.strings.build_into(&mut buffer);
 		}
 
 		if !self.blobs.is_empty() {
-			offsets.blob_heap = buffer.len() as u64;
+			offsets.blob_heap = Encoded(buffer.len() as u64);
 			self.blobs.build_into(&mut buffer);
 		}
 
@@ -224,11 +225,11 @@ impl MetadataBuilder {
 	}
 
 	pub fn get_type(&self, ty: ElementRef<TypeDef>) -> Option<&TypeDef> {
-		self.type_defs.get(ty.offset as usize)
+		self.type_defs.get(ty.offset.0 as usize)
 	}
 
 	pub fn get_fn(&self, ty: ElementRef<FunctionDef>) -> Option<&FunctionDef> {
-		self.function_defs.get(ty.offset as usize)
+		self.function_defs.get(ty.offset.0 as usize)
 	}
 
 	pub fn get_fn_by_name(&self, namespace: &str, name: &str) -> Option<&FunctionDef> {

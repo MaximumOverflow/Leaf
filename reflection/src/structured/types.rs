@@ -19,6 +19,7 @@ pub enum TypeVariant {
     #[default]
     Void,
     Char,
+    Bool,
     Dec(u32),
     Int(u32),
     UInt(u32),

@@ -64,7 +64,7 @@ impl<'l> Block<'l> {
                             }
 
                             value.load(builder)?;
-                            builder.push_opcode(Opcode::StoreLocal(id));
+                            builder.store_local(id).unwrap();
                             true
                         }
                     };
@@ -86,7 +86,7 @@ impl<'l> Block<'l> {
                         Value::Local(ty, id, mutability, ..) => {
                             match mutability {
                                 Mutability::Mutable => match Some(ty) == value.ty() {
-                                    true => builder.push_opcode(Opcode::StoreLocal(*id)),
+                                    true => builder.store_local(*id).unwrap(),
                                     false => return Err(invalid_type_err(&ty, value.ty())),
                                 },
                                 Mutability::Immutable => {

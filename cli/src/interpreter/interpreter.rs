@@ -81,13 +81,13 @@ impl Interpreter {
 
 			match opcode {
 				Opcode::PushInt8(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushInt16(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushInt32(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushInt64(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushInt16(value) => self.stack.push_value_discard(value.0)?,
+				Opcode::PushInt32(value) => self.stack.push_value_discard(value.0)?,
+				Opcode::PushInt64(value) => self.stack.push_value_discard(value.0)?,
 				Opcode::PushUInt8(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushUInt16(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushUInt32(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushUInt64(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushUInt16(value) => self.stack.push_value_discard(value.0)?,
+				Opcode::PushUInt32(value) => self.stack.push_value_discard(value.0)?,
+				Opcode::PushUInt64(value) => self.stack.push_value_discard(value.0)?,
 				Opcode::PushDecimal16(value) => self.stack.push_value_discard(value)?,
 				Opcode::PushDecimal32(value) => self.stack.push_value_discard(value)?,
 				Opcode::PushDecimal64(value) => self.stack.push_value_discard(value)?,
@@ -99,7 +99,7 @@ impl Interpreter {
 				Opcode::PushLocal4 => self.push_local(locals.get(4))?,
 				Opcode::PushLocal5 => self.push_local(locals.get(5))?,
 				Opcode::PushLocal6 => self.push_local(locals.get(6))?,
-				Opcode::PushLocal(i) => self.push_local(locals.get(i))?,
+				Opcode::PushLocal(i) => self.push_local(locals.get(i.0))?,
 
 				Opcode::PushLocalA0 => self.push_local_address(locals.get(0))?,
 				Opcode::PushLocalA1 => self.push_local_address(locals.get(1))?,
@@ -108,7 +108,7 @@ impl Interpreter {
 				Opcode::PushLocalA4 => self.push_local_address(locals.get(4))?,
 				Opcode::PushLocalA5 => self.push_local_address(locals.get(5))?,
 				Opcode::PushLocalA6 => self.push_local_address(locals.get(6))?,
-				Opcode::PushLocalA(i) => self.push_local_address(locals.get(i))?,
+				Opcode::PushLocalA(i) => self.push_local_address(locals.get(i.0))?,
 
 				Opcode::StoreField0 => self.store_field(0)?,
 				Opcode::StoreField1 => self.store_field(1)?,
@@ -117,7 +117,7 @@ impl Interpreter {
 				Opcode::StoreField4 => self.store_field(4)?,
 				Opcode::StoreField5 => self.store_field(5)?,
 				Opcode::StoreField6 => self.store_field(6)?,
-				Opcode::StoreField(i) => self.store_field(i)?,
+				Opcode::StoreField(i) => self.store_field(i.0)?,
 
 				Opcode::Add => impl_binary_op!(+),
 				Opcode::Sub => impl_binary_op!(-),

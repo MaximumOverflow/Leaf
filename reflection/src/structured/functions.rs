@@ -3,6 +3,8 @@ use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, OnceLock};
 use crate::structured::Type;
 use std::io::Cursor;
+use crate::Encoded;
+use paste::paste;
 
 pub struct Function {
     name: Arc<str>,
@@ -219,9 +221,10 @@ impl<'l> FunctionSignatureBuilder<'l> {
 
         let builder = FunctionBodyBuilder {
             data: builder_data::Body {
+                block: BlockIndex(0),
                 func: func.clone(),
-                opcodes: vec![],
                 locals: Default::default(),
+                blocks: vec![vec![]],
             },
         };
 
@@ -232,6 +235,26 @@ impl<'l> FunctionSignatureBuilder<'l> {
 
 pub type FunctionBodyBuilder = FunctionBuilder<builder_data::Body>;
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct BlockIndex(pub usize);
+
+macro_rules! compress_opcode {
+    ($expr: expr, $op: ident) => {
+        paste! {
+            match $expr {
+                0 => Opcode::[<$op 0>],
+                1 => Opcode::[<$op 1>],
+                2 => Opcode::[<$op 2>],
+                3 => Opcode::[<$op 3>],
+                4 => Opcode::[<$op 4>],
+                5 => Opcode::[<$op 5>],
+                6 => Opcode::[<$op 6>],
+                _ => Opcode::$op(Encoded($expr)),
+            }
+        }
+    };
+}
+
 impl FunctionBodyBuilder {
     pub fn declare_local(&mut self, ty: &Arc<Type>) -> &Local {
         let id = self.data.locals.len();
@@ -240,155 +263,116 @@ impl FunctionBodyBuilder {
     }
 
     pub fn define(self) -> Arc<Function> {
+        let mut opcodes = unsafe {
+            let size = self.data.blocks.iter().map(|i| i.len()).sum();
+            let mut opcodes = Vec::with_capacity(size);
+            opcodes.set_len(size);
+            opcodes
+        };
+
+        // Merge all blocks and calculate their offset
+        let mut offset = 0;
+        let mut block_offsets = vec![0; self.data.blocks.len()];
+        for (i, block) in self.data.blocks.iter().enumerate() {
+            block_offsets[i] = offset;
+            opcodes[offset..offset+block.len()].copy_from_slice(block);
+            offset += block.len();
+        }
+
+        // Back-patch jumps
+        offset = 0;
+        while offset < opcodes.len() {
+            let mut cursor = Cursor::new(&opcodes);
+            cursor.set_position(offset as u64);
+
+            let opcode = Opcode::read(&mut cursor).unwrap();
+            let position = cursor.position() as usize;
+
+            match opcode {
+                | Opcode::Jump(block)
+                | Opcode::CondJump(block) => {
+                    let block_offset = block_offsets[block as usize] as u32;
+                    opcodes[offset+1..offset+5].copy_from_slice(bytemuck::bytes_of(&block_offset));
+                },
+                _ => {}
+            }
+
+            offset = position;
+        }
+
         self.data.func.body.set(Body {
+            opcodes,
             locals: self.data.locals,
-            opcodes: self.data.opcodes,
         }).unwrap();
 
         self.data.func
     }
 
-    pub fn push_local(&mut self, local: usize) -> Option<usize> {
-        if local >= self.data.locals.len() {
-            return None;
+    pub fn add_block(&mut self) -> BlockIndex {
+        let idx = BlockIndex(self.data.blocks.len());
+        self.data.blocks.push(vec![]);
+        idx
+    }
+
+    pub fn use_block(&mut self, block: BlockIndex) -> Result<BlockIndex, ()> {
+        match block.0 < self.data.blocks.len() {
+            false => Err(()),
+            true => Ok(std::mem::replace(&mut self.data.block, block)),
         }
-
-        let opcode = match local {
-            0 => Opcode::PushLocal0,
-            1 => Opcode::PushLocal1,
-            2 => Opcode::PushLocal2,
-            3 => Opcode::PushLocal3,
-            4 => Opcode::PushLocal4,
-            5 => Opcode::PushLocal5,
-            6 => Opcode::PushLocal6,
-            _ => Opcode::PushLocal(local),
-        };
-
-        Some(self.push_opcode(opcode))
     }
 
-    pub fn push_local_address(&mut self, local: usize) -> Option<usize> {
-        if local >= self.data.locals.len() {
-            return None;
+    pub fn push_local(&mut self, local: usize) -> Result<(), &'static str> {
+        match local >= self.data.locals.len() {
+            true => Err("Local id out of bounds"),
+            false => Ok(self.push_opcode(compress_opcode!(local, PushLocal)))
         }
-
-        let opcode = match local {
-            0 => Opcode::PushLocalA0,
-            1 => Opcode::PushLocalA1,
-            2 => Opcode::PushLocalA2,
-            3 => Opcode::PushLocalA3,
-            4 => Opcode::PushLocalA4,
-            5 => Opcode::PushLocalA5,
-            6 => Opcode::PushLocalA6,
-            _ => Opcode::PushLocalA(local),
-        };
-
-        Some(self.push_opcode(opcode))
     }
 
-    pub fn store_local(&mut self, local: usize) -> Option<usize> {
-        if local >= self.data.locals.len() {
-            return None;
+    pub fn push_local_address(&mut self, local: usize) -> Result<(), &'static str> {
+        match local >= self.data.locals.len() {
+            true => Err("Local id out of bounds"),
+            false => Ok(self.push_opcode(compress_opcode!(local, PushLocalA)))
         }
-
-        let opcode = match local {
-            0 => Opcode::StoreLocal0,
-            1 => Opcode::StoreLocal1,
-            2 => Opcode::StoreLocal2,
-            3 => Opcode::StoreLocal3,
-            4 => Opcode::StoreLocal4,
-            5 => Opcode::StoreLocal5,
-            6 => Opcode::StoreLocal6,
-            _ => Opcode::StoreLocal(local),
-        };
-
-        Some(self.push_opcode(opcode))
     }
 
-    pub fn push_param(&mut self, param: usize) -> Option<usize> {
-        if param >= self.data.func.parameters.len() {
-            return None;
+    pub fn store_local(&mut self, local: usize) -> Result<(), &'static str> {
+        match local >= self.data.locals.len() {
+            true => Err("Local id out of bounds"),
+            false => Ok(self.push_opcode(compress_opcode!(local, StoreLocal)))
         }
-
-        let opcode = match param {
-            0 => Opcode::PushParam0,
-            1 => Opcode::PushParam1,
-            2 => Opcode::PushParam2,
-            3 => Opcode::PushParam3,
-            4 => Opcode::PushParam4,
-            5 => Opcode::PushParam5,
-            6 => Opcode::PushParam6,
-            _ => Opcode::PushParam(param),
-        };
-
-        Some(self.push_opcode(opcode))
     }
 
-    pub fn push_param_address(&mut self, param: usize) -> Option<usize> {
-        if param >= self.data.func.parameters.len() {
-            return None;
+    pub fn push_param(&mut self, param: usize) -> Result<(), &'static str> {
+        match param >= self.data.locals.len() {
+            true => Err("Parameter id out of bounds"),
+            false => Ok(self.push_opcode(compress_opcode!(param, PushParam)))
         }
-
-        let opcode = match param {
-            0 => Opcode::PushParamA0,
-            1 => Opcode::PushParamA1,
-            2 => Opcode::PushParamA2,
-            3 => Opcode::PushParamA3,
-            4 => Opcode::PushParamA4,
-            5 => Opcode::PushParamA5,
-            6 => Opcode::PushParamA6,
-            _ => Opcode::PushParamA(param),
-        };
-
-        Some(self.push_opcode(opcode))
     }
 
-    pub fn store_param(&mut self, param: usize) -> Option<usize> {
-        if param >= self.data.func.parameters.len() {
-            return None;
+    pub fn push_param_address(&mut self, param: usize) -> Result<(), &'static str> {
+        match param >= self.data.locals.len() {
+            true => Err("Parameter id out of bounds"),
+            false => Ok(self.push_opcode(compress_opcode!(param, PushParamA)))
         }
-
-        let opcode = match param {
-            0 => Opcode::StoreParam0,
-            1 => Opcode::StoreParam1,
-            2 => Opcode::StoreParam2,
-            3 => Opcode::StoreParam3,
-            4 => Opcode::StoreParam4,
-            5 => Opcode::StoreParam5,
-            6 => Opcode::StoreParam6,
-            _ => Opcode::StoreParam(param),
-        };
-
-        Some(self.push_opcode(opcode))
     }
 
-    pub fn store_field(&mut self, field: usize) -> usize {
-        let opcode = match field {
-            0 => Opcode::StoreField0,
-            1 => Opcode::StoreField1,
-            2 => Opcode::StoreField2,
-            3 => Opcode::StoreField3,
-            4 => Opcode::StoreField4,
-            5 => Opcode::StoreField5,
-            6 => Opcode::StoreField6,
-            _ => Opcode::StoreField(field),
-        };
-
-        self.push_opcode(opcode)
+    pub fn store_param(&mut self, param: usize) -> Result<(), &'static str> {
+        match param >= self.data.locals.len() {
+            true => Err("Parameter id out of bounds"),
+            false => Ok(self.push_opcode(compress_opcode!(param, StoreParam)))
+        }
     }
 
-    pub fn push_opcode(&mut self, opcode: Opcode) -> usize {
-        let ir = self.data.opcodes.len();
+    pub fn store_field(&mut self, field: usize) {
+        self.push_opcode(compress_opcode!(field, StoreField))
+    }
 
-        let mut cursor = Cursor::new(&mut self.data.opcodes);
+    pub fn push_opcode(&mut self, opcode: Opcode) {
+        let block = &mut  self.data.blocks[self.data.block.0];
+        let ir = block.len();
+        let mut cursor = Cursor::new(block);
         cursor.set_position(ir as u64);
-
         opcode.write(&mut cursor).unwrap();
-        ir
-    }
-
-    pub fn ir_offset(&self) -> usize {
-        self.data.opcodes.len()
     }
 }
 
@@ -402,7 +386,7 @@ pub mod builder_data {
     use std::sync::Arc;
     use crate::structured::Type;
     use std::collections::HashMap;
-    use crate::structured::functions::{Function, Local, Parameter};
+    use crate::structured::functions::{BlockIndex, Function, Local, Parameter};
 
     pub struct Signature<'l> {
         pub(super) name: Arc<str>,
@@ -413,8 +397,9 @@ pub mod builder_data {
     }
 
     pub struct Body {
-        pub(super) opcodes: Vec<u8>,
+        pub(super) block: BlockIndex,
         pub(super) func: Arc<Function>,
         pub(super) locals: Vec<Local>,
+        pub(super) blocks: Vec<Vec<u8>>,
     }
 }
