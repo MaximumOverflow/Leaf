@@ -1,10 +1,10 @@
 use crate::interpreter::memory::{Stack, TypeLayoutCache, PushValue};
 use leaf_compilation::reflection::structured::types::TypeVariant;
 use leaf_compilation::reflection::structured::{Function, Type};
-use leaf_compilation::reflection::{MetadataRead, Opcode};
+use crate::interpreter::instruction_cache::InstructionCache;
+use leaf_compilation::reflection::Opcode;
 use crate::interpreter::value::Value;
 use anyhow::{anyhow, Context};
-use std::io::Cursor;
 use std::ops::Range;
 use std::sync::Arc;
 use std::rc::Rc;
@@ -12,13 +12,14 @@ use std::rc::Rc;
 pub struct Interpreter {
 	stack: Stack,
 	layout_cache: Rc<TypeLayoutCache>,
+	instruction_cache: InstructionCache,
 }
 
 impl Interpreter {
 	pub fn new() -> Self {
 		let layout_cache = Rc::new(TypeLayoutCache::default());
 		let stack = Stack::with_capacity(layout_cache.clone(), 1000000);
-		Self { stack, layout_cache }
+		Self { stack, layout_cache, instruction_cache: Default::default() }
 	}
 
 	#[inline(never)]
@@ -37,6 +38,8 @@ impl Interpreter {
 			return Err(anyhow!("Function has no body"));
 		};
 
+		let opcodes = self.instruction_cache.get_instructions(function)?;
+
 		let mut locals = Vec::with_capacity(body.locals().len());
 		for local in body.locals() {
 			let ty = local.ty().clone();
@@ -44,9 +47,10 @@ impl Interpreter {
 			locals.push((ty, range));
 		}
 
-		let mut cursor = Cursor::new(body.opcodes());
-		while cursor.position() != body.opcodes().len() as u64 {
-			let opcode = Opcode::read(&mut cursor)?;
+		let mut i = 0;
+		while i < opcodes.len() {
+			let opcode = opcodes[i];
+			i += 1;
 
 			macro_rules! impl_unary_op {
 				($op: tt) => {
@@ -199,24 +203,24 @@ impl Interpreter {
 				Opcode::Neg => impl_unary_op!(!),
 
 				Opcode::Jump(target) => {
-					cursor.set_position(target as u64);
+					i = target as usize;
 				}
 
 				Opcode::ConditionalJump(target) => {
 					let mut value = 0u8;
 					let _ = self.stack.pop(bytemuck::bytes_of_mut(&mut value))?;
 					if value != 0 {
-						cursor.set_position(target as u64);
+						i = target as usize;
 					}
 				}
 
 				Opcode::Branch(t0, t1) => {
 					let mut value = 0u8;
 					let _ = self.stack.pop(bytemuck::bytes_of_mut(&mut value))?;
-					cursor.set_position(match value != 0 {
-						true => t0 as u64,
-						false => t1 as u64,
-					});
+					i = match value != 0 {
+						true => t0 as usize,
+						false => t1 as usize,
+					}
 				}
 
 				Opcode::Ret => {
