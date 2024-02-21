@@ -151,14 +151,26 @@ pub Statement: Statement<'input> = {
     <to: Expression> "=" <val: Expression> ";"
         => Statement::Assignment(to, val),
 
-    "if" <condition: Expression> <block: Block>
-        => Statement::If(If { <> }),
+    If => Statement::If(<>),
+
+    "while" <condition: Expression> <block: Block>
+        => Statement::While(While { <> }),
 
     "return" <expr: Expression?> ";" =>
          Statement::Return(<>),
 
     "yield" <expr: Expression?> ";" =>
           Statement::Yield(<>),
+}
+
+If: If<'input> = {
+    "if" <condition: Expression> <block: Block> <alt: Else?>
+        => If { condition, block, r#else: alt.map(|i| Box::new(i)) },
+}
+
+Else: Else<'input> = {
+    "else" <block: Block> => Else::Block(block),
+    "else" <if_: If> => Else::If(if_),
 }
 
 pub CompilationUnit: CompilationUnit<'input> = {

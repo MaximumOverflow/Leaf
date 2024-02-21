@@ -11,8 +11,10 @@ pub enum Opcode {
 	Ret = 0x01,
 	Dup = 0x02,
 	Swap = 0x03,
+
 	Jump(u32) = 0x04,
-	CondJump(u32) = 0x05,
+	Branch(u32, u32) = 0x06,
+	ConditionalJump(u32) = 0x05,
 
 	Add = 0x10,
 	Sub = 0x11,

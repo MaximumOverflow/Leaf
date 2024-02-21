@@ -47,6 +47,34 @@ impl Interpreter {
 		while cursor.position() != body.opcodes().len() as u64 {
 			let opcode = Opcode::read(&mut cursor)?;
 
+			macro_rules! impl_unary_op {
+				($op: tt) => {
+					{
+						let mut lhs = [0u8; 8];
+						let (lhs, lhs_ty) = {
+							let size = self.stack.peek().context("Stack is empty")?.1;
+							let lhs = &mut lhs[..size];
+							let ty = self.stack.pop(lhs)?;
+							(lhs, ty)
+						};
+
+						match (lhs_ty.as_ref().as_ref()) {
+							TypeVariant::Bool => {
+								let lhs: bool = bytemuck::pod_read_unaligned::<u8>(&lhs) != 0;
+								let res = ($op lhs) as u8;
+								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
+							}
+							TypeVariant::Int(4) => {
+								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
+								let res = $op lhs;
+								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
+							}
+							_ => unimplemented!(),
+						}
+					}
+				};
+			}
+
 			macro_rules! impl_binary_op {
 				($op: tt) => {
 					{
@@ -79,6 +107,38 @@ impl Interpreter {
 				};
 			}
 
+			macro_rules! impl_binary_op_bool {
+				($op: tt) => {
+					{
+						let mut rhs = [0u8; 8];
+						let (rhs, rhs_ty) = {
+							let size = self.stack.peek().context("Stack is empty")?.1;
+							let rhs = &mut rhs[..size];
+							let ty = self.stack.pop(rhs)?;
+							(rhs, ty)
+						};
+
+						let mut lhs = [0u8; 8];
+						let (lhs, lhs_ty) = {
+							let size = self.stack.peek().context("Stack is empty")?.1;
+							let lhs = &mut lhs[..size];
+							let ty = self.stack.pop(lhs)?;
+							(lhs, ty)
+						};
+
+						match (lhs_ty.as_ref().as_ref(), rhs_ty.as_ref().as_ref()) {
+							(TypeVariant::Int(4), TypeVariant::Int(4)) => {
+								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
+								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
+								let res = lhs $op rhs;
+								self.stack.push(Type::bool(), Some(bytemuck::bytes_of(&res)))?;
+							}
+							_ => unimplemented!(),
+						}
+					}
+				};
+			}
+
 			match opcode {
 				Opcode::PushInt8(value) => self.stack.push_value_discard(value)?,
 				Opcode::PushInt16(value) => self.stack.push_value_discard(value.0)?,
@@ -91,6 +151,7 @@ impl Interpreter {
 				Opcode::PushDecimal16(value) => self.stack.push_value_discard(value)?,
 				Opcode::PushDecimal32(value) => self.stack.push_value_discard(value)?,
 				Opcode::PushDecimal64(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushBool(value) => self.stack.push_value_discard(value)?,
 
 				Opcode::PushLocal0 => self.push_local(locals.get(0))?,
 				Opcode::PushLocal1 => self.push_local(locals.get(1))?,
@@ -110,6 +171,15 @@ impl Interpreter {
 				Opcode::PushLocalA6 => self.push_local_address(locals.get(6))?,
 				Opcode::PushLocalA(i) => self.push_local_address(locals.get(i.0))?,
 
+				Opcode::StoreLocal0 => self.store_local(locals.get(0))?,
+				Opcode::StoreLocal1 => self.store_local(locals.get(1))?,
+				Opcode::StoreLocal2 => self.store_local(locals.get(2))?,
+				Opcode::StoreLocal3 => self.store_local(locals.get(3))?,
+				Opcode::StoreLocal4 => self.store_local(locals.get(4))?,
+				Opcode::StoreLocal5 => self.store_local(locals.get(5))?,
+				Opcode::StoreLocal6 => self.store_local(locals.get(6))?,
+				Opcode::StoreLocal(i) => self.store_local(locals.get(i.0))?,
+
 				Opcode::StoreField0 => self.store_field(0)?,
 				Opcode::StoreField1 => self.store_field(1)?,
 				Opcode::StoreField2 => self.store_field(2)?,
@@ -124,6 +194,29 @@ impl Interpreter {
 				Opcode::Mul => impl_binary_op!(*),
 				Opcode::Div => impl_binary_op!(/),
 				Opcode::Mod => impl_binary_op!(%),
+				Opcode::Lt => impl_binary_op_bool!(<),
+				Opcode::Neg => impl_unary_op!(!),
+
+				Opcode::Jump(target) => {
+					cursor.set_position(target as u64);
+				}
+
+				Opcode::ConditionalJump(target) => {
+					let mut value = 0u8;
+					let _ = self.stack.pop(bytemuck::bytes_of_mut(&mut value))?;
+					if value != 0 {
+						cursor.set_position(target as u64);
+					}
+				}
+
+				Opcode::Branch(t0, t1) => {
+					let mut value = 0u8;
+					let _ = self.stack.pop(bytemuck::bytes_of_mut(&mut value))?;
+					cursor.set_position(match value != 0 {
+						true => t0 as u64,
+						false => t1 as u64,
+					});
+				}
 
 				Opcode::Ret => {
 					let value = match function.return_ty().as_ref().as_ref() {
@@ -178,6 +271,13 @@ impl Interpreter {
 		}
 
 		Ok(())
+	}
+
+	pub fn store_local(&mut self, local: Option<&(Arc<Type>, Range<usize>)>) -> anyhow::Result<()> {
+		let Some((ty, range)) = local else {
+			return Err(anyhow!("Invalid local"));
+		};
+		self.stack.pop_inner(ty, range.clone())
 	}
 
 	fn store_field(&mut self, field: usize) -> anyhow::Result<()> {

@@ -3,7 +3,7 @@ use leaf_compilation::reflection::structured::Type;
 use std::ops::{Index, IndexMut, Range};
 use std::fmt::{Debug, Formatter};
 use std::collections::HashMap;
-use bytemuck::{bytes_of, Pod};
+use bytemuck::bytes_of;
 use std::alloc::Layout;
 use std::cell::RefCell;
 use anyhow::{anyhow};
@@ -180,14 +180,10 @@ impl Stack {
 			return Err(anyhow!("Stack overflow"))
 		}
 
+		self.memory.copy_within(src, self.sp);
+
 		self.sp = sp;
 		self.elements.push((ty.clone(), len, layout.size()));
-
-		unsafe {
-			let src = self.memory.as_ptr().add(src.start);
-			let dst = self.memory.as_mut_ptr().add(self.sp);
-			std::ptr::copy(src, dst, layout.size());
-		}
 
 		Ok(range)
 	}
@@ -226,14 +222,9 @@ impl Stack {
 		}
 
 		self.sp -= *len;
-
-		unsafe {
-			let src = self.memory.as_ptr().add(self.sp);
-			let dst = self.memory.as_mut_ptr().add(dst.end);
-			std::ptr::copy(src, dst, *size);
-		}
-
+		self.memory.copy_within(self.sp..self.sp + *len, dst.start);
 		let _ = self.elements.pop();
+
 		Ok(())
 	}
 
@@ -318,7 +309,7 @@ impl Debug for Stack {
 	}
 }
 
-pub trait PushValue<T: Pod> {
+pub trait PushValue<T> {
 	fn push_value(&mut self, value: T) -> anyhow::Result<Range<usize>>;
 
 	fn push_value_discard(&mut self, value: T) -> anyhow::Result<()> {
@@ -340,3 +331,10 @@ macro_rules! impl_push {
 }
 
 impl_push!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
+
+impl PushValue<bool> for Stack {
+	fn push_value(&mut self, value: bool) -> anyhow::Result<Range<usize>> {
+		let value = value as u8;
+		self.push(Type::bool(), Some(bytes_of(&value)))
+	}
+}

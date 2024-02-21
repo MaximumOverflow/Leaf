@@ -71,3 +71,5 @@ pub fn write_compressed_integer<T: Write>(stream: &mut T, num: u64) -> Result<()
 		Some((bytes, len)) => stream.write_all(&bytes[..len]),
 	}
 }
+
+

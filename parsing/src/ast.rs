@@ -240,6 +240,7 @@ pub struct Block<'l> {
 #[derive(Debug, PartialEq)]
 pub enum Statement<'l> {
 	If(If<'l>),
+	While(While<'l>),
 	VarDecl(VarDecl<'l>),
 	Expression(Expression<'l>),
 	Yield(Option<Expression<'l>>),
@@ -273,6 +274,19 @@ impl<'l> VarDecl<'l> {
 
 #[derive(Debug, PartialEq)]
 pub struct If<'l> {
+	pub condition: Expression<'l>,
+	pub block: Block<'l>,
+	pub r#else: Option<Box<Else<'l>>>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Else<'l> {
+	If(If<'l>),
+	Block(Block<'l>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct While<'l> {
 	pub condition: Expression<'l>,
 	pub block: Block<'l>,
 }

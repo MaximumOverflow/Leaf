@@ -2,6 +2,7 @@ use leaf_parsing::ast::Type as TypeNode;
 use leaf_reflection::structured::Type;
 use std::collections::HashMap;
 use std::sync::Arc;
+use anyhow::anyhow;
 
 pub trait TypeResolver {
     fn types(&self) -> &HashMap<Arc<str>, Arc<Type>>;
@@ -31,5 +32,12 @@ pub trait TypeResolver {
             }
             _ => unimplemented!(),
         }
+    }
+}
+
+pub fn invalid_type_err(expected: &Arc<Type>, got: Option<&Arc<Type>>) -> anyhow::Error {
+    match got {
+        None => anyhow!("Expected type '{}', got '?'", expected),
+        Some(ty) => anyhow!("Expected type '{}', got '{}'", expected, ty),
     }
 }

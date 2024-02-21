@@ -78,7 +78,7 @@ impl Debug for Function {
             write!(name, "IR_{:#06X}", cursor.position())?;
             match Opcode::read(&mut cursor) {
                 Ok(opcode) => {
-                    dbg.field(&name, &format_args!("{:?}", opcode));
+                    dbg.field(&name, &format_args!("{:02X?}", opcode));
                 },
                 Err(err) => {
                     dbg.field(&name, &err);
@@ -289,11 +289,19 @@ impl FunctionBodyBuilder {
             let position = cursor.position() as usize;
 
             match opcode {
-                | Opcode::Jump(block)
-                | Opcode::CondJump(block) => {
-                    let block_offset = block_offsets[block as usize] as u32;
-                    opcodes[offset+1..offset+5].copy_from_slice(bytemuck::bytes_of(&block_offset));
-                },
+                | Opcode::Jump(b0)
+                | Opcode::ConditionalJump(b0) => {
+                    let b0 = block_offsets[b0 as usize] as u32;
+                    opcodes[offset+1..offset+5].copy_from_slice(bytemuck::bytes_of(&b0));
+                }
+
+                Opcode::Branch(b0, b1) => {
+                    let b0 = block_offsets[b0 as usize] as u32;
+                    let b1 = block_offsets[b1 as usize] as u32;
+                    opcodes[offset+1..offset+5].copy_from_slice(bytemuck::bytes_of(&b0));
+                    opcodes[offset+5..offset+9].copy_from_slice(bytemuck::bytes_of(&b1));
+                }
+
                 _ => {}
             }
 
@@ -365,6 +373,27 @@ impl FunctionBodyBuilder {
 
     pub fn store_field(&mut self, field: usize) {
         self.push_opcode(compress_opcode!(field, StoreField))
+    }
+
+    pub fn jump(&mut self, block: BlockIndex) -> Result<(), &'static str> {
+        match block.0 >= self.data.blocks.len() {
+            true => Err("Block id out of bounds"),
+            false => Ok(self.push_opcode(Opcode::Jump(block.0 as u32)))
+        }
+    }
+
+    pub fn cond_jump(&mut self, block: BlockIndex) -> Result<(), &'static str> {
+        match block.0 >= self.data.blocks.len() {
+            true => Err("Block id out of bounds"),
+            false => Ok(self.push_opcode(Opcode::ConditionalJump(block.0 as u32)))
+        }
+    }
+
+    pub fn branch(&mut self, b0: BlockIndex, b1: BlockIndex) -> Result<(), &'static str> {
+        match b0.0 >= self.data.blocks.len() || b1.0 >= self.data.blocks.len() {
+            true => Err("Block id out of bounds"),
+            false => Ok(self.push_opcode(Opcode::Branch(b0.0 as u32, b1.0 as u32)))
+        }
     }
 
     pub fn push_opcode(&mut self, opcode: Opcode) {

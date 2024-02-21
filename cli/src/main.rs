@@ -30,6 +30,7 @@ fn main() {
 	let args = Args::parse();
 	match args {
 		Args::Interpret(InterpretArgs { file }) => {
+			let mut time = SystemTime::now();
 			let code = std::fs::read_to_string(&file).unwrap();
 
 			let mut assembly_builder = AssemblyBuilder::new();
@@ -38,7 +39,10 @@ fn main() {
 			}
 
 			let assembly = assembly_builder.build();
+			let comp_time = time.elapsed().unwrap();
+
 			println!("{:#?}", assembly);
+			println!("Compilation time: {:?}", comp_time);
 
 			let namespace = {
 				let start = code.find("namespace ").unwrap() + 10;
@@ -53,11 +57,17 @@ fn main() {
 				return;
 			};
 
+			time = SystemTime::now();
 			let mut interpreter = Interpreter::new();
 
 			match interpreter.interpret(main, vec![]) {
 				Ok(value) => {
+					let interp_time = time.elapsed().unwrap();
+
+					println!("Stack dump: {:#?}", interpreter.stack());
 					println!("Result: {:#?}", value);
+
+					println!("Interpretation time: {:?}", interp_time);
 				},
 				Err(err) => {
 					println!("Stack dump: {:#?}", interpreter.stack());

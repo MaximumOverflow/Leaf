@@ -1,8 +1,8 @@
-use crate::frontend::block::{Block, BlockRequirements, invalid_type_err};
+use crate::frontend::block::{Block, BlockRequirements};
 use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal};
 use leaf_reflection::structured::functions::FunctionBodyBuilder;
 use leaf_reflection::structured::types::TypeVariant;
-use crate::frontend::types::TypeResolver;
+use crate::frontend::types::{invalid_type_err, TypeResolver};
 use leaf_reflection::structured::Type;
 use leaf_reflection::{Encoded, Opcode};
 use std::sync::Arc;
@@ -56,6 +56,10 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 builder.push_opcode(Opcode::PushUInt64(Encoded(*integer)));
                 Ok(Value::Const(Type::u64().clone()))
             }
+            Literal::Boolean(boolean) => {
+                builder.push_opcode(Opcode::PushBool(*boolean));
+                Ok(Value::Const(Type::bool().clone()))
+            }
 
             Literal::Id(id) => {
                 match block.values().get(*id) {
@@ -92,6 +96,12 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                         BinaryOperator::Mul => builder.push_opcode(Opcode::Mul),
                         BinaryOperator::Div => builder.push_opcode(Opcode::Div),
                         BinaryOperator::Mod => builder.push_opcode(Opcode::Mod),
+                        BinaryOperator::Lt => builder.push_opcode(Opcode::Lt),
+                        BinaryOperator::Gt => builder.push_opcode(Opcode::Gt),
+                        BinaryOperator::Le => builder.push_opcode(Opcode::Le),
+                        BinaryOperator::Ge => builder.push_opcode(Opcode::Ge),
+                        BinaryOperator::Eq => builder.push_opcode(Opcode::Eq),
+                        BinaryOperator::Neq => builder.push_opcode(Opcode::Neq),
                         _ => unimplemented!("{:?} {:?}, {:?}", op, lhs_type, rhs_type),
                     };
                     Ok(Value::Temp(lhs_type.clone()))

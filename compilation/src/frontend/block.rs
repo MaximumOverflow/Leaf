@@ -1,7 +1,7 @@
-use leaf_parsing::ast::{Block as BlockAST, Expression, Literal, Statement};
+use leaf_parsing::ast::{Block as BlockAST, Else, Expression, If, Literal, Statement, While};
 use crate::frontend::expressions::{compile_expression, Mutability};
 use leaf_reflection::structured::functions::FunctionBodyBuilder;
-use crate::frontend::types::TypeResolver;
+use crate::frontend::types::{invalid_type_err, TypeResolver};
 use crate::frontend::expressions::Value;
 use leaf_reflection::structured::Type;
 use std::collections::HashMap;
@@ -104,9 +104,89 @@ impl<'l> Block<'l> {
                     }
                 }
 
+                Statement::If(stmt) => {
+                    self.compile_if(stmt, builder)?;
+                }
+
+                Statement::While(While { condition, block }) => {
+                    let check_block = builder.add_block();
+                    builder.use_block(check_block).unwrap();
+
+                    let condition = compile_expression(self, condition, builder)?;
+                    condition.load(builder)?;
+
+                    let then_block = builder.add_block();
+                    let cont_block = builder.add_block();
+                    builder.push_opcode(Opcode::Neg);
+                    builder.cond_jump(cont_block).unwrap();
+
+                    let mut block_data = Block { values: self.values.clone(), parent: self };
+                    builder.use_block(then_block).unwrap();
+                    block_data.compile(block, builder)?;
+
+                    builder.jump(check_block).unwrap();
+                    builder.use_block(cont_block).unwrap();
+                }
+
                 _ => unimplemented!("{:?}", statement),
             }
         }
+        Ok(())
+    }
+
+    fn compile_if(&mut self, stmt: &If, builder: &mut FunctionBodyBuilder) -> anyhow::Result<()> {
+        let If { condition, block, r#else } = stmt;
+        let condition = compile_expression(self, condition, builder)?;
+        condition.load(builder)?;
+
+        let then_block = builder.add_block();
+        let else_block = builder.add_block();
+
+        match r#else {
+            None => {
+                builder.push_opcode(Opcode::Neg);
+                builder.cond_jump(else_block).unwrap();
+
+                let mut block_data = Block { values: self.values.clone(), parent: self };
+                builder.use_block(then_block).unwrap();
+                block_data.compile(block, builder)?;
+
+                builder.use_block(else_block).unwrap();
+            },
+
+            Some(r#else) => match &**r#else {
+                Else::Block(r#else) => {
+                    builder.push_opcode(Opcode::Neg);
+                    builder.cond_jump(else_block).unwrap();
+
+                    let mut block_data = Block { values: self.values.clone(), parent: self };
+                    builder.use_block(then_block).unwrap();
+                    block_data.compile(block, builder)?;
+
+                    block_data = Block { values: self.values.clone(), parent: self };
+                    builder.use_block(else_block).unwrap();
+                    block_data.compile(r#else, builder)?;
+                }
+
+                Else::If(r#if) => {
+                    let cont_block = builder.add_block();
+                    builder.cond_jump(then_block).unwrap();
+
+                    let mut block_data = Block { values: self.values.clone(), parent: self };
+                    builder.use_block(then_block).unwrap();
+                    block_data.compile(block, builder)?;
+                    builder.jump(cont_block).unwrap();
+
+                    block_data = Block { values: self.values.clone(), parent: self };
+                    builder.use_block(else_block).unwrap();
+                    block_data.compile_if(r#if, builder)?;
+                    builder.jump(cont_block).unwrap();
+
+                    builder.use_block(cont_block).unwrap();
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -128,12 +208,5 @@ impl BlockRequirements for Block<'_> {
 
     fn values_mut(&mut self) -> &mut HashMap<Arc<str>, Value> {
         &mut self.values
-    }
-}
-
-pub fn invalid_type_err(expected: &Arc<Type>, got: Option<&Arc<Type>>) -> anyhow::Error {
-    match got {
-        None => anyhow!("Expected type '{}', got '?'", expected),
-        Some(ty) => anyhow!("Expected type '{}', got '{}'", expected, ty),
     }
 }

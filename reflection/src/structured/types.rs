@@ -58,6 +58,11 @@ impl Type {
         TYPE.get_or_init(|| Self::new(TypeVariant::Char, ElementRef::default()))
     }
 
+    pub fn bool() -> &'static Arc<Type> {
+        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+        TYPE.get_or_init(|| Self::new(TypeVariant::Bool, ElementRef::default()))
+    }
+
     pub fn i8() -> &'static Arc<Type> {
         static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
         TYPE.get_or_init(|| Self::new(TypeVariant::Int(1), ElementRef::default()))
@@ -117,6 +122,7 @@ impl Type {
         match &self.variant {
             TypeVariant::Void => Some("void"),
             TypeVariant::Char => Some("char"),
+            TypeVariant::Bool => Some("bool"),
             TypeVariant::Dec(size) => match *size {
                 2 => Some("f16"),
                 4 => Some("f32"),
