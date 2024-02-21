@@ -120,7 +120,7 @@ impl Stack {
 
 		if let Some(bytes) = bytes {
 			if bytes.len() != layout.size() {
-				return Err(anyhow!("Invalid buffer length. Expected {}, found {}", layout.size(), bytes.len()));
+				return err_invalid_len(layout.size(), bytes.len());
 			}
 		}
 
@@ -134,7 +134,7 @@ impl Stack {
 		sp += layout.size();
 
 		if sp > self.memory.len() {
-			return Err(anyhow!("Stack overflow"))
+			return err_stack_overflow();
 		}
 
 		self.sp = sp;
@@ -149,13 +149,13 @@ impl Stack {
 
 	pub fn push_inner(&mut self, ty: &Arc<Type>, src: Range<usize>) -> anyhow::Result<Range<usize>> {
 		if src.start > src.end || src.end > self.sp {
-			return Err(anyhow!("Out of bounds stack access"))
+			return err_out_of_bounds();
 		}
 
 		let layout = self.layout_cache.get_layout(ty);
 
 		if src.len() != layout.size() {
-			return Err(anyhow!("Invalid buffer length. Expected {}, found {}", layout.size(), src.len()));
+			return err_invalid_len(layout.size(), src.len());
 		}
 
 		let mut sp = self.sp;
@@ -168,7 +168,7 @@ impl Stack {
 		sp += layout.size();
 
 		if sp > self.memory.len() {
-			return Err(anyhow!("Stack overflow"))
+			return err_stack_overflow();
 		}
 
 		self.memory.copy_within(src, self.sp);
@@ -181,11 +181,11 @@ impl Stack {
 
 	pub fn pop(&mut self, bytes: &mut [u8]) -> anyhow::Result<Arc<Type>> {
 		let Some((elem_ty, len, size)) = self.elements.last() else {
-			return Err(anyhow!("Stack is empty"))
+			return err_stack_empty();
 		};
 
 		if bytes.len() != *size {
-			return Err(anyhow!("Invalid buffer length. Expected {}, found {}", size, bytes.len()));
+			return err_invalid_len(*size, bytes.len());
 		}
 
 		let elem_ty = elem_ty.clone();
@@ -197,19 +197,19 @@ impl Stack {
 
 	pub fn pop_inner(&mut self, ty: &Arc<Type>, dst: Range<usize>) -> anyhow::Result<()> {
 		if dst.start > dst.end || dst.end > self.sp {
-			return Err(anyhow!("Out of bounds stack access"))
+			return err_out_of_bounds();
 		}
 
 		let Some((elem_ty, len, size)) = self.elements.last() else {
-			return Err(anyhow!("Stack is empty"))
+			return err_stack_empty();
 		};
 
 		if dst.len() != *size {
-			return Err(anyhow!("Invalid buffer length. Expected {}, found {}", size, dst.len()));
+			return err_invalid_len(*size, dst.len());
 		}
 
 		if elem_ty != ty {
-			return Err(anyhow!("Invalid type. Expected {}, found {}", ty, elem_ty));
+			return err_invalid_ty(ty, elem_ty);
 		}
 
 		self.sp -= *len;
@@ -221,7 +221,7 @@ impl Stack {
 
 	pub fn pop_ignore_value(&mut self) -> anyhow::Result<()> {
 		let Some((_, len, _)) = self.elements.last() else {
-			return Err(anyhow!("Stack is empty"))
+			return err_stack_empty();
 		};
 
 		self.sp -= *len;
@@ -319,4 +319,34 @@ impl PushValue<bool> for Stack {
 		let value = value as u8;
 		self.push(Type::bool(), Some(bytes_of(&value)))
 	}
+}
+
+#[cold]
+#[inline(never)]
+fn err_stack_overflow<T>() -> anyhow::Result<T> {
+	Err(anyhow!("Stack overflow"))
+}
+
+#[cold]
+#[inline(never)]
+fn err_stack_empty<T>() -> anyhow::Result<T> {
+	Err(anyhow!("Stack is empty"))
+}
+
+#[cold]
+#[inline(never)]
+fn err_out_of_bounds<T>() -> anyhow::Result<T> {
+	Err(anyhow!("Out of bounds stack access"))
+}
+
+#[cold]
+#[inline(never)]
+fn err_invalid_len<T>(expected: usize, found: usize) -> anyhow::Result<T> {
+	Err(anyhow!("Invalid buffer length. Expected {}, found {}", expected, found))
+}
+
+#[cold]
+#[inline(never)]
+fn err_invalid_ty<T>(expected: &Arc<Type>, found: &Arc<Type>) -> anyhow::Result<T> {
+	Err(anyhow!("Invalid type. Expected {}, found {}", expected, found))
 }
