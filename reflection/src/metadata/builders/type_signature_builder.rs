@@ -1,6 +1,5 @@
-use crate::utilities::{compress_integer, get_compressed_integer_length};
-use crate::{BUG_ERR, MetadataRead, MetadataWrite, TypeDefOrRef, TypeSignatureTag};
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use crate::{BUG_ERR, ElementRef, Encoded, MetadataRead, MetadataWrite, TypeDefOrRef, TypeSignatureTag};
+use std::io::{Cursor, Read, Seek};
 
 #[derive(Default)]
 pub struct TypeSignatureBuilder {
@@ -58,9 +57,9 @@ impl TypeSignatureBuilder {
 	}
 
 	pub fn push_array(&mut self, size: u64) {
-		let (bytes, count) = compress_integer(size).unwrap();
-		self.bytes.push(TypeSignatureTag::Array as u8);
-		self.bytes.extend_from_slice(&bytes[..count]);
+		let mut cursor = Cursor::new(&mut self.bytes);
+		TypeSignatureTag::Array.write(&mut cursor).unwrap();
+		Encoded(size).write(&mut cursor).unwrap();
 	}
 
 	pub fn push_ptr(&mut self, mutable: bool) {
@@ -105,15 +104,13 @@ impl TypeSignatureBuilder {
 					depth -= 1;
 					let mut byte = 0u8;
 					cursor.read_exact(bytemuck::bytes_of_mut(&mut byte)).expect(BUG_ERR);
-					let sz_len = get_compressed_integer_length(byte).expect(BUG_ERR) as i64;
-					cursor.seek(SeekFrom::Current(sz_len - 1)).expect(BUG_ERR);
+					let _ = ElementRef::<()>::read(&mut cursor).unwrap();
 				},
 
 				TypeSignatureTag::Array => {
 					let mut byte = 0u8;
 					cursor.read_exact(bytemuck::bytes_of_mut(&mut byte)).expect(BUG_ERR);
-					let sz_len = get_compressed_integer_length(byte).expect(BUG_ERR) as i64;
-					cursor.seek(SeekFrom::Current(sz_len - 1)).expect(BUG_ERR);
+					let _ = Encoded::<u64>::read(&mut cursor).unwrap();
 				},
 
 				| TypeSignatureTag::Void

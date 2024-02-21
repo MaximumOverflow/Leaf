@@ -1,4 +1,3 @@
-use crate::utilities::{read_compressed_integer, write_compressed_integer};
 use std::io::{Error, Read, Write, ErrorKind};
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
@@ -53,50 +52,21 @@ impl<T: Display + Pod> Display for Encoded<T> {
 
 const CONV_ERR: &str = "Could not convert integer to the destination type.";
 
-macro_rules! impl_encoded_unsigned_integers {
-    ($($ty: ty),*) => {
+macro_rules! impl_encoded {
+    ($base: ty; $($ty: ty),*) => {
 		$(
 			impl MetadataRead for Encoded<$ty> {
 				fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
-					let int = read_compressed_integer(stream)?
-						.try_into()
-						.map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))?;
-					Ok(Self(int))
+					let value = Encoded::<$base>::read(stream)?.0;
+					let value = value.try_into().map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))?;
+					Ok(Encoded(value))
 				}
 			}
 
 			impl MetadataWrite for Encoded<$ty> {
 				fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
-					let int = self.0
-					.try_into()
-					.map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))?;
-
-					write_compressed_integer(stream, int)
-				}
-			}
-		)*
-	};
-}
-
-macro_rules! impl_encoded_signed_integers {
-    ($($ty: ty),*) => {
-		$(
-			impl MetadataRead for Encoded<$ty> {
-				fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
-					let int = (read_compressed_integer(stream)? as i64)
-						.try_into()
-						.map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))?;
-					Ok(Self(int))
-				}
-			}
-
-			impl MetadataWrite for Encoded<$ty> {
-				fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
-					let int = (self.0 as i64)
-					.try_into()
-					.map_err(|_| Error::new(ErrorKind::InvalidData, CONV_ERR))?;
-
-					write_compressed_integer(stream, int)
+					let value = Encoded(self.0 as $base);
+					value.write(stream)
 				}
 			}
 		)*
@@ -123,10 +93,60 @@ macro_rules! impl_values {
 	};
 }
 
-impl_encoded_signed_integers!(i16, i32, i64, isize);
-impl_encoded_unsigned_integers!(u16, u32, u64, usize);
-
+impl_encoded!(u64; u16, u32, usize);
+impl_encoded!(i64; i16, i32, isize);
 impl_values!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64);
+
+impl MetadataRead for Encoded<u64> {
+	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
+		let mut result: u64 = 0;
+		let mut shift = 0;
+
+		let mut success = false;
+		loop {
+			let mut b = 0u8;
+			stream.read_exact(bytemuck::bytes_of_mut(&mut b))?;
+			let msb_dropped = b & 0x7F;
+			result |= (msb_dropped as u64) << shift;
+			shift += 7;
+
+			if b & 0x80 == 0 || shift > (9 * 7) {
+				success = b & 0x80 == 0;
+				break;
+			}
+		}
+
+		match success {
+			true => Ok(Self(result)),
+			false => Err(Error::new(ErrorKind::InvalidData, CONV_ERR))
+		}
+	}
+}
+
+impl MetadataWrite for Encoded<u64> {
+	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+		let mut n = self.0;
+		while n >= 0x80 {
+			stream.write_all(&[0x80 | (n as u8)])?;
+			n >>= 7;
+		}
+		stream.write_all(&[n as u8])
+	}
+}
+
+impl MetadataRead for Encoded<i64> {
+	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
+		let value = Encoded::<u64>::read(stream)?;
+		Ok(Encoded(bytemuck::pod_read_unaligned(bytemuck::bytes_of(&value.0))))
+	}
+}
+
+impl MetadataWrite for Encoded<i64> {
+	fn write<T: Write>(&self, stream: &mut T) -> Result<(), Error> {
+		let value: u64 = bytemuck::pod_read_unaligned(bytemuck::bytes_of(&self.0));
+		Encoded(value).write(stream)
+	}
+}
 
 impl MetadataRead for bool {
 	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {

@@ -1,4 +1,3 @@
-mod utilities;
 mod metadata;
 pub mod structured;
 
