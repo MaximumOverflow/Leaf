@@ -37,13 +37,10 @@ impl InstructionCache {
         for opcode in &mut opcodes {
             match opcode {
                 | Opcode::Jump(t0)
-                | Opcode::ConditionalJump(t0) => {
+                | Opcode::CondJump(t0)
+                | Opcode::CondJumpN(t0)=> {
                     *t0 = opcode_map[t0];
                 },
-                | Opcode::Branch(t0, t1) => {
-                    *t0 = opcode_map[t0];
-                    *t1 = opcode_map[t1];
-                }
                 _ => {},
             }
         }

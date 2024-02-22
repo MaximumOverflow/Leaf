@@ -117,8 +117,7 @@ impl<'l> Block<'l> {
 
                     let then_block = builder.add_block();
                     let cont_block = builder.add_block();
-                    builder.push_opcode(Opcode::Neg);
-                    builder.cond_jump(cont_block).unwrap();
+                    builder.cond_jump_n(cont_block).unwrap();
 
                     let mut block_data = Block { values: self.values.clone(), parent: self };
                     builder.use_block(then_block).unwrap();
@@ -144,8 +143,7 @@ impl<'l> Block<'l> {
 
         match r#else {
             None => {
-                builder.push_opcode(Opcode::Neg);
-                builder.cond_jump(else_block).unwrap();
+                builder.cond_jump_n(else_block).unwrap();
 
                 let mut block_data = Block { values: self.values.clone(), parent: self };
                 builder.use_block(then_block).unwrap();
@@ -156,8 +154,7 @@ impl<'l> Block<'l> {
 
             Some(r#else) => match &**r#else {
                 Else::Block(r#else) => {
-                    builder.push_opcode(Opcode::Neg);
-                    builder.cond_jump(else_block).unwrap();
+                    builder.cond_jump_n(else_block).unwrap();
 
                     let mut block_data = Block { values: self.values.clone(), parent: self };
                     builder.use_block(then_block).unwrap();

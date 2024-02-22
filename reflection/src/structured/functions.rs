@@ -290,16 +290,10 @@ impl FunctionBodyBuilder {
 
             match opcode {
                 | Opcode::Jump(b0)
-                | Opcode::ConditionalJump(b0) => {
+                | Opcode::CondJump(b0)
+                | Opcode::CondJumpN(b0) => {
                     let b0 = block_offsets[b0 as usize] as u32;
                     opcodes[offset+1..offset+5].copy_from_slice(bytemuck::bytes_of(&b0));
-                }
-
-                Opcode::Branch(b0, b1) => {
-                    let b0 = block_offsets[b0 as usize] as u32;
-                    let b1 = block_offsets[b1 as usize] as u32;
-                    opcodes[offset+1..offset+5].copy_from_slice(bytemuck::bytes_of(&b0));
-                    opcodes[offset+5..offset+9].copy_from_slice(bytemuck::bytes_of(&b1));
                 }
 
                 _ => {}
@@ -385,14 +379,14 @@ impl FunctionBodyBuilder {
     pub fn cond_jump(&mut self, block: BlockIndex) -> Result<(), &'static str> {
         match block.0 >= self.data.blocks.len() {
             true => Err("Block id out of bounds"),
-            false => Ok(self.push_opcode(Opcode::ConditionalJump(block.0 as u32)))
+            false => Ok(self.push_opcode(Opcode::CondJump(block.0 as u32)))
         }
     }
 
-    pub fn branch(&mut self, b0: BlockIndex, b1: BlockIndex) -> Result<(), &'static str> {
-        match b0.0 >= self.data.blocks.len() || b1.0 >= self.data.blocks.len() {
+    pub fn cond_jump_n(&mut self, block: BlockIndex) -> Result<(), &'static str> {
+        match block.0 >= self.data.blocks.len() {
             true => Err("Block id out of bounds"),
-            false => Ok(self.push_opcode(Opcode::Branch(b0.0 as u32, b1.0 as u32)))
+            false => Ok(self.push_opcode(Opcode::CondJumpN(block.0 as u32)))
         }
     }
 

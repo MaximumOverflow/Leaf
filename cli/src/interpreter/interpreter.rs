@@ -202,14 +202,21 @@ impl Interpreter {
 				Opcode::Mul => impl_binary_op!(*),
 				Opcode::Div => impl_binary_op!(/),
 				Opcode::Mod => impl_binary_op!(%),
-				Opcode::Lt => impl_binary_op_bool!(<),
+
 				Opcode::Neg => impl_unary_op!(!),
+
+				Opcode::Lt => impl_binary_op_bool!(<),
+				Opcode::Gt => impl_binary_op_bool!(>),
+				Opcode::Le => impl_binary_op_bool!(<=),
+				Opcode::Ge => impl_binary_op_bool!(>=),
+				Opcode::Eq => impl_binary_op_bool!(==),
+				Opcode::Neq => impl_binary_op_bool!(!=),
 
 				Opcode::Jump(target) => {
 					i = target as usize;
 				}
 
-				Opcode::ConditionalJump(target) => {
+				Opcode::CondJump(target) => {
 					let mut value = 0u8;
 					let _ = self.stack.pop(bytemuck::bytes_of_mut(&mut value))?;
 					if value != 0 {
@@ -217,12 +224,11 @@ impl Interpreter {
 					}
 				}
 
-				Opcode::Branch(t0, t1) => {
+				Opcode::CondJumpN(target) => {
 					let mut value = 0u8;
 					let _ = self.stack.pop(bytemuck::bytes_of_mut(&mut value))?;
-					i = match value != 0 {
-						true => t0 as usize,
-						false => t1 as usize,
+					if value == 0 {
+						i = target as usize;
 					}
 				}
 
