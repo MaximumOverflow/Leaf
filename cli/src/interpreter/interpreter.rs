@@ -5,6 +5,7 @@ use crate::interpreter::instruction_cache::InstructionCache;
 use leaf_compilation::reflection::Opcode;
 use crate::interpreter::value::Value;
 use anyhow::{anyhow, Context};
+use core::alloc::Layout;
 use std::ops::Range;
 use std::sync::Arc;
 use std::rc::Rc;
@@ -19,7 +20,8 @@ impl Interpreter {
 	pub fn new() -> Self {
 		let layout_cache = Rc::new(TypeLayoutCache::default());
 		let stack = Stack::with_capacity(layout_cache.clone(), 1000000);
-		Self { stack, layout_cache, instruction_cache: Default::default() }
+		let instruction_cache = InstructionCache::default();
+		Self { stack, layout_cache, instruction_cache }
 	}
 
 	#[inline(never)]
@@ -38,18 +40,19 @@ impl Interpreter {
 			return Err(anyhow!("Function has no body"));
 		};
 
-		let opcodes = self.instruction_cache.get_instructions(function)?;
+		let instructions = self.instruction_cache.get_instructions(function)?;
 
 		let mut locals = Vec::with_capacity(body.locals().len());
 		for local in body.locals() {
 			let ty = local.ty().clone();
-			let range = self.stack.push(&ty, None)?;
-			locals.push((ty, range));
+			let layout = self.layout_cache.get_layout(&ty);
+			let range = self.stack.push(&ty, layout, &[])?;
+			locals.push((ty, layout, range));
 		}
 
 		let mut i = 0;
-		while i < opcodes.len() {
-			let opcode = opcodes[i];
+		while i < instructions.len() {
+			let opcode = instructions[i];
 			i += 1;
 
 			macro_rules! impl_unary_op {
@@ -67,12 +70,12 @@ impl Interpreter {
 							TypeVariant::Bool => {
 								let lhs: bool = bytemuck::pod_read_unaligned::<u8>(&lhs) != 0;
 								let res = ($op lhs) as u8;
-								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
+								self.stack.push(&lhs_ty, Layout::new::<bool>(), bytemuck::bytes_of(&res))?;
 							}
 							TypeVariant::Int32 => {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let res = $op lhs;
-								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
+								self.stack.push(&lhs_ty, Layout::new::<i32>(), bytemuck::bytes_of(&res))?;
 							}
 							_ => unimplemented!(),
 						}
@@ -104,7 +107,7 @@ impl Interpreter {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
 								let res = lhs $op rhs;
-								self.stack.push(&lhs_ty, Some(bytemuck::bytes_of(&res)))?;
+								self.stack.push(&lhs_ty, Layout::new::<u32>(), bytemuck::bytes_of(&res))?;
 							}
 							_ => unimplemented!(),
 						}
@@ -136,7 +139,7 @@ impl Interpreter {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
 								let res = lhs $op rhs;
-								self.stack.push(Type::bool(), Some(bytemuck::bytes_of(&res)))?;
+								self.stack.push(Type::bool(), Layout::new::<bool>(), bytemuck::bytes_of(&res))?;
 							}
 							_ => unimplemented!(),
 						}
@@ -256,30 +259,30 @@ impl Interpreter {
 		&self.stack
 	}
 
-	fn push_local(&mut self, local: Option<&(Arc<Type>, Range<usize>)>) -> anyhow::Result<()> {
-		let Some((ty, range)) = local else {
+	fn push_local(&mut self, local: Option<&(Arc<Type>, Layout, Range<usize>)>) -> anyhow::Result<()> {
+		let Some((ty, layout, range)) = local else {
 			return Err(anyhow!("Invalid local"));
 		};
 
-		self.stack.push_inner(ty, range.clone())?;
+		self.stack.push_inner(ty, *layout, range.clone())?;
 		Ok(())
 	}
 
-	fn push_local_address(&mut self, local: Option<&(Arc<Type>, Range<usize>)>) -> anyhow::Result<()> {
-		let Some((ty, range)) = local else {
+	fn push_local_address(&mut self, local: Option<&(Arc<Type>, Layout, Range<usize>)>) -> anyhow::Result<()> {
+		let Some((ty, _, range)) = local else {
 			return Err(anyhow!("Invalid local"));
 		};
 
 		unsafe {
 			let ptr = self.stack.as_bytes().as_ptr().add(range.start) as usize;
-			self.stack.push(ty.make_ptr(true), Some(bytemuck::bytes_of(&ptr)))?;
+			self.stack.push(ty.make_ptr(true), Layout::new::<*const u8>(), bytemuck::bytes_of(&ptr))?;
 		}
 
 		Ok(())
 	}
 
-	pub fn store_local(&mut self, local: Option<&(Arc<Type>, Range<usize>)>) -> anyhow::Result<()> {
-		let Some((ty, range)) = local else {
+	pub fn store_local(&mut self, local: Option<&(Arc<Type>, Layout, Range<usize>)>) -> anyhow::Result<()> {
+		let Some((ty, _, range)) = local else {
 			return Err(anyhow!("Invalid local"));
 		};
 		self.stack.pop_inner(ty, range.clone())

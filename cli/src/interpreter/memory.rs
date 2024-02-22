@@ -115,10 +115,8 @@ impl Stack {
 		Some((ty, *size))
 	}
 
-	pub fn push(&mut self, ty: &Arc<Type>, bytes: Option<&[u8]>) -> anyhow::Result<Range<usize>> {
-		let layout = self.layout_cache.get_layout(ty);
-
-		if let Some(bytes) = bytes {
+	pub fn push(&mut self, ty: &Arc<Type>, layout: Layout, bytes: &[u8]) -> anyhow::Result<Range<usize>> {
+		if !bytes.is_empty() {
 			if bytes.len() != layout.size() {
 				return err_invalid_len(layout.size(), bytes.len());
 			}
@@ -140,19 +138,17 @@ impl Stack {
 		self.sp = sp;
 		self.elements.push((ty.clone(), len, layout.size()));
 
-		if let Some(bytes) = bytes {
+		if !bytes.is_empty() {
 			self[range.clone()].copy_from_slice(bytes);
 		}
 
 		Ok(range)
 	}
 
-	pub fn push_inner(&mut self, ty: &Arc<Type>, src: Range<usize>) -> anyhow::Result<Range<usize>> {
+	pub fn push_inner(&mut self, ty: &Arc<Type>, layout: Layout, src: Range<usize>) -> anyhow::Result<Range<usize>> {
 		if src.start > src.end || src.end > self.sp {
 			return err_out_of_bounds();
 		}
-
-		let layout = self.layout_cache.get_layout(ty);
 
 		if src.len() != layout.size() {
 			return err_invalid_len(layout.size(), src.len());
@@ -249,7 +245,9 @@ impl IndexMut<Range<usize>> for Stack {
 
 impl Debug for Stack {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		let mut dbg = f.debug_struct("Stack");
+		let mut dbg = f.debug_struct(&format! {
+			"Stack [{} / {}]", self.sp, self.memory.len()
+		});
 
 		let mut sp = 0;
 		let mut name = String::new();
@@ -305,7 +303,7 @@ macro_rules! impl_push {
 		$(
 			impl PushValue<$ty> for Stack {
 				fn push_value(&mut self, value: $ty) -> anyhow::Result<Range<usize>> {
-					self.push(Type::$ty(), Some(bytes_of(&value)))
+					self.push(Type::$ty(), Layout::new::<$ty>(), bytes_of(&value))
 				}
 			}
 		)+
@@ -317,7 +315,7 @@ impl_push!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
 impl PushValue<bool> for Stack {
 	fn push_value(&mut self, value: bool) -> anyhow::Result<Range<usize>> {
 		let value = value as u8;
-		self.push(Type::bool(), Some(bytes_of(&value)))
+		self.push(Type::bool(), Layout::new::<bool>(), bytes_of(&value))
 	}
 }
 
