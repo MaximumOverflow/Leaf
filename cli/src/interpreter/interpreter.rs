@@ -188,6 +188,24 @@ impl Interpreter {
 				Opcode::StoreLocal6 => self.store_local(locals.get(6))?,
 				Opcode::StoreLocal(i) => self.store_local(locals.get(i.0))?,
 
+				Opcode::PushField0 => self.push_field(0)?,
+				Opcode::PushField1 => self.push_field(1)?,
+				Opcode::PushField2 => self.push_field(2)?,
+				Opcode::PushField3 => self.push_field(3)?,
+				Opcode::PushField4 => self.push_field(4)?,
+				Opcode::PushField5 => self.push_field(5)?,
+				Opcode::PushField6 => self.push_field(6)?,
+				Opcode::PushField(i) => self.push_field(i.0)?,
+
+				Opcode::PushFieldA0 => self.push_field_address(0)?,
+				Opcode::PushFieldA1 => self.push_field_address(1)?,
+				Opcode::PushFieldA2 => self.push_field_address(2)?,
+				Opcode::PushFieldA3 => self.push_field_address(3)?,
+				Opcode::PushFieldA4 => self.push_field_address(4)?,
+				Opcode::PushFieldA5 => self.push_field_address(5)?,
+				Opcode::PushFieldA6 => self.push_field_address(6)?,
+				Opcode::PushFieldA(i) => self.push_field_address(i.0)?,
+
 				Opcode::StoreField0 => self.store_field(0)?,
 				Opcode::StoreField1 => self.store_field(1)?,
 				Opcode::StoreField2 => self.store_field(2)?,
@@ -280,8 +298,8 @@ impl Interpreter {
 		};
 
 		unsafe {
-			let ptr = self.stack.as_bytes().as_ptr().add(range.start);
-			self.stack.fast_push_value_with_type(ptr as usize, ty.make_ptr(true));
+			let ptr = self.stack.as_ptr().add(range.start);
+			self.stack.fast_push_value_with_type(ptr, ty.make_ptr(true));
 		}
 
 		Ok(())
@@ -294,9 +312,8 @@ impl Interpreter {
 		self.stack.pop_inner(ty, range.clone())
 	}
 
-	fn store_field(&mut self, field: usize) -> anyhow::Result<()> {
+	pub fn push_field(&mut self, field: usize) -> anyhow::Result<()> {
 		let mut ptr = 0usize;
-
 		let ty = self.stack.pop(bytemuck::bytes_of_mut(&mut ptr))?;
 		let ty = match ty.as_ref().as_ref() {
 			TypeVariant::Pointer(ty, _) => ty.upgrade().unwrap(),
@@ -307,6 +324,52 @@ impl Interpreter {
 			return Err(anyhow!("Invalid field or type"));
 		};
 
-		self.stack.pop_inner(&fld_ty, offset..offset + layout.size())
+		unsafe {
+			let ptr = self.stack.as_ptr().add(offset);
+			let slice = std::slice::from_raw_parts((ptr as *mut u8).add(offset), layout.size());
+			self.stack.push(&fld_ty, layout, slice)?;
+		}
+
+		Ok(())
+	}
+
+	pub fn push_field_address(&mut self, field: usize) -> anyhow::Result<()> {
+		let mut ptr = 0usize;
+		let ty = self.stack.pop(bytemuck::bytes_of_mut(&mut ptr))?;
+		let ty = match ty.as_ref().as_ref() {
+			TypeVariant::Pointer(ty, _) => ty.upgrade().unwrap(),
+			_ => return Err(anyhow!("Invalid field or type")),
+		};
+
+		let Some((offset, _, fld_ty)) = self.layout_cache.get_field_offset_and_layout(&ty, field) else {
+			return Err(anyhow!("Invalid field or type"));
+		};
+
+		unsafe {
+			let ptr = self.stack.as_ptr().add(offset);
+			self.stack.fast_push_value_with_type(ptr, fld_ty.make_ptr(true));
+		}
+
+		Ok(())
+	}
+
+	fn store_field(&mut self, field: usize) -> anyhow::Result<()> {
+		let mut ptr = 0usize;
+		let ty = self.stack.pop(bytemuck::bytes_of_mut(&mut ptr))?;
+		let ty = match ty.as_ref().as_ref() {
+			TypeVariant::Pointer(ty, _) => ty.upgrade().unwrap(),
+			_ => return Err(anyhow!("Invalid field or type")),
+		};
+
+		let Some((offset, layout, _)) = self.layout_cache.get_field_offset_and_layout(&ty, field) else {
+			return Err(anyhow!("Invalid field or type"));
+		};
+
+		let slice = unsafe {
+			std::slice::from_raw_parts_mut((ptr as *mut u8).add(offset), layout.size())
+		};
+
+		self.stack.pop(slice)?;
+		Ok(())
 	}
 }

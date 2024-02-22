@@ -10,7 +10,6 @@ use std::cell::RefCell;
 use anyhow::{anyhow};
 use std::fmt::Write;
 use std::sync::Arc;
-use bytemuck::Pod;
 use std::rc::Rc;
 use half::f16;
 
@@ -177,7 +176,7 @@ impl Stack {
 		Ok(range)
 	}
 
-	pub fn fast_push_value_with_type<T: Pod>(&mut self, value: T, ty: &Arc<Type>) {
+	pub fn fast_push_value_with_type<T: Copy>(&mut self, value: T, ty: &Arc<Type>) {
 		let mut sp = self.sp;
 		let mut len = size_of::<T>();
 		let align = unsafe { self.memory.as_ptr().add(sp).align_offset(align_of::<T>()) };
@@ -204,8 +203,9 @@ impl Stack {
 		}
 
 		let elem_ty = elem_ty.clone();
+		let range = self.sp - size..self.sp;
+		bytes.copy_from_slice(&self[range]);
 		self.sp -= *len;
-		bytes.copy_from_slice(&self[self.sp..self.sp+size]);
 		let _ = self.elements.pop();
 		Ok(elem_ty)
 	}
@@ -227,8 +227,9 @@ impl Stack {
 			return err_invalid_ty(ty, elem_ty);
 		}
 
+		let range = self.sp - size..self.sp;
 		self.sp -= *len;
-		self.memory.copy_within(self.sp..self.sp + *len, dst.start);
+		self.memory.copy_within(range, dst.start);
 		let _ = self.elements.pop();
 
 		Ok(())
@@ -244,8 +245,8 @@ impl Stack {
 		Ok(())
 	}
 
-	pub fn as_bytes(&self) -> &[u8] {
-		&self.memory[..self.sp]
+	pub fn as_ptr(&self) -> *const u8 {
+		self.memory.as_ptr()
 	}
 }
 
@@ -281,6 +282,44 @@ impl Debug for Stack {
 			"Stack [{} / {}]", self.sp, self.memory.len()
 		});
 
+		fn write_value(
+			stack: &Stack, string: &mut String,
+			sp: usize, size: usize,
+			ty: &Arc<Type>
+		) -> std::fmt::Result {
+			match ty.variant() {
+				TypeVariant::Int8 => write!(string, "{}", bytemuck::pod_read_unaligned::<i8>(&stack[sp..sp+size])),
+				TypeVariant::Int16 => write!(string, "{}", bytemuck::pod_read_unaligned::<i16>(&stack[sp..sp+size])),
+				TypeVariant::Int32 => write!(string, "{}", bytemuck::pod_read_unaligned::<i32>(&stack[sp..sp+size])),
+				TypeVariant::Int64 => write!(string, "{}", bytemuck::pod_read_unaligned::<i64>(&stack[sp..sp+size])),
+				TypeVariant::UInt8 => write!(string, "{}", bytemuck::pod_read_unaligned::<u8>(&stack[sp..sp+size])),
+				TypeVariant::UInt16 => write!(string, "{}", bytemuck::pod_read_unaligned::<u16>(&stack[sp..sp+size])),
+				TypeVariant::UInt32 => write!(string, "{}", bytemuck::pod_read_unaligned::<u32>(&stack[sp..sp+size])),
+				TypeVariant::UInt64 => write!(string, "{}", bytemuck::pod_read_unaligned::<u64>(&stack[sp..sp+size])),
+				TypeVariant::Float32 => write!(string, "{}", bytemuck::pod_read_unaligned::<f32>(&stack[sp..sp+size])),
+				TypeVariant::Float64 => write!(string, "{}", bytemuck::pod_read_unaligned::<f64>(&stack[sp..sp+size])),
+
+				| TypeVariant::Pointer(_, _)
+				| TypeVariant::Reference(_, _) => write!(string, "{:#?}", bytemuck::pod_read_unaligned::<usize>(&stack[sp..sp+size]) as *const u8),
+
+				TypeVariant::Struct(data) => {
+					write!(string, "{{ ")?;
+					let mut comma = "";
+					for (i, field) in data.fields().iter().enumerate() {
+						let (offset, layout, ty) = stack.layout_cache
+							.get_field_offset_and_layout(ty, i).unwrap();
+
+						write!(string, "{}{}: ", comma, field.name())?;
+						write_value(stack, string, sp + offset, layout.size(), &ty)?;
+						comma = ", ";
+					}
+					write!(string, " }}")
+				}
+
+				_ => Ok(()),
+			}
+		}
+
 		let mut sp = 0;
 		let mut name = String::new();
 		let mut value = String::new();
@@ -292,19 +331,7 @@ impl Debug for Stack {
 			write!(name, "{:#?}", unsafe { self.memory.as_ptr().add(sp) }).unwrap();
 
 			value.clear();
-			match ty.as_ref().as_ref() {
-				TypeVariant::Int8 => write!(value, "{}", bytemuck::pod_read_unaligned::<i8>(&self[sp..sp+size]))?,
-				TypeVariant::Int16 => write!(value, "{}", bytemuck::pod_read_unaligned::<i16>(&self[sp..sp+size]))?,
-				TypeVariant::Int32 => write!(value, "{}", bytemuck::pod_read_unaligned::<i32>(&self[sp..sp+size]))?,
-				TypeVariant::Int64 => write!(value, "{}", bytemuck::pod_read_unaligned::<i64>(&self[sp..sp+size]))?,
-				TypeVariant::UInt8 => write!(value, "{}", bytemuck::pod_read_unaligned::<u8>(&self[sp..sp+size]))?,
-				TypeVariant::UInt16 => write!(value, "{}", bytemuck::pod_read_unaligned::<u16>(&self[sp..sp+size]))?,
-				TypeVariant::UInt32 => write!(value, "{}", bytemuck::pod_read_unaligned::<u32>(&self[sp..sp+size]))?,
-				TypeVariant::UInt64 => write!(value, "{}", bytemuck::pod_read_unaligned::<u64>(&self[sp..sp+size]))?,
-				TypeVariant::Float32 => write!(value, "{}", bytemuck::pod_read_unaligned::<f32>(&self[sp..sp+size]))?,
-				TypeVariant::Float64 => write!(value, "{}", bytemuck::pod_read_unaligned::<f64>(&self[sp..sp+size]))?,
-				_ => {},
-			};
+			write_value(self, &mut value, sp + (len - size), *size, ty)?;
 
 			match value.is_empty() {
 				true => dbg.field(&name, &format_args!("{}", type_name)),
