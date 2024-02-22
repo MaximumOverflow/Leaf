@@ -1,20 +1,22 @@
 use leaf_compilation::reflection::structured::types::TypeVariant;
 use leaf_compilation::reflection::structured::Type;
-use std::ops::{Index, IndexMut, Range};
+use std::ops::{Index, IndexMut, Range, RangeFrom};
+use nohash_hasher::BuildNoHashHasher;
+use std::mem::{align_of, size_of};
 use std::fmt::{Debug, Formatter};
 use std::collections::HashMap;
-use bytemuck::bytes_of;
 use std::alloc::Layout;
 use std::cell::RefCell;
 use anyhow::{anyhow};
 use std::fmt::Write;
 use std::sync::Arc;
+use bytemuck::Pod;
 use std::rc::Rc;
 use half::f16;
 
 #[derive(Default)]
 pub struct TypeLayoutCache {
-	layouts: RefCell<HashMap<Arc<Type>, Layout>>,
+	layouts: RefCell<HashMap<Arc<Type>, Layout, BuildNoHashHasher<usize>>>,
 	field_layouts: RefCell<HashMap<(Arc<Type>, usize), (usize, Layout, Arc<Type>)>>,
 }
 
@@ -24,8 +26,6 @@ impl TypeLayoutCache {
 			TypeVariant::Void => Layout::new::<()>(),
 			TypeVariant::Char => Layout::new::<char>(),
 			TypeVariant::Bool => Layout::new::<bool>(),
-			TypeVariant::Pointer(_, _) => Layout::new::<*const u8>(),
-			TypeVariant::Reference(_, _) => Layout::new::<*const u8>(),
 			TypeVariant::Int8 => Layout::new::<i8>(),
 			TypeVariant::Int16 => Layout::new::<i16>(),
 			TypeVariant::Int32 => Layout::new::<i32>(),
@@ -37,6 +37,8 @@ impl TypeLayoutCache {
 			TypeVariant::Float16 => Layout::new::<f16>(),
 			TypeVariant::Float32 => Layout::new::<f32>(),
 			TypeVariant::Float64 => Layout::new::<f64>(),
+			TypeVariant::Pointer(_, _) => Layout::new::<*const u8>(),
+			TypeVariant::Reference(_, _) => Layout::new::<*const u8>(),
 			TypeVariant::Struct(data) => {
 				if let Some(layout) = self.layouts.borrow().get(ty).cloned() {
 					return layout;
@@ -175,6 +177,23 @@ impl Stack {
 		Ok(range)
 	}
 
+	pub fn fast_push_value_with_type<T: Pod>(&mut self, value: T, ty: &Arc<Type>) {
+		let mut sp = self.sp;
+		let mut len = size_of::<T>();
+		let align = unsafe { self.memory.as_ptr().add(sp).align_offset(align_of::<T>()) };
+		sp += align;
+		len += align;
+
+		unsafe {
+			let ptr = self.memory.as_mut_ptr().add(sp) as *mut T;
+			std::ptr::write(ptr, value);
+		}
+		sp += size_of::<T>();
+
+		self.elements.push((ty.clone(), len, size_of::<T>()));
+		self.sp = sp;
+	}
+
 	pub fn pop(&mut self, bytes: &mut [u8]) -> anyhow::Result<Arc<Type>> {
 		let Some((elem_ty, len, size)) = self.elements.last() else {
 			return err_stack_empty();
@@ -243,6 +262,19 @@ impl IndexMut<Range<usize>> for Stack {
 	}
 }
 
+impl Index<RangeFrom<usize>> for Stack {
+	type Output = [u8];
+	fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
+		&self.memory[index]
+	}
+}
+
+impl IndexMut<RangeFrom<usize>> for Stack {
+	fn index_mut(&mut self, index: RangeFrom<usize>) -> &mut Self::Output {
+		&mut self.memory[index]
+	}
+}
+
 impl Debug for Stack {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		let mut dbg = f.debug_struct(&format! {
@@ -290,21 +322,16 @@ impl Debug for Stack {
 }
 
 pub trait PushValue<T> {
-	fn push_value(&mut self, value: T) -> anyhow::Result<Range<usize>>;
-
-	fn push_value_discard(&mut self, value: T) -> anyhow::Result<()> {
-		self.push_value(value)?;
-		Ok(())
-	}
+	fn push_value(&mut self, value: T);
 }
 
 macro_rules! impl_push {
     ($($ty: ident),+) => {
 		$(
 			impl PushValue<$ty> for Stack {
-				fn push_value(&mut self, value: $ty) -> anyhow::Result<Range<usize>> {
-					self.push(Type::$ty(), Layout::new::<$ty>(), bytes_of(&value))
-				}
+				fn push_value(&mut self, value: $ty) {
+        			self.fast_push_value_with_type(value, Type::$ty())
+   				}
 			}
 		)+
 	};
@@ -313,9 +340,8 @@ macro_rules! impl_push {
 impl_push!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
 
 impl PushValue<bool> for Stack {
-	fn push_value(&mut self, value: bool) -> anyhow::Result<Range<usize>> {
-		let value = value as u8;
-		self.push(Type::bool(), Layout::new::<bool>(), bytes_of(&value))
+	fn push_value(&mut self, value: bool) {
+		self.fast_push_value_with_type(value as u8, Type::bool());
 	}
 }
 

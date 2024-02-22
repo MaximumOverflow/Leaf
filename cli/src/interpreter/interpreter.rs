@@ -69,13 +69,13 @@ impl Interpreter {
 						match (lhs_ty.as_ref().as_ref()) {
 							TypeVariant::Bool => {
 								let lhs: bool = bytemuck::pod_read_unaligned::<u8>(&lhs) != 0;
-								let res = ($op lhs) as u8;
-								self.stack.push(&lhs_ty, Layout::new::<bool>(), bytemuck::bytes_of(&res))?;
+								let res = ($op lhs);
+								self.stack.push_value(res);
 							}
 							TypeVariant::Int32 => {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let res = $op lhs;
-								self.stack.push(&lhs_ty, Layout::new::<i32>(), bytemuck::bytes_of(&res))?;
+								self.stack.push_value(res);
 							}
 							_ => unimplemented!(),
 						}
@@ -107,7 +107,7 @@ impl Interpreter {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
 								let res = lhs $op rhs;
-								self.stack.push(&lhs_ty, Layout::new::<u32>(), bytemuck::bytes_of(&res))?;
+								self.stack.push_value(res);
 							}
 							_ => unimplemented!(),
 						}
@@ -139,7 +139,7 @@ impl Interpreter {
 								let lhs: i32 = bytemuck::pod_read_unaligned(&lhs);
 								let rhs: i32 = bytemuck::pod_read_unaligned(&rhs);
 								let res = lhs $op rhs;
-								self.stack.push(Type::bool(), Layout::new::<bool>(), bytemuck::bytes_of(&res))?;
+								self.stack.push_value(res);
 							}
 							_ => unimplemented!(),
 						}
@@ -148,18 +148,18 @@ impl Interpreter {
 			}
 
 			match opcode {
-				Opcode::PushInt8(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushInt16(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushInt32(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushInt64(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushUInt8(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushUInt16(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushUInt32(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushUInt64(value) => self.stack.push_value_discard(value.0)?,
-				Opcode::PushFloat16(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushFloat32(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushFloat64(value) => self.stack.push_value_discard(value)?,
-				Opcode::PushBool(value) => self.stack.push_value_discard(value)?,
+				Opcode::PushInt8(value) => self.stack.push_value(value),
+				Opcode::PushInt16(value) => self.stack.push_value(value.0),
+				Opcode::PushInt32(value) => self.stack.push_value(value.0),
+				Opcode::PushInt64(value) => self.stack.push_value(value.0),
+				Opcode::PushUInt8(value) => self.stack.push_value(value),
+				Opcode::PushUInt16(value) => self.stack.push_value(value.0),
+				Opcode::PushUInt32(value) => self.stack.push_value(value.0),
+				Opcode::PushUInt64(value) => self.stack.push_value(value.0),
+				Opcode::PushFloat16(value) => self.stack.push_value(value),
+				Opcode::PushFloat32(value) => self.stack.push_value(value),
+				Opcode::PushFloat64(value) => self.stack.push_value(value),
+				Opcode::PushBool(value) => self.stack.push_value(value),
 
 				Opcode::PushLocal0 => self.push_local(locals.get(0))?,
 				Opcode::PushLocal1 => self.push_local(locals.get(1))?,
@@ -280,8 +280,8 @@ impl Interpreter {
 		};
 
 		unsafe {
-			let ptr = self.stack.as_bytes().as_ptr().add(range.start) as usize;
-			self.stack.push(ty.make_ptr(true), Layout::new::<*const u8>(), bytemuck::bytes_of(&ptr))?;
+			let ptr = self.stack.as_bytes().as_ptr().add(range.start);
+			self.stack.fast_push_value_with_type(ptr as usize, ty.make_ptr(true));
 		}
 
 		Ok(())
