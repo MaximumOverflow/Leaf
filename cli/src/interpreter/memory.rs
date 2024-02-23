@@ -1,13 +1,11 @@
-use leaf_compilation::reflection::structured::types::TypeVariant;
+use leaf_compilation::reflection::structured::types::{LeafType, TypeVariant};
 use leaf_compilation::reflection::structured::Type;
-use std::ops::{Index, IndexMut, Range, RangeFrom};
 use nohash_hasher::BuildNoHashHasher;
 use std::mem::{align_of, size_of};
 use std::fmt::{Debug, Formatter};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::alloc::Layout;
-use std::cell::RefCell;
-use anyhow::{anyhow};
 use std::fmt::Write;
 use std::sync::Arc;
 use std::rc::Rc;
@@ -21,7 +19,7 @@ pub struct TypeLayoutCache {
 
 impl TypeLayoutCache {
 	pub fn get_layout(&self, ty: &Arc<Type>) -> Layout {
-		match ty.as_ref().as_ref() {
+		match ty.variant() {
 			TypeVariant::Void => Layout::new::<()>(),
 			TypeVariant::Char => Layout::new::<char>(),
 			TypeVariant::Bool => Layout::new::<bool>(),
@@ -57,13 +55,13 @@ impl TypeLayoutCache {
 	}
 
 	pub fn get_field_offset_and_layout(&self, ty: &Arc<Type>, field: usize) -> Option<(usize, Layout, Arc<Type>)> {
-		let TypeVariant::Struct(data) = ty.as_ref().as_ref() else {
+		let TypeVariant::Struct(data) = ty.variant() else {
 			return None;
 		};
 
 		let fields = data.fields();
 		if fields.len() == 0 {
-			return Some((0, Layout::new::<()>(), Type::void().clone()));
+			return Some((0, Layout::new::<()>(), <()>::leaf_type().clone()));
 		}
 
 		let key = (ty.clone(), field);
@@ -74,7 +72,7 @@ impl TypeLayoutCache {
 		let mut offset = 0;
 		let mut layout = Layout::new::<()>();
 		let mut fld_layout = Layout::new::<()>();
-		let mut fld_ty = Type::void().clone();
+		let mut fld_ty = <()>::leaf_type().clone();
 
 		for field in 0..=field {
 			let Some(field) = fields.get(field) else {
@@ -94,155 +92,164 @@ impl TypeLayoutCache {
 	}
 }
 
-pub struct Stack {
-	sp: usize,
+pub struct Stack<'l> {
+	sp: Cell<*mut u8>,
+	ep: *mut u8,
 	memory: Vec<u8>,
 	layout_cache: Rc<TypeLayoutCache>,
-	elements: Vec<(Arc<Type>, usize, usize)>
+	elements: RefCell<Vec<StackElement<'l>>>,
 }
 
-impl Stack {
+#[derive(Clone)]
+pub struct StackElement<'l>(pub &'l Arc<Type>, pub Layout, pub *mut u8, *mut u8);
+
+impl StackElement<'_> {
+	pub fn as_ref<T: LeafType>(&self) -> &T {
+		assert_eq!(self.0, T::leaf_type());
+		debug_assert_eq!(self.1, Layout::new::<T>());
+		unsafe { &*(self.2 as *const T) }
+	}
+}
+
+impl<'l> Stack<'l> {
 	pub fn with_capacity(layout_cache: Rc<TypeLayoutCache>, capacity: usize) -> Self {
+		let mut memory = vec![0; capacity];
+		let [start, .., end] = memory.as_mut_slice() else {
+			unreachable!();
+		};
+
 		Self {
-			sp: 0,
-			layout_cache,
-			elements: vec![],
-			memory: vec![0; capacity],
+			sp: Cell::new(start as *mut u8),
+			ep: end as *mut u8,
+			memory, layout_cache,
+			elements: Default::default(),
 		}
 	}
 
-	pub fn peek(&self) -> Option<(&Arc<Type>, usize)> {
-		let (ty, _, size) = self.elements.last()?;
-		Some((ty, *size))
+	pub fn with_elements<T>(&self, func: impl FnOnce(&[StackElement<'l>]) -> T) -> T {
+		let elements = self.elements.borrow();
+		func(elements.as_slice())
 	}
 
-	pub fn push(&mut self, ty: &Arc<Type>, layout: Layout, bytes: &[u8]) -> anyhow::Result<Range<usize>> {
-		if !bytes.is_empty() {
-			if bytes.len() != layout.size() {
-				return err_invalid_len(layout.size(), bytes.len());
-			}
+	pub fn push(&mut self, ty: &'l Arc<Type>, bytes: &[u8]) -> (usize, *mut u8) {
+		unsafe {
+			let layout = self.layout_cache.get_layout(ty);
+			let sp = self.sp.get();
+			let align = sp.align_offset(layout.align());
+			let new_sp = sp.add(layout.size() + align);
+			assert!(new_sp <= self.ep, "Stack overflow");
+			assert_eq!(layout.size(), bytes.len());
+
+			let elem_ptr = sp.add(align);
+			std::ptr::copy_nonoverlapping(bytes.as_ptr(), elem_ptr, bytes.len());
+
+			let mut elements = self.elements.borrow_mut();
+			let id = elements.len();
+
+			elements.push(StackElement(ty, layout, elem_ptr, sp));
+			self.sp.set(new_sp);
+			(id, elem_ptr)
 		}
-
-		let mut sp = self.sp;
-		let mut len = layout.size();
-		let align = unsafe { self.memory.as_ptr().add(sp).align_offset(layout.align()) };
-		sp += align;
-		len += align;
-
-		let range = sp..sp + layout.size();
-		sp += layout.size();
-
-		if sp > self.memory.len() {
-			return err_stack_overflow();
-		}
-
-		self.sp = sp;
-		self.elements.push((ty.clone(), len, layout.size()));
-
-		if !bytes.is_empty() {
-			self[range.clone()].copy_from_slice(bytes);
-		}
-
-		Ok(range)
 	}
 
-	pub fn push_inner(&mut self, ty: &Arc<Type>, layout: Layout, src: Range<usize>) -> anyhow::Result<Range<usize>> {
-		if src.start > src.end || src.end > self.sp {
-			return err_out_of_bounds();
+	pub fn push_uninit(&mut self, ty: &'l Arc<Type>) -> (usize, *mut u8) {
+		unsafe {
+			let sp = self.sp.get();
+			let layout = self.layout_cache.get_layout(ty);
+			let align = sp.align_offset(layout.align());
+			let new_sp = sp.add(layout.size() + align);
+			assert!(new_sp <= self.ep, "Stack overflow");
+
+			let elem_ptr = sp.add(align);
+			let mut elements = self.elements.borrow_mut();
+			let id = elements.len();
+
+			elements.push(StackElement(ty, layout, elem_ptr, sp));
+			self.sp.set(new_sp);
+			(id, elem_ptr)
 		}
-
-		if src.len() != layout.size() {
-			return err_invalid_len(layout.size(), src.len());
-		}
-
-		let mut sp = self.sp;
-		let mut len = layout.size();
-		let align = unsafe { self.memory.as_ptr().add(sp).align_offset(layout.align()) };
-		sp += align;
-		len += align;
-
-		let range = sp..sp + layout.size();
-		sp += layout.size();
-
-		if sp > self.memory.len() {
-			return err_stack_overflow();
-		}
-
-		self.memory.copy_within(src, self.sp);
-
-		self.sp = sp;
-		self.elements.push((ty.clone(), len, layout.size()));
-
-		Ok(range)
 	}
 
-	pub fn fast_push_value_with_type<T: Copy>(&mut self, value: T, ty: &Arc<Type>) {
-		let mut sp = self.sp;
-		let mut len = size_of::<T>();
-		let align = unsafe { self.memory.as_ptr().add(sp).align_offset(align_of::<T>()) };
-		sp += align;
-		len += align;
+	pub fn push_value<T: Copy + LeafType>(&mut self, value: T) -> (usize, *mut u8) {
+		debug_assert!({
+			let ty = T::leaf_type();
+			let layout = self.layout_cache.get_layout(&ty);
+			layout.size() == size_of::<T>() && layout.align() == align_of::<T>()
+		});
 
 		unsafe {
-			let ptr = self.memory.as_mut_ptr().add(sp) as *mut T;
-			std::ptr::write(ptr, value);
-		}
-		sp += size_of::<T>();
+			let sp = self.sp.get();
+			let align = sp.align_offset(align_of::<T>());
+			let new_sp = sp.add(size_of::<T>() + align);
+			assert!(new_sp <= self.ep, "Stack overflow");
 
-		self.elements.push((ty.clone(), len, size_of::<T>()));
-		self.sp = sp;
+			let elem_ptr = sp.add(align);
+			std::ptr::write(elem_ptr as *mut T, value);
+
+			let mut elements = self.elements.borrow_mut();
+			let id = elements.len();
+
+			elements.push(StackElement(T::leaf_type(), Layout::new::<T>(), elem_ptr, sp));
+			self.sp.set(new_sp);
+			(id, elem_ptr)
+		}
 	}
 
-	pub fn pop(&mut self, bytes: &mut [u8]) -> anyhow::Result<Arc<Type>> {
-		let Some((elem_ty, len, size)) = self.elements.last() else {
-			return err_stack_empty();
-		};
+	pub fn push_from_element(&mut self, element: usize) -> (usize, *mut u8) {
+		let mut elements = self.elements.borrow_mut();
+		let StackElement(ty, layout, ptr, _) = elements[element].clone();
+		let id = elements.len();
 
-		if bytes.len() != *size {
-			return err_invalid_len(*size, bytes.len());
+		unsafe {
+			let sp = self.sp.get();
+			let align = sp.align_offset(layout.align());
+			let new_sp = sp.add(layout.size() + align);
+			assert!(new_sp <= self.ep, "Stack overflow");
+
+			let elem_ptr = sp.add(align);
+			std::ptr::copy_nonoverlapping(ptr, elem_ptr, layout.size());
+			elements.push(StackElement(ty, layout, elem_ptr, sp));
+			self.sp.set(new_sp);
+			(id, elem_ptr)
 		}
-
-		let elem_ty = elem_ty.clone();
-		let range = self.sp - size..self.sp;
-		bytes.copy_from_slice(&self[range]);
-		self.sp -= *len;
-		let _ = self.elements.pop();
-		Ok(elem_ty)
 	}
 
-	pub fn pop_inner(&mut self, ty: &Arc<Type>, dst: Range<usize>) -> anyhow::Result<()> {
-		if dst.start > dst.end || dst.end > self.sp {
-			return err_out_of_bounds();
-		}
+	pub fn pop(&self) -> (&'l Arc<Type>, Layout, &[u8]) {
+		let mut elements = self.elements.borrow_mut();
+		let StackElement(ty, layout, ptr, sp) = elements.pop().unwrap();
 
-		let Some((elem_ty, len, size)) = self.elements.last() else {
-			return err_stack_empty();
-		};
-
-		if dst.len() != *size {
-			return err_invalid_len(*size, dst.len());
-		}
-
-		if elem_ty != ty {
-			return err_invalid_ty(ty, elem_ty);
-		}
-
-		let range = self.sp - size..self.sp;
-		self.sp -= *len;
-		self.memory.copy_within(range, dst.start);
-		let _ = self.elements.pop();
-
-		Ok(())
+		self.sp.set(sp);
+		let slice = unsafe { std::slice::from_raw_parts(ptr, layout.size()) };
+		(ty, layout, slice)
 	}
 
-	pub fn pop_ignore_value(&mut self) -> anyhow::Result<()> {
-		let Some((_, len, _)) = self.elements.last() else {
-			return err_stack_empty();
-		};
+	pub fn pop_ref<T: LeafType>(&self) -> &T {
+		let mut elements = self.elements.borrow_mut();
+		let StackElement(ty, layout, ptr, sp) = elements.pop().unwrap();
+		assert_eq!(ty, T::leaf_type());
+		debug_assert_eq!(layout, Layout::new::<T>());
+		self.sp.set(sp);
+		unsafe { &*(ptr as *const T) }
+	}
 
-		self.sp -= *len;
-		let _ = self.elements.pop();
-		Ok(())
+	pub fn pop_into_element(&self, element: usize) {
+		let mut elements = self.elements.borrow_mut();
+		let StackElement(ty, layout, ptr, sp) = elements.pop().unwrap();
+		let StackElement(elem_ty, elem_layout, elem_ptr, _) = &elements[element];
+
+		assert_eq!(ty, *elem_ty);
+		debug_assert_eq!(layout, *elem_layout);
+
+		self.sp.set(sp);
+		unsafe { std::ptr::copy_nonoverlapping(ptr, *elem_ptr, layout.size()) }
+	}
+
+	pub unsafe fn pop_into(&self, dst: *mut u8) {
+		let mut elements = self.elements.borrow_mut();
+		let StackElement(_, layout, src, sp) = elements.pop().unwrap();
+
+		self.sp.set(sp);
+		std::ptr::copy_nonoverlapping(src, dst, layout.size())
 	}
 
 	pub fn as_ptr(&self) -> *const u8 {
@@ -250,67 +257,40 @@ impl Stack {
 	}
 }
 
-impl Index<Range<usize>> for Stack {
-	type Output = [u8];
-	fn index(&self, index: Range<usize>) -> &Self::Output {
-		&self.memory[index]
-	}
-}
-
-impl IndexMut<Range<usize>> for Stack {
-	fn index_mut(&mut self, index: Range<usize>) -> &mut Self::Output {
-		&mut self.memory[index]
-	}
-}
-
-impl Index<RangeFrom<usize>> for Stack {
-	type Output = [u8];
-	fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
-		&self.memory[index]
-	}
-}
-
-impl IndexMut<RangeFrom<usize>> for Stack {
-	fn index_mut(&mut self, index: RangeFrom<usize>) -> &mut Self::Output {
-		&mut self.memory[index]
-	}
-}
-
-impl Debug for Stack {
+impl Debug for Stack<'_> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		let mut dbg = f.debug_struct(&format! {
-			"Stack [{} / {}]", self.sp, self.memory.len()
+			"Stack [{} / {}]", self.sp.get() as usize - self.memory.as_ptr() as usize, self.memory.len()
 		});
 
-		fn write_value(
-			stack: &Stack, string: &mut String,
-			sp: usize, size: usize,
-			ty: &Arc<Type>
-		) -> std::fmt::Result {
+		unsafe fn write_value(stack: &Stack, string: &mut String, ptr: *const u8, ty: &Arc<Type>) -> std::fmt::Result {
 			match ty.variant() {
-				TypeVariant::Int8 => write!(string, "{}", bytemuck::pod_read_unaligned::<i8>(&stack[sp..sp+size])),
-				TypeVariant::Int16 => write!(string, "{}", bytemuck::pod_read_unaligned::<i16>(&stack[sp..sp+size])),
-				TypeVariant::Int32 => write!(string, "{}", bytemuck::pod_read_unaligned::<i32>(&stack[sp..sp+size])),
-				TypeVariant::Int64 => write!(string, "{}", bytemuck::pod_read_unaligned::<i64>(&stack[sp..sp+size])),
-				TypeVariant::UInt8 => write!(string, "{}", bytemuck::pod_read_unaligned::<u8>(&stack[sp..sp+size])),
-				TypeVariant::UInt16 => write!(string, "{}", bytemuck::pod_read_unaligned::<u16>(&stack[sp..sp+size])),
-				TypeVariant::UInt32 => write!(string, "{}", bytemuck::pod_read_unaligned::<u32>(&stack[sp..sp+size])),
-				TypeVariant::UInt64 => write!(string, "{}", bytemuck::pod_read_unaligned::<u64>(&stack[sp..sp+size])),
-				TypeVariant::Float32 => write!(string, "{}", bytemuck::pod_read_unaligned::<f32>(&stack[sp..sp+size])),
-				TypeVariant::Float64 => write!(string, "{}", bytemuck::pod_read_unaligned::<f64>(&stack[sp..sp+size])),
+				TypeVariant::Int8 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i8)),
+				TypeVariant::Int16 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i16)),
+				TypeVariant::Int32 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i32)),
+				TypeVariant::Int64 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i64)),
+				TypeVariant::UInt8 => write!(string, "{}",std::ptr::read_unaligned(ptr)),
+				TypeVariant::UInt16 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const u16)),
+				TypeVariant::UInt32 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const u32)),
+				TypeVariant::UInt64 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const u32)),
+				TypeVariant::Float16 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const f16)),
+				TypeVariant::Float32 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const f32)),
+				TypeVariant::Float64 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const f64)),
+				TypeVariant::Bool => write!(string, "{}", std::ptr::read_unaligned(ptr as *const bool)),
+				TypeVariant::Char => write!(string, "{}", std::ptr::read_unaligned(ptr as *const char)),
 
 				| TypeVariant::Pointer(_, _)
-				| TypeVariant::Reference(_, _) => write!(string, "{:#?}", bytemuck::pod_read_unaligned::<usize>(&stack[sp..sp+size]) as *const u8),
+				| TypeVariant::Reference(_, _) => write!(string, "{:#?}", std::ptr::read_unaligned(ptr as *const *const u8)),
 
 				TypeVariant::Struct(data) => {
 					write!(string, "{{ ")?;
 					let mut comma = "";
 					for (i, field) in data.fields().iter().enumerate() {
-						let (offset, layout, ty) = stack.layout_cache
+						let (offset, _, ty) = stack.layout_cache
 							.get_field_offset_and_layout(ty, i).unwrap();
 
 						write!(string, "{}{}: ", comma, field.name())?;
-						write_value(stack, string, sp + offset, layout.size(), &ty)?;
+						write_value(stack, string, ptr.add(offset), &ty)?;
 						comma = ", ";
 					}
 					write!(string, " }}")
@@ -320,84 +300,30 @@ impl Debug for Stack {
 			}
 		}
 
-		let mut sp = 0;
 		let mut name = String::new();
 		let mut value = String::new();
 		let mut type_name = String::new();
-		for (ty, len, size) in &self.elements {
+
+		let elements = self.elements.borrow();
+		for StackElement(ty, _, ptr, _) in elements.iter() {
 			name.clear();
 			type_name.clear();
 			write!(type_name, "{}", ty).unwrap();
-			write!(name, "{:#?}", unsafe { self.memory.as_ptr().add(sp) }).unwrap();
+			write!(name, "{:#?}", ptr).unwrap();
 
 			value.clear();
-			write_value(self, &mut value, sp + (len - size), *size, ty)?;
+			unsafe { write_value(self, &mut value, *ptr, ty)? };
 
 			match value.is_empty() {
 				true => dbg.field(&name, &format_args!("{}", type_name)),
 				false => dbg.field(&name, &format_args!("{} {}", type_name, value)),
 			};
-			sp += *len;
 		}
 
 		name.clear();
-		write!(name, "{:#?}", unsafe { self.memory.as_ptr().add(sp) }).unwrap();
+		write!(name, "{:#?}", self.ep).unwrap();
 		dbg.field(&name, &"--- END OF STACK ---");
 
 		dbg.finish()
 	}
-}
-
-pub trait PushValue<T> {
-	fn push_value(&mut self, value: T);
-}
-
-macro_rules! impl_push {
-    ($($ty: ident),+) => {
-		$(
-			impl PushValue<$ty> for Stack {
-				fn push_value(&mut self, value: $ty) {
-        			self.fast_push_value_with_type(value, Type::$ty())
-   				}
-			}
-		)+
-	};
-}
-
-impl_push!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
-
-impl PushValue<bool> for Stack {
-	fn push_value(&mut self, value: bool) {
-		self.fast_push_value_with_type(value as u8, Type::bool());
-	}
-}
-
-#[cold]
-#[inline(never)]
-fn err_stack_overflow<T>() -> anyhow::Result<T> {
-	Err(anyhow!("Stack overflow"))
-}
-
-#[cold]
-#[inline(never)]
-fn err_stack_empty<T>() -> anyhow::Result<T> {
-	Err(anyhow!("Stack is empty"))
-}
-
-#[cold]
-#[inline(never)]
-fn err_out_of_bounds<T>() -> anyhow::Result<T> {
-	Err(anyhow!("Out of bounds stack access"))
-}
-
-#[cold]
-#[inline(never)]
-fn err_invalid_len<T>(expected: usize, found: usize) -> anyhow::Result<T> {
-	Err(anyhow!("Invalid buffer length. Expected {}, found {}", expected, found))
-}
-
-#[cold]
-#[inline(never)]
-fn err_invalid_ty<T>(expected: &Arc<Type>, found: &Arc<Type>) -> anyhow::Result<T> {
-	Err(anyhow!("Invalid type. Expected {}, found {}", expected, found))
 }

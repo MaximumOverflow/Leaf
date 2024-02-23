@@ -1,9 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, OnceLock, Weak};
+use crate::structured::name_or_empty;
 use crate::{ElementRef, TypeDef};
 use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
-use crate::structured::name_or_empty;
+use half::f16;
 
 pub struct Type {
     this: Weak<Type>,
@@ -56,74 +57,8 @@ impl Type {
         }
     }
 
-    pub fn void() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Void, ElementRef::default()))
-    }
-
-    pub fn char() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Char, ElementRef::default()))
-    }
-
-    pub fn bool() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Bool, ElementRef::default()))
-    }
-
-    pub fn i8() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int8, ElementRef::default()))
-    }
-
-    pub fn i16() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int16, ElementRef::default()))
-    }
-
-    pub fn i32() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int32, ElementRef::default()))
-    }
-
-    pub fn i64() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Int64, ElementRef::default()))
-    }
-
-    pub fn u8() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt8, ElementRef::default()))
-    }
-
-    pub fn u16() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt16, ElementRef::default()))
-    }
-
-    pub fn u32() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt32, ElementRef::default()))
-    }
-
-    pub fn u64() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::UInt64, ElementRef::default()))
-    }
-
-    pub fn f16() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Float16, ElementRef::default()))
-    }
-
-    pub fn f32() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Float32, ElementRef::default()))
-    }
-
-    pub fn f64() -> &'static Arc<Type> {
-        static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
-        TYPE.get_or_init(|| Self::new(TypeVariant::Float64, ElementRef::default()))
+    pub fn variant(&self) -> &TypeVariant {
+        &self.variant
     }
 
     pub fn name(&self) -> Option<&str> {
@@ -362,5 +297,51 @@ impl StructBuilder {
 impl AsRef<Arc<Type>> for StructBuilder {
     fn as_ref(&self) -> &Arc<Type> {
         &self.ty
+    }
+}
+
+pub trait LeafType {
+    fn leaf_type() -> &'static Arc<Type>;
+}
+
+macro_rules! impl_leaf_type {
+    ($(($ty: ty, $var: ident)),*) => {
+        $(
+            impl LeafType for $ty {
+                fn leaf_type() -> &'static Arc<Type> {
+                    static TYPE: OnceLock<Arc<Type>> = OnceLock::new();
+                    TYPE.get_or_init(|| Type::new(TypeVariant::$var, ElementRef::default()))
+                }
+            }
+        )*
+    };
+}
+
+impl_leaf_type![
+    ((), Void),
+    (char, Char),
+    (bool, Bool),
+    (i8, Int8),
+    (i16, Int16),
+    (i32, Int32),
+    (i64, Int64),
+    (u8, UInt8),
+    (u16, UInt16),
+    (u32, UInt32),
+    (u64, UInt64),
+    (f16, Float16),
+    (f32, Float32),
+    (f64, Float64)
+];
+
+impl<T: LeafType> LeafType for *const T {
+    fn leaf_type() -> &'static Arc<Type> {
+        T::leaf_type().make_ptr(false)
+    }
+}
+
+impl<T: LeafType> LeafType for *mut T {
+    fn leaf_type() -> &'static Arc<Type> {
+        T::leaf_type().make_ptr(true)
     }
 }

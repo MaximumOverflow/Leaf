@@ -1,4 +1,5 @@
 use crate::{MetadataRead, MetadataWrite, Opcode};
+use crate::structured::types::LeafType;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, OnceLock};
 use crate::structured::Type;
@@ -180,7 +181,7 @@ impl<'l> FunctionSignatureBuilder<'l> {
             data: builder_data::Signature {
                 namespace,
                 name: Arc::from(name),
-                return_ty: Type::void().clone(),
+                return_ty: <()>::leaf_type().clone(),
                 parameters: Default::default(),
                 functions,
             },

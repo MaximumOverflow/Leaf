@@ -343,6 +343,7 @@ name = "leaf_compilation"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "half",
  "leaf_parsing",
  "leaf_reflection",
 ]
@@ -369,6 +370,7 @@ name = "leaf_reflection"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "half",
  "leaf_derive",
  "paste",
 ]

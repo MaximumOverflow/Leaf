@@ -1,4 +1,4 @@
-use leaf_compilation::reflection::structured::types::TypeVariant;
+use leaf_compilation::reflection::structured::types::{LeafType, TypeVariant};
 use leaf_compilation::reflection::structured::Type;
 use std::fmt::{Debug, Formatter};
 use std::alloc::Layout;
@@ -42,7 +42,7 @@ impl Value {
             };
         }
 
-        match ty.as_ref().as_ref() {
+        match ty.variant() {
             TypeVariant::Void => {
                 assert_known_type_validity!(Layout::new::<()>());
                 Ok(Self { ty: ty.clone(), data: Data::Void })
@@ -117,7 +117,7 @@ impl Value {
     }
 
     pub unsafe fn init<T>(&mut self, func: impl FnOnce(&mut [u8]) -> anyhow::Result<T>) -> anyhow::Result<T> {
-       match self.ty.as_ref().as_ref() {
+       match self.ty.variant() {
            TypeVariant::Void => {
                func(&mut [])
            },
@@ -221,7 +221,7 @@ impl Value {
     pub fn void() -> Self {
         Self {
             data: Data::Void,
-            ty: Type::void().clone(),
+            ty: <()>::leaf_type().clone(),
         }
     }
 

@@ -60,7 +60,7 @@ fn main() {
 			time = SystemTime::now();
 			let mut interpreter = Interpreter::new();
 
-			match interpreter.interpret(main, vec![]) {
+			match interpreter.call(main) {
 				Ok(value) => {
 					let interp_time = time.elapsed().unwrap();
 

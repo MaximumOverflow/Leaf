@@ -2,6 +2,7 @@ use leaf_parsing::ast::{Block as BlockAST, Else, Expression, If, Literal, Statem
 use crate::frontend::expressions::{compile_expression, Mutability};
 use leaf_reflection::structured::functions::FunctionBodyBuilder;
 use crate::frontend::types::{invalid_type_err, TypeResolver};
+use leaf_reflection::structured::types::LeafType;
 use crate::frontend::expressions::Value;
 use leaf_reflection::structured::Type;
 use std::collections::HashMap;
@@ -29,12 +30,12 @@ impl<'l> Block<'l> {
             match statement {
                 Statement::Return(None) => {
                     let expected = self.parent.expected_type();
-                    match expected == Type::void() {
+                    match expected == <()>::leaf_type() {
                         true => {
                             builder.push_opcode(Opcode::Ret);
                         },
                         false => {
-                            return Err(invalid_type_err(expected, Some(Type::void())));
+                            return Err(invalid_type_err(expected, Some(<()>::leaf_type())));
                         },
                     }
                 }

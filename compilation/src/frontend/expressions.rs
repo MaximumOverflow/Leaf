@@ -1,8 +1,8 @@
-use crate::frontend::block::{Block, BlockRequirements};
 use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal};
 use leaf_reflection::structured::functions::FunctionBodyBuilder;
-use leaf_reflection::structured::types::TypeVariant;
+use leaf_reflection::structured::types::{LeafType, TypeVariant};
 use crate::frontend::types::{invalid_type_err, TypeResolver};
+use crate::frontend::block::{Block, BlockRequirements};
 use leaf_reflection::structured::Type;
 use leaf_reflection::{Encoded, Opcode};
 use std::sync::Arc;
@@ -16,49 +16,49 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
                 match required_bits <= 32 {
                     true => {
                         builder.push_opcode(Opcode::PushInt32(Encoded(*integer as i32)));
-                        Ok(Value::Const(Type::i32().clone()))
+                        Ok(Value::Const(i32::leaf_type().clone()))
                     }
                     false => {
                         builder.push_opcode(Opcode::PushInt64(Encoded(*integer as i64)));
-                        Ok(Value::Const(Type::i64().clone()))
+                        Ok(Value::Const(i64::leaf_type().clone()))
                     }
                 }
             }
             Literal::Integer(Integer::Int8(integer)) => {
                 builder.push_opcode(Opcode::PushInt8(*integer));
-                Ok(Value::Const(Type::i8().clone()))
+                Ok(Value::Const(i8::leaf_type().clone()))
             }
             Literal::Integer(Integer::Int16(integer)) => {
                 builder.push_opcode(Opcode::PushInt16(Encoded(*integer)));
-                Ok(Value::Const(Type::i16().clone()))
+                Ok(Value::Const(i16::leaf_type().clone()))
             }
             Literal::Integer(Integer::Int32(integer)) => {
                 builder.push_opcode(Opcode::PushInt32(Encoded(*integer)));
-                Ok(Value::Const(Type::i32().clone()))
+                Ok(Value::Const(i32::leaf_type().clone()))
             }
             Literal::Integer(Integer::Int64(integer)) => {
                 builder.push_opcode(Opcode::PushInt64(Encoded(*integer)));
-                Ok(Value::Const(Type::i64().clone()))
+                Ok(Value::Const(i64::leaf_type().clone()))
             }
             Literal::Integer(Integer::UInt8(integer)) => {
                 builder.push_opcode(Opcode::PushUInt8(*integer));
-                Ok(Value::Const(Type::u8().clone()))
+                Ok(Value::Const(u8::leaf_type().clone()))
             }
             Literal::Integer(Integer::UInt16(integer)) => {
                 builder.push_opcode(Opcode::PushUInt16(Encoded(*integer)));
-                Ok(Value::Const(Type::u16().clone()))
+                Ok(Value::Const(u16::leaf_type().clone()))
             }
             Literal::Integer(Integer::UInt32(integer)) => {
                 builder.push_opcode(Opcode::PushUInt32(Encoded(*integer)));
-                Ok(Value::Const(Type::u32().clone()))
+                Ok(Value::Const(u32::leaf_type().clone()))
             }
             Literal::Integer(Integer::UInt64(integer)) => {
                 builder.push_opcode(Opcode::PushUInt64(Encoded(*integer)));
-                Ok(Value::Const(Type::u64().clone()))
+                Ok(Value::Const(u64::leaf_type().clone()))
             }
             Literal::Boolean(boolean) => {
                 builder.push_opcode(Opcode::PushBool(*boolean));
-                Ok(Value::Const(Type::bool().clone()))
+                Ok(Value::Const(bool::leaf_type().clone()))
             }
 
             Literal::Id(id) => {
@@ -118,7 +118,7 @@ pub fn compile_expression(block: &Block, expr: &Expression, builder: &mut Functi
 
         Expression::NewStruct(new_struct) => {
             let ty = block.resolve_type(&new_struct.ty)?;
-            match ty.as_ref().as_ref() {
+            match ty.variant() {
                 TypeVariant::Struct(s_ty) => {
                     let local = builder.declare_local(&ty).id();
                     let mut fields: Vec<_> = new_struct.values.iter().collect();
