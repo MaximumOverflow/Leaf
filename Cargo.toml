@@ -4,7 +4,8 @@ members = [
     "derive",
     "parsing",
     "reflection",
-    "compilation"
+    "compilation",
+    "reflection_new",
 ]
 resolver = "2"
 
