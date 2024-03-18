@@ -35,7 +35,10 @@ impl<T: ?Sized> Default for ElementRef<T> {
 
 impl<T: ?Sized> MetadataRead for ElementRef<T> {
 	fn read<S: Read>(stream: &mut S) -> Result<Self, Error> {
-		Ok(Self { offset: Encoded::read(stream)?, ph: PhantomData })
+		Ok(Self {
+			offset: Encoded::read(stream)?,
+			ph: PhantomData,
+		})
 	}
 }
 
@@ -127,7 +130,11 @@ impl<T: ?Sized> Hash for SliceRef<T> {
 
 impl<T: ?Sized> MetadataRead for SliceRef<T> {
 	fn read<S: Read>(stream: &mut S) -> Result<Self, Error> {
-		Ok(Self { offset: Encoded::read(stream)?, len: Encoded::read(stream)?, ph: PhantomData })
+		Ok(Self {
+			offset: Encoded::read(stream)?,
+			len: Encoded::read(stream)?,
+			ph: PhantomData,
+		})
 	}
 }
 

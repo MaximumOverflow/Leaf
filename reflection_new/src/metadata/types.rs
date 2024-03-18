@@ -5,226 +5,236 @@ use derivative::Derivative;
 #[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum Type<'l> {
-    Void = 0x00,
-    Char = 0x01,
-    Bool = 0x02,
+	Void = 0x00,
+	Char = 0x01,
+	Bool = 0x02,
 
-    Int8 = 0x10,
-    Int16 = 0x11,
-    Int32 = 0x12,
-    Int64 = 0x13,
-    UInt8 = 0x14,
-    UInt16 = 0x15,
-    UInt32 = 0x16,
-    UInt64 = 0x17,
+	Int8 = 0x10,
+	Int16 = 0x11,
+	Int32 = 0x12,
+	Int64 = 0x13,
+	UInt8 = 0x14,
+	UInt16 = 0x15,
+	UInt32 = 0x16,
+	UInt64 = 0x17,
 
-    Float16 = 0x20,
-    Float32 = 0x21,
-    Float64 = 0x23,
+	Float16 = 0x20,
+	Float32 = 0x21,
+	Float64 = 0x23,
 
-    Array(Array<'l>) = 0x30,
-    Pointer(Pointer<'l>) = 0x31,
-    Struct(Arc<Struct<'l>>) = 0x32,
+	Array(Array<'l>) = 0x30,
+	Pointer(Pointer<'l>) = 0x31,
+	Struct(Arc<Struct<'l>>) = 0x32,
 }
 
 impl Eq for Type<'_> {}
 
 impl PartialEq<Self> for Type<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        if std::mem::discriminant(self) != std::mem::discriminant(other) {
-            return false;
-        }
+	fn eq(&self, other: &Self) -> bool {
+		if std::mem::discriminant(self) != std::mem::discriminant(other) {
+			return false;
+		}
 
-        match (self, other) {
-            (Type::Array(a), Type::Array(b)) => std::ptr::eq(a, b),
-            (Type::Pointer(a), Type::Pointer(b)) => std::ptr::eq(a, b),
-            (Type::Struct(a), Type::Struct(b)) => std::ptr::eq(a, b),
-            _ => false,
-        }
-    }
+		match (self, other) {
+			(Type::Array(a), Type::Array(b)) => std::ptr::eq(a, b),
+			(Type::Pointer(a), Type::Pointer(b)) => std::ptr::eq(a, b),
+			(Type::Struct(a), Type::Struct(b)) => std::ptr::eq(a, b),
+			_ => false,
+		}
+	}
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Array<'l> {
-    count: usize,
-    ty: &'l Type<'l>,
+	count: usize,
+	ty: &'l Type<'l>,
 }
 
 impl<'l> Into<Type<'l>> for Array<'l> {
-    fn into(self) -> Type<'l> {
-        Type::Array(self)
-    }
+	fn into(self) -> Type<'l> {
+		Type::Array(self)
+	}
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Pointer<'l> {
-    mutable: bool,
-    ty: &'l Type<'l>,
+	mutable: bool,
+	ty: &'l Type<'l>,
 }
 
 impl<'l> Into<Type<'l>> for Pointer<'l> {
-    fn into(self) -> Type<'l> {
-        Type::Pointer(self)
-    }
+	fn into(self) -> Type<'l> {
+		Type::Pointer(self)
+	}
 }
 
 #[derive(Derivative)]
 #[derivative(Debug, Eq, PartialEq)]
 pub struct Struct<'l> {
-    name: &'l str,
-    namespace: &'l str,
-    fields: OnceLock<Vec<Field<'l>>>,
+	name: &'l str,
+	namespace: &'l str,
+	fields: OnceLock<Vec<Field<'l>>>,
 }
 
 impl<'l> Into<Type<'l>> for Arc<Struct<'l>> {
-    fn into(self) -> Type<'l> {
-        Type::Struct(self)
-    }
+	fn into(self) -> Type<'l> {
+		Type::Struct(self)
+	}
 }
 
 impl<'l> Struct<'l> {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
+	pub fn name(&self) -> &str {
+		&self.name
+	}
 
-    pub fn namespace(&self) -> &'l str {
-        &self.namespace
-    }
+	pub fn namespace(&self) -> &'l str {
+		&self.namespace
+	}
 
-    pub fn fields(&self) -> &[Field<'l>] {
-        match self.fields.get() {
-            None => &[],
-            Some(fields) => fields.as_slice(),
-        }
-    }
+	pub fn fields(&self) -> &[Field<'l>] {
+		match self.fields.get() {
+			None => &[],
+			Some(fields) => fields.as_slice(),
+		}
+	}
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Field<'l> {
-    name: &'l str,
-    ty: &'l Type<'l>,
+	name: &'l str,
+	ty: &'l Type<'l>,
 }
 
 impl<'l> Field<'l> {
-    pub fn name(&self) -> &'l str {
-        self.name
-    }
+	pub fn name(&self) -> &'l str {
+		self.name
+	}
 
-    pub fn ty(&self) -> &'l Type<'l> {
-        self.ty
-    }
+	pub fn ty(&self) -> &'l Type<'l> {
+		self.ty
+	}
 }
 
 #[cfg(feature = "build")]
 mod build {
-    use std::sync::OnceLock;
+	use std::sync::OnceLock;
 
-    use crate::metadata::types::*;
+	use crate::metadata::types::*;
 
-    impl<'l> Array<'l> {
-        pub fn new(ty: &'l Type<'l>, count: usize) -> Self {
-            Self { ty, count, }
-        }
-    }
+	impl<'l> Array<'l> {
+		pub fn new(ty: &'l Type<'l>, count: usize) -> Self {
+			Self { ty, count }
+		}
+	}
 
-    impl<'l> Pointer<'l> {
-        pub fn new(ty: &'l Type<'l>, mutable: bool) -> Self {
-            Self { ty, mutable, }
-        }
-    }
+	impl<'l> Pointer<'l> {
+		pub fn new(ty: &'l Type<'l>, mutable: bool) -> Self {
+			Self { ty, mutable }
+		}
+	}
 
-    impl<'l> Field<'l> {
-        pub fn new(name: &'l str, ty: &'l Type<'l>) -> Self {
-            Self { name, ty }
-        }
-    }
+	impl<'l> Field<'l> {
+		pub fn new(name: &'l str, ty: &'l Type<'l>) -> Self {
+			Self { name, ty }
+		}
+	}
 
-    impl<'l> Struct<'l> {
-        pub(crate) fn new(namespace: &'l str, name: &'l str) -> Self {
-            Self { name, namespace, fields: OnceLock::new() }
-        }
+	impl<'l> Struct<'l> {
+		pub(crate) fn new(namespace: &'l str, name: &'l str) -> Self {
+			Self {
+				name,
+				namespace,
+				fields: OnceLock::new(),
+			}
+		}
 
-        pub fn set_fields(&self, fields: Vec<Field<'l>>) -> Result<(), Vec<Field<'l>>> {
-            self.fields.set(fields)
-        }
-    }
+		pub fn set_fields(&self, fields: Vec<Field<'l>>) -> Result<(), Vec<Field<'l>>> {
+			self.fields.set(fields)
+		}
+	}
 }
 
 #[cfg(feature = "write")]
 mod write {
-    use std::io::{Cursor, Error, Write as IoWrite};
+	use std::io::{Cursor, Error, Write as IoWrite};
 
-    use crate::{Field, Struct};
-    use crate::heaps::{BlobHeapScope, StringHeapScope};
-    use crate::metadata::types::Type;
-    use crate::write::Write;
+	use crate::{Field, Struct};
+	use crate::heaps::{BlobHeapScope, StringHeapScope};
+	use crate::metadata::types::Type;
+	use crate::write::Write;
 
-    impl<'l> Write<'l> for Type<'l> {
-        type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
-        fn write<T: std::io::Write>(&self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
-            let (blob_heap, string_heap) = req;
+	impl<'l> Write<'l> for Type<'l> {
+		type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
+		fn write<T: std::io::Write>(
+			&self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
+			let (blob_heap, string_heap) = req;
 
-            let mut buffer = vec![];
-            let mut buffer_stream = Cursor::new(&mut buffer);
+			let mut buffer = vec![];
+			let mut buffer_stream = Cursor::new(&mut buffer);
 
-            let discriminant: u8 = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
-            buffer_stream.write_all(&[discriminant])?;
+			let discriminant: u8 = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
+			buffer_stream.write_all(&[discriminant])?;
 
-            match self {
-                | Type::Void
-                | Type::Char
-                | Type::Bool
-                | Type::Int8
-                | Type::Int16
-                | Type::Int32
-                | Type::Int64
-                | Type::UInt8
-                | Type::UInt16
-                | Type::UInt32
-                | Type::UInt64
-                | Type::Float16
-                | Type::Float32
-                | Type::Float64 => {},
+			match self {
+				| Type::Void
+				| Type::Char
+				| Type::Bool
+				| Type::Int8
+				| Type::Int16
+				| Type::Int32
+				| Type::Int64
+				| Type::UInt8
+				| Type::UInt16
+				| Type::UInt32
+				| Type::UInt64
+				| Type::Float16
+				| Type::Float32
+				| Type::Float64 => {},
 
-                Type::Array(data) => {
-                    data.ty.write(&mut buffer_stream, req)?;
-                    data.count.write(&mut buffer_stream, ())?;
-                },
+				Type::Array(data) => {
+					data.ty.write(&mut buffer_stream, req)?;
+					data.count.write(&mut buffer_stream, ())?;
+				},
 
-                Type::Pointer(data) => {
-                    data.ty.write(&mut buffer_stream, req)?;
-                    data.mutable.write(&mut buffer_stream, ())?;
-                },
+				Type::Pointer(data) => {
+					data.ty.write(&mut buffer_stream, req)?;
+					data.mutable.write(&mut buffer_stream, ())?;
+				},
 
-                Type::Struct(data) => {
-                    let ty_ref = format!("{}/{}", data.namespace, data.name);
-                    string_heap.intern_str(&ty_ref).1.write(&mut buffer_stream, ())?;
-                }
-            }
+				Type::Struct(data) => {
+					let ty_ref = format!("{}/{}", data.namespace, data.name);
+					string_heap.intern_str(&ty_ref).1.write(&mut buffer_stream, ())?;
+				},
+			}
 
-            blob_heap.intern_blob(&buffer).1.write(stream, ())
-        }
-    }
+			blob_heap.intern_blob(&buffer).1.write(stream, ())
+		}
+	}
 
-    impl<'l> Write<'l> for Struct<'l> {
-        type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
-        fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
-            let (_, string_heap) = req;
-            string_heap.intern_str(self.namespace).1.write(stream, ())?;
-            string_heap.intern_str(self.name).1.write(stream, ())?;
-            for field in self.fields() {
-                field.write(stream, req)?;
-            }
-            Ok(())
-        }
-    }
+	impl<'l> Write<'l> for Struct<'l> {
+		type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
+		fn write<T: std::io::Write>(
+			&'l self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
+			let (_, string_heap) = req;
+			string_heap.intern_str(self.namespace).1.write(stream, ())?;
+			string_heap.intern_str(self.name).1.write(stream, ())?;
+			for field in self.fields() {
+				field.write(stream, req)?;
+			}
+			Ok(())
+		}
+	}
 
-    impl<'l> Write<'l> for Field<'l> {
-        type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
-        fn write<'a, T: std::io::Write>(&self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
-            let (_, string_heap) = req;
-            string_heap.intern_str(self.name).1.write(stream, ())?;
-            self.ty.write(stream, req)
-        }
-    }
+	impl<'l> Write<'l> for Field<'l> {
+		type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
+		fn write<'a, T: std::io::Write>(
+			&self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
+			let (_, string_heap) = req;
+			string_heap.intern_str(self.name).1.write(stream, ())?;
+			self.ty.write(stream, req)
+		}
+	}
 }

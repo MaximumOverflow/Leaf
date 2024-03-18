@@ -92,50 +92,68 @@ pub enum Expression<'l> {
 }
 
 macro_rules! impl_binary_expr {
-    ($trait: ident, $func: ident, $operator: ident, $operation_i: ident) => {
+	($trait: ident, $func: ident, $operator: ident, $operation_i: ident) => {
 		impl<'l> $trait for Expression<'l> {
 			type Output = Expression<'l>;
 			fn $func(self, rhs: Self) -> Self::Output {
 				match (&self, &rhs) {
 					(
 						Expression::Literal(Literal::Integer(Integer::Int8(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Int8(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::Int8(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::Int8(rhs))),
+					) => {
+						Expression::Literal(Literal::Integer(Integer::Int8(lhs.$operation_i(*rhs))))
+					},
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int16(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Int16(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::Int16(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::Int16(rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::Int16(
+						lhs.$operation_i(*rhs),
+					))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int32(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Int32(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::Int32(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::Int32(rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::Int32(
+						lhs.$operation_i(*rhs),
+					))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt8(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt8(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt8(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::UInt8(rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt8(
+						lhs.$operation_i(*rhs),
+					))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt16(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt16(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt16(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::UInt16(rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt16(
+						lhs.$operation_i(*rhs),
+					))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt32(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt32(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt32(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::UInt32(rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt32(
+						lhs.$operation_i(*rhs),
+					))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::UInt64(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt64(rhs)))
-					) => Expression::Literal(Literal::Integer(Integer::UInt64(lhs.$operation_i(*rhs)))),
+						Expression::Literal(Literal::Integer(Integer::UInt64(rhs))),
+					) => Expression::Literal(Literal::Integer(Integer::UInt64(
+						lhs.$operation_i(*rhs),
+					))),
 
-					(Expression::Literal(Literal::Decimal(lhs)), Expression::Literal(Literal::Decimal(rhs)))
-						=> Expression::Literal(Literal::Decimal(lhs.$func(rhs))),
+					(
+						Expression::Literal(Literal::Decimal(lhs)),
+						Expression::Literal(Literal::Decimal(rhs)),
+					) => Expression::Literal(Literal::Decimal(lhs.$func(rhs))),
 
-					_ => Expression::Binary(Box::new(self), BinaryOperator::$operator, Box::new(rhs)),
+					_ => {
+						Expression::Binary(Box::new(self), BinaryOperator::$operator, Box::new(rhs))
+					},
 				}
 			}
 		}
@@ -155,12 +173,14 @@ pub struct NewStruct<'l> {
 }
 
 impl<'l> NewStruct<'l> {
-	pub(crate) fn new(ty: Type<'l>, fields: impl IntoIterator<Item=(&'l str, Expression<'l>)>) -> Self {
+	pub(crate) fn new(
+		ty: Type<'l>, fields: impl IntoIterator<Item = (&'l str, Expression<'l>)>,
+	) -> Self {
 		let mut values = HashMap::new();
 		for (i, (key, value)) in fields.into_iter().enumerate() {
 			values.insert(key, (i, value));
 		}
-		Self { ty, values, }
+		Self { ty, values }
 	}
 }
 
@@ -177,7 +197,7 @@ pub struct FunctionCall<'l> {
 pub struct SymbolDeclaration<'l> {
 	pub public: bool,
 	pub name: &'l str,
-	pub symbol: Symbol<'l>
+	pub symbol: Symbol<'l>,
 }
 
 #[derive(Debug)]
@@ -190,7 +210,7 @@ pub enum Symbol<'l> {
 
 #[derive(Debug)]
 pub struct Enum<'l> {
-	pub variants: Vec<EnumVariant<'l>>
+	pub variants: Vec<EnumVariant<'l>>,
 }
 
 #[derive(Debug)]
@@ -206,13 +226,13 @@ pub struct EnumVariant<'l> {
 
 #[derive(Debug)]
 pub struct Struct<'l> {
-	pub members: Vec<StructMember<'l>>
+	pub members: Vec<StructMember<'l>>,
 }
 
 #[derive(Debug)]
 pub struct StructMember<'l> {
 	pub name: &'l str,
-	pub ty: Type<'l>
+	pub ty: Type<'l>,
 }
 
 #[derive(Debug)]
@@ -225,11 +245,10 @@ pub struct Function<'l> {
 #[derive(Debug)]
 pub struct FunctionParameter<'l> {
 	pub name: &'l str,
-	pub ty: Type<'l>
+	pub ty: Type<'l>,
 }
 
 //endregion
-
 
 //region Statements
 #[derive(Debug, PartialEq)]
@@ -257,18 +276,25 @@ pub struct VarDecl<'l> {
 }
 
 impl<'l> VarDecl<'l> {
-	pub fn new(name: &'l str, mutable: bool, ty: Option<Type<'l>>, value: Expression<'l>) -> Result<'l, VarDecl<'l>> {
+	pub fn new(
+		name: &'l str, mutable: bool, ty: Option<Type<'l>>, value: Expression<'l>,
+	) -> Result<'l, VarDecl<'l>> {
 		if ty.is_none() && value == Expression::Literal(Literal::Uninit) {
 			return Err(ParseError::User {
 				error: format! {
 					"Uninitialized variables need an explicitly defined type. Try `let {}{}: {{type}} = ?`",
 					if mutable { "mut " } else { "" },
 					name,
-				}
+				},
 			});
 		}
 
-		Ok(VarDecl { name, mutable, ty, value })
+		Ok(VarDecl {
+			name,
+			mutable,
+			ty,
+			value,
+		})
 	}
 }
 

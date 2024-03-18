@@ -1,4 +1,7 @@
-use crate::{ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, SliceRef, TypeDef, TypeKind, MetadataWrite, FunctionBody, Opcode, TypeSignature, Encoded};
+use crate::{
+	ElementRef, FieldDef, FunctionDef, MetadataOffsets, ParameterDef, SliceRef, TypeDef, TypeKind,
+	MetadataWrite, FunctionBody, Opcode, TypeSignature, Encoded,
+};
 use crate::builders::{BlobHeapBuilder, StringHeapBuilder, TypeSignatureBytes};
 use std::marker::PhantomData;
 use std::io::{Cursor, Write};
@@ -74,7 +77,9 @@ impl MetadataBuilder {
 		}
 	}
 
-	pub fn create_parameter(&mut self, name: &str, signature: impl AsRef<TypeSignature>) -> ParameterDef {
+	pub fn create_parameter(
+		&mut self, name: &str, signature: impl AsRef<TypeSignature>,
+	) -> ParameterDef {
 		ParameterDef {
 			name: self.strings.alloc(name),
 			signature: self.blobs.alloc(signature.as_ref()).0,
@@ -101,8 +106,12 @@ impl MetadataBuilder {
 
 		match difference.cmp(&0) {
 			Ordering::Equal => {},
-			Ordering::Less => types.iter_mut().skip(1).for_each(|ty| ty.fields.offset.0 -= diff as u64),
-			Ordering::Greater => types.iter_mut().skip(1).for_each(|ty| ty.fields.offset.0 += diff as u64),
+			Ordering::Less => {
+				types.iter_mut().skip(1).for_each(|ty| ty.fields.offset.0 -= diff as u64)
+			},
+			Ordering::Greater => {
+				types.iter_mut().skip(1).for_each(|ty| ty.fields.offset.0 += diff as u64)
+			},
 		}
 	}
 
@@ -126,8 +135,12 @@ impl MetadataBuilder {
 
 		match difference.cmp(&0) {
 			Ordering::Equal => {},
-			Ordering::Less => funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset.0 -= diff as u64),
-			Ordering::Greater => funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset.0 += diff as u64),
+			Ordering::Less => {
+				funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset.0 -= diff as u64)
+			},
+			Ordering::Greater => {
+				funcs.iter_mut().skip(1).for_each(|ty| ty.params.offset.0 += diff as u64)
+			},
 		}
 	}
 
@@ -151,7 +164,9 @@ impl MetadataBuilder {
 		};
 	}
 
-	pub fn set_instructions(&mut self, func: ElementRef<FunctionDef>, opcodes: &[Opcode]) -> Arc<[u8]> {
+	pub fn set_instructions(
+		&mut self, func: ElementRef<FunctionDef>, opcodes: &[Opcode],
+	) -> Arc<[u8]> {
 		let mut data = vec![];
 		opcodes.write(&mut data).unwrap();
 		let func = &mut self.function_defs[func.offset.0 as usize];
@@ -240,7 +255,7 @@ impl MetadataBuilder {
 		})
 	}
 
-	pub fn get_locals(&self, func: &FunctionDef) -> Option<impl Iterator<Item=&TypeSignature>> {
+	pub fn get_locals(&self, func: &FunctionDef) -> Option<impl Iterator<Item = &TypeSignature>> {
 		let locals = self.blobs.get_blob_items(func.body.locals)?;
 		Some(locals.filter_map(|local| self.get_blob(local)))
 	}

@@ -32,7 +32,9 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 			let mut fields = vec![];
 
 			let discriminant_ty = get_discriminant(&ast.attrs);
-			let raw_discriminant = ast.attrs.iter()
+			let raw_discriminant = ast
+				.attrs
+				.iter()
 				.filter_map(|a| a.path().get_ident())
 				.any(|i| i == "raw_discriminant");
 
@@ -53,15 +55,14 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 					}
 
 					cases.push(quote!(#name::#variant_name(#(#fields),*) => { #(#writes)* }))
-				}
-				else {
+				} else {
 					unimplemented!();
 				}
 			}
 
 			let write_discriminant = match raw_discriminant {
 				true => quote!(stream.write_all(bytemuck::bytes_of(&discriminant))?;),
-				false => quote!(crate::metadata::MetadataWrite::write(&discriminant, stream)?;)
+				false => quote!(crate::metadata::MetadataWrite::write(&discriminant, stream)?;),
 			};
 
 			let implementation = quote! {

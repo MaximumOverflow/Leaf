@@ -78,12 +78,12 @@ impl BlobHeapBuilder {
 		}
 	}
 
-	pub fn get_blob_items<T: MetadataRead>(&self, blob_ref: SliceRef<T>) -> Option<impl Iterator<Item=T> + '_> {
+	pub fn get_blob_items<T: MetadataRead>(
+		&self, blob_ref: SliceRef<T>,
+	) -> Option<impl Iterator<Item = T> + '_> {
 		let blob = self.rev_map.get(&blob_ref.offset.0)?;
 		let mut cursor = Cursor::new(&**blob);
-		let iter = (0..blob_ref.len.0).map(move |i| {
-			T::read(&mut cursor).unwrap()
-		});
+		let iter = (0..blob_ref.len.0).map(move |i| T::read(&mut cursor).unwrap());
 
 		Some(iter)
 	}

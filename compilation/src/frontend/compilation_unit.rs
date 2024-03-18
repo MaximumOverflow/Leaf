@@ -46,8 +46,7 @@ impl<'l> CompilationUnit<'l> {
 	}
 
 	fn define_structs<'a>(
-		&mut self,
-		ast: &'a leaf_parsing::ast::CompilationUnit<'a>,
+		&mut self, ast: &'a leaf_parsing::ast::CompilationUnit<'a>,
 	) -> Vec<(StructBuilder, &'a leaf_parsing::ast::Struct<'a>)> {
 		let mut decls = vec![];
 		for decl in &ast.declarations {
@@ -63,10 +62,7 @@ impl<'l> CompilationUnit<'l> {
 		decls
 	}
 
-	fn populate_structs(
-		&mut self,
-		structs: Vec<(StructBuilder, &leaf_parsing::ast::Struct)>
-	) {
+	fn populate_structs(&mut self, structs: Vec<(StructBuilder, &leaf_parsing::ast::Struct)>) {
 		for (mut builder, decl) in structs {
 			for member in &decl.members {
 				let ty = self.resolve_type(&member.ty).unwrap();
@@ -77,8 +73,7 @@ impl<'l> CompilationUnit<'l> {
 	}
 
 	fn define_functions<'a>(
-		&mut self,
-		ast: &'a leaf_parsing::ast::CompilationUnit<'a>,
+		&mut self, ast: &'a leaf_parsing::ast::CompilationUnit<'a>,
 	) -> Vec<(FunctionBodyBuilder, &'a leaf_parsing::ast::Function<'a>)> {
 		let mut decls = vec![];
 		for decl in &ast.declarations {
@@ -107,8 +102,7 @@ impl<'l> CompilationUnit<'l> {
 	}
 
 	fn compile_functions(
-		&mut self,
-		functions: Vec<(FunctionBodyBuilder, &leaf_parsing::ast::Function)>
+		&mut self, functions: Vec<(FunctionBodyBuilder, &leaf_parsing::ast::Function)>,
 	) -> anyhow::Result<()> {
 		struct Data<'l> {
 			return_type: Arc<Type>,
@@ -135,12 +129,17 @@ impl<'l> CompilationUnit<'l> {
 		}
 
 		for (mut builder, decl) in functions {
-			let Some(ast_block) = &decl.block else { continue };
+			let Some(ast_block) = &decl.block else {
+				continue;
+			};
 
 			let func = builder.as_ref();
 			let mut values = HashMap::with_capacity(func.parameters().len());
 			for (i, param) in func.parameters().iter().enumerate() {
-				values.insert(param.name_arc().clone(), Value::Param(param.ty().clone(), i, false));
+				values.insert(
+					param.name_arc().clone(),
+					Value::Param(param.ty().clone(), i, false),
+				);
 			}
 
 			let mut data = Data {
@@ -151,7 +150,9 @@ impl<'l> CompilationUnit<'l> {
 
 			let mut block = Block::new(&mut data);
 			let func_name = func.name_arc().clone();
-			block.compile(ast_block, &mut builder).with_context(|| format!("Could not compile {:?}", func_name))?;
+			block
+				.compile(ast_block, &mut builder)
+				.with_context(|| format!("Could not compile {:?}", func_name))?;
 			builder.define();
 		}
 		Ok(())

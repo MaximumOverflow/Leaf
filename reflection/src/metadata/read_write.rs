@@ -118,7 +118,7 @@ impl MetadataRead for Encoded<u64> {
 
 		match success {
 			true => Ok(Self(result)),
-			false => Err(Error::new(ErrorKind::InvalidData, CONV_ERR))
+			false => Err(Error::new(ErrorKind::InvalidData, CONV_ERR)),
 		}
 	}
 }
@@ -137,7 +137,9 @@ impl MetadataWrite for Encoded<u64> {
 impl MetadataRead for Encoded<i64> {
 	fn read<T: Read>(stream: &mut T) -> Result<Self, Error> {
 		let value = Encoded::<u64>::read(stream)?;
-		Ok(Encoded(bytemuck::pod_read_unaligned(bytemuck::bytes_of(&value.0))))
+		Ok(Encoded(bytemuck::pod_read_unaligned(bytemuck::bytes_of(
+			&value.0,
+		))))
 	}
 }
 

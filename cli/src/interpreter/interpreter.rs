@@ -19,7 +19,11 @@ impl<'l> Interpreter<'l> {
 		let layout_cache = Rc::new(TypeLayoutCache::default());
 		let stack = Stack::with_capacity(layout_cache.clone(), 1000000);
 		let instruction_cache = InstructionCache::default();
-		Self { stack, layout_cache, instruction_cache }
+		Self {
+			stack,
+			layout_cache,
+			instruction_cache,
+		}
 	}
 
 	#[inline(never)]
@@ -155,19 +159,19 @@ impl<'l> Interpreter<'l> {
 
 				Opcode::Jump(target) => {
 					i = target as usize;
-				}
+				},
 
 				Opcode::CondJump(target) => {
 					if *self.stack.pop_ref::<bool>() {
 						i = target as usize;
 					}
-				}
+				},
 
 				Opcode::CondJumpN(target) => {
 					if !*self.stack.pop_ref::<bool>() {
 						i = target as usize;
 					}
-				}
+				},
 
 				Opcode::Ret => {
 					let (ty, bytes) = match function.return_ty().variant() {
@@ -175,7 +179,7 @@ impl<'l> Interpreter<'l> {
 						_ => {
 							let (ty, _, bytes) = self.stack.pop();
 							(ty, bytes)
-						}
+						},
 					};
 
 					for _ in 0..locals.len() {
@@ -192,11 +196,11 @@ impl<'l> Interpreter<'l> {
 						false => {
 							let buffer = bytes.to_vec();
 							self.stack.push(ty, &buffer);
-						}
+						},
 					}
 
 					return Ok(());
-				}
+				},
 
 				_ => return Err(anyhow!("Unimplemented opcode {:?}", opcode)),
 			}

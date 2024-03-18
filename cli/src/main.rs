@@ -50,9 +50,11 @@ fn main() {
 				&code[start..end]
 			};
 
-			let Some(main) = assembly.functions().iter().find(
-				|f| f.namespace() == namespace && f.name() == "main"
-			) else {
+			let Some(main) = assembly
+				.functions()
+				.iter()
+				.find(|f| f.namespace() == namespace && f.name() == "main")
+			else {
 				eprintln!("Could not find entry point 'main'");
 				return;
 			};
@@ -85,7 +87,7 @@ fn main() {
 				Err(error) => {
 					println!("{:?}", error.context("Compilation failed"));
 					return;
-				}
+				},
 			};
 
 			let assembly = assembly_builder.build();

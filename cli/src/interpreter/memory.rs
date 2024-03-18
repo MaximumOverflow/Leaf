@@ -50,11 +50,13 @@ impl TypeLayoutCache {
 				let mut layouts = self.layouts.borrow_mut();
 				layouts.insert(ty.clone(), layout);
 				layout
-			}
+			},
 		}
 	}
 
-	pub fn get_field_offset_and_layout(&self, ty: &Arc<Type>, field: usize) -> Option<(usize, Layout, Arc<Type>)> {
+	pub fn get_field_offset_and_layout(
+		&self, ty: &Arc<Type>, field: usize,
+	) -> Option<(usize, Layout, Arc<Type>)> {
 		let TypeVariant::Struct(data) = ty.variant() else {
 			return None;
 		};
@@ -121,7 +123,8 @@ impl<'l> Stack<'l> {
 		Self {
 			sp: Cell::new(start as *mut u8),
 			ep: end as *mut u8,
-			memory, layout_cache,
+			memory,
+			layout_cache,
 			elements: Default::default(),
 		}
 	}
@@ -189,7 +192,12 @@ impl<'l> Stack<'l> {
 			let mut elements = self.elements.borrow_mut();
 			let id = elements.len();
 
-			elements.push(StackElement(T::leaf_type(), Layout::new::<T>(), elem_ptr, sp));
+			elements.push(StackElement(
+				T::leaf_type(),
+				Layout::new::<T>(),
+				elem_ptr,
+				sp,
+			));
 			self.sp.set(new_sp);
 			(id, elem_ptr)
 		}
@@ -263,38 +271,67 @@ impl Debug for Stack<'_> {
 			"Stack [{} / {}]", self.sp.get() as usize - self.memory.as_ptr() as usize, self.memory.len()
 		});
 
-		unsafe fn write_value(stack: &Stack, string: &mut String, ptr: *const u8, ty: &Arc<Type>) -> std::fmt::Result {
+		unsafe fn write_value(
+			stack: &Stack, string: &mut String, ptr: *const u8, ty: &Arc<Type>,
+		) -> std::fmt::Result {
 			match ty.variant() {
-				TypeVariant::Int8 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i8)),
-				TypeVariant::Int16 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i16)),
-				TypeVariant::Int32 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i32)),
-				TypeVariant::Int64 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const i64)),
-				TypeVariant::UInt8 => write!(string, "{}",std::ptr::read_unaligned(ptr)),
-				TypeVariant::UInt16 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const u16)),
-				TypeVariant::UInt32 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const u32)),
-				TypeVariant::UInt64 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const u32)),
-				TypeVariant::Float16 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const f16)),
-				TypeVariant::Float32 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const f32)),
-				TypeVariant::Float64 => write!(string, "{}", std::ptr::read_unaligned(ptr as *const f64)),
-				TypeVariant::Bool => write!(string, "{}", std::ptr::read_unaligned(ptr as *const bool)),
-				TypeVariant::Char => write!(string, "{}", std::ptr::read_unaligned(ptr as *const char)),
+				TypeVariant::Int8 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const i8))
+				},
+				TypeVariant::Int16 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const i16))
+				},
+				TypeVariant::Int32 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const i32))
+				},
+				TypeVariant::Int64 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const i64))
+				},
+				TypeVariant::UInt8 => write!(string, "{}", std::ptr::read_unaligned(ptr)),
+				TypeVariant::UInt16 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const u16))
+				},
+				TypeVariant::UInt32 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const u32))
+				},
+				TypeVariant::UInt64 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const u32))
+				},
+				TypeVariant::Float16 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const f16))
+				},
+				TypeVariant::Float32 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const f32))
+				},
+				TypeVariant::Float64 => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const f64))
+				},
+				TypeVariant::Bool => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const bool))
+				},
+				TypeVariant::Char => {
+					write!(string, "{}", std::ptr::read_unaligned(ptr as *const char))
+				},
 
-				| TypeVariant::Pointer(_, _)
-				| TypeVariant::Reference(_, _) => write!(string, "{:#?}", std::ptr::read_unaligned(ptr as *const *const u8)),
+				| TypeVariant::Pointer(_, _) | TypeVariant::Reference(_, _) => write!(
+					string,
+					"{:#?}",
+					std::ptr::read_unaligned(ptr as *const *const u8)
+				),
 
 				TypeVariant::Struct(data) => {
 					write!(string, "{{ ")?;
 					let mut comma = "";
 					for (i, field) in data.fields().iter().enumerate() {
-						let (offset, _, ty) = stack.layout_cache
-							.get_field_offset_and_layout(ty, i).unwrap();
+						let (offset, _, ty) =
+							stack.layout_cache.get_field_offset_and_layout(ty, i).unwrap();
 
 						write!(string, "{}{}: ", comma, field.name())?;
 						write_value(stack, string, ptr.add(offset), &ty)?;
 						comma = ", ";
 					}
 					write!(string, " }}")
-				}
+				},
 
 				_ => Ok(()),
 			}
