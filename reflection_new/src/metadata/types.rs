@@ -31,14 +31,18 @@ impl Eq for Type<'_> {}
 
 impl PartialEq<Self> for Type<'_> {
 	fn eq(&self, other: &Self) -> bool {
+		if std::ptr::eq(self, other) {
+			return true;
+		}
+
 		if std::mem::discriminant(self) != std::mem::discriminant(other) {
 			return false;
 		}
 
 		match (self, other) {
-			(Type::Array(a), Type::Array(b)) => std::ptr::eq(a, b),
-			(Type::Pointer(a), Type::Pointer(b)) => std::ptr::eq(a, b),
-			(Type::Struct(a), Type::Struct(b)) => std::ptr::eq(a, b),
+			(Type::Array(a), Type::Array(b)) => a == b,
+			(Type::Pointer(a), Type::Pointer(b)) => a == b,
+			(Type::Struct(a), Type::Struct(b)) => a == b,
 			_ => false,
 		}
 	}
@@ -117,8 +121,6 @@ impl<'l> Field<'l> {
 
 #[cfg(feature = "build")]
 mod build {
-	use std::sync::OnceLock;
-
 	use crate::metadata::types::*;
 
 	impl<'l> Array<'l> {
@@ -156,25 +158,20 @@ mod build {
 
 #[cfg(feature = "write")]
 mod write {
-	use std::io::{Cursor, Error, Write as IoWrite};
+	use std::io::{Cursor, Error};
 
 	use crate::{Field, Struct};
-	use crate::heaps::{BlobHeapScope, StringHeapScope};
 	use crate::metadata::types::Type;
-	use crate::write::Write;
+	use crate::write::{Heaps, Write};
 
-	impl<'l> Write<'l> for Type<'l> {
-		type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
-		fn write<T: std::io::Write>(
-			&self, stream: &mut T, req: Self::Requirements,
+	impl<'l> Type<'l> {
+		fn write_recursive<T: std::io::Write>(
+			&self, stream: &mut T, req: Heaps<'l>,
 		) -> Result<(), Error> {
-			let (blob_heap, string_heap) = req;
-
-			let mut buffer = vec![];
-			let mut buffer_stream = Cursor::new(&mut buffer);
+			let (_, string_heap) = req;
 
 			let discriminant: u8 = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
-			buffer_stream.write_all(&[discriminant])?;
+			stream.write_all(&[discriminant])?;
 
 			match self {
 				| Type::Void
@@ -190,33 +187,44 @@ mod write {
 				| Type::UInt64
 				| Type::Float16
 				| Type::Float32
-				| Type::Float64 => {},
+				| Type::Float64 => Ok(()),
 
 				Type::Array(data) => {
-					data.ty.write(&mut buffer_stream, req)?;
-					data.count.write(&mut buffer_stream, ())?;
+					data.ty.write_recursive(stream, req)?;
+					data.count.write(stream, ())
 				},
 
 				Type::Pointer(data) => {
-					data.ty.write(&mut buffer_stream, req)?;
-					data.mutable.write(&mut buffer_stream, ())?;
+					data.ty.write_recursive(stream, req)?;
+					data.mutable.write(stream, ())
 				},
 
 				Type::Struct(data) => {
-					let ty_ref = format!("{}/{}", data.namespace, data.name);
-					string_heap.intern_str(&ty_ref).1.write(&mut buffer_stream, ())?;
+					string_heap.intern_str(&data.namespace).1.write(stream, ())?;
+					string_heap.intern_str(&data.name).1.write(stream, ())?;
+					Ok(())
 				},
 			}
+		}
+	}
+
+	impl<'l> Write<'l> for Type<'l> {
+		type Requirements = Heaps<'l>;
+		fn write<T: std::io::Write>(&self, stream: &mut T, req: Heaps<'l>) -> Result<(), Error> {
+			let (blob_heap, _) = req;
+
+			let mut buffer = vec![];
+			let mut buffer_stream = Cursor::new(&mut buffer);
+
+			self.write_recursive(&mut buffer_stream, req)?;
 
 			blob_heap.intern_blob(&buffer).1.write(stream, ())
 		}
 	}
 
 	impl<'l> Write<'l> for Struct<'l> {
-		type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
-		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
-		) -> Result<(), Error> {
+		type Requirements = Heaps<'l>;
+		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Heaps<'l>) -> Result<(), Error> {
 			let (_, string_heap) = req;
 			string_heap.intern_str(self.namespace).1.write(stream, ())?;
 			string_heap.intern_str(self.name).1.write(stream, ())?;
@@ -228,9 +236,9 @@ mod write {
 	}
 
 	impl<'l> Write<'l> for Field<'l> {
-		type Requirements = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
+		type Requirements = Heaps<'l>;
 		fn write<'a, T: std::io::Write>(
-			&self, stream: &mut T, req: Self::Requirements,
+			&self, stream: &mut T, req: Heaps<'l>,
 		) -> Result<(), Error> {
 			let (_, string_heap) = req;
 			string_heap.intern_str(self.name).1.write(stream, ())?;
