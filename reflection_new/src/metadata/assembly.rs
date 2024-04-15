@@ -9,7 +9,7 @@ pub struct Assembly<'l> {
 	name: &'l str,
 	assembly_version: Version,
 	structs: HashMap<String, Arc<Struct<'l>>>,
-	functions: HashMap<String, Arc<Function<'l>>>,
+	functions: HashMap<&'l str, Arc<Function<'l>>>,
 
 	blob_heap: Arc<BlobHeapScope<'l>>,
 	string_heap: Arc<StringHeapScope<'l>>,
@@ -37,8 +37,8 @@ mod build {
 	use std::collections::HashMap;
 	use std::sync::Arc;
 
-	use crate::heaps::Heaps;
 	use crate::{Struct, Version};
+	use crate::heaps::Heaps;
 	use crate::metadata::assembly::Assembly;
 	use crate::metadata::functions::Function;
 
@@ -91,12 +91,12 @@ mod build {
 			let namespace = self.string_heap.intern_str(&namespace.replace("::", "/")).0;
 			let name = self.string_heap.intern_str(name).0;
 
-			let id = format!("{}/{}", namespace, name);
-			if self.functions.contains_key(&id) {
+			let id = self.string_heap.intern_str(&format!("{}/{}", namespace, name)).0;
+			if self.functions.contains_key(id) {
 				return Err("Function already exists");
 			}
 
-			let func = Arc::new(Function::new(namespace, name));
+			let func = Arc::new(Function::new(id, namespace, name));
 			self.functions.insert(id, func.clone());
 			Ok(func)
 		}
@@ -109,6 +109,7 @@ mod write {
 
 	use bytemuck::bytes_of;
 
+	use crate::heaps::HeapScopeRefs;
 	use crate::metadata::assembly::Assembly;
 	use crate::Version;
 	use crate::write::Write;
@@ -126,15 +127,16 @@ mod write {
 
 			let mut tmp = vec![];
 			let mut tmp_stream = Cursor::new(&mut tmp);
+			let heaps = HeapScopeRefs::new(&self.blob_heap, &self.string_heap);
 
 			self.structs.len().write(&mut tmp_stream, ())?;
 			for ty in self.structs.values() {
-				ty.write(&mut tmp_stream, (&self.blob_heap, &self.string_heap))?;
+				ty.write(&mut tmp_stream, heaps)?;
 			}
 
 			self.functions.len().write(&mut tmp_stream, ())?;
 			for func in self.functions.values() {
-				func.write(&mut tmp_stream, (&self.blob_heap, &self.string_heap))?;
+				func.write(&mut tmp_stream, heaps)?;
 			}
 
 			self.string_heap.write(stream, ())?;

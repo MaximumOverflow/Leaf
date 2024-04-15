@@ -2,10 +2,6 @@
 pub mod write {
 	use std::io::Error;
 
-	use crate::heaps::{BlobHeapScope, StringHeapScope};
-
-	pub type Heaps<'l> = (&'l BlobHeapScope<'l>, &'l StringHeapScope<'l>);
-
 	pub trait Write<'l> {
 		type Requirements;
 		fn write<T: std::io::Write>(
@@ -14,14 +10,14 @@ pub mod write {
 	}
 
 	macro_rules! impl_write {
-		(as_byte: $($ty: ty),*) => {
+		(raw: $($ty: ty),*) => {
 			$(
 				impl Write<'_> for $ty {
 					type Requirements = ();
 					fn write<T: std::io::Write>(
 						&self, stream: &mut T, _: Self::Requirements,
 					) -> Result<(), Error> {
-						stream.write_all(&[*self as u8])
+						stream.write_all(&self.to_le_bytes())
 					}
 				}
 			)*
@@ -45,6 +41,53 @@ pub mod write {
 		};
 	}
 
-	impl_write!(as_byte: bool, i8, u8);
+	impl Write<'_> for bool {
+		type Requirements = ();
+		fn write<T: std::io::Write>(&'_ self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+			(*self as u8).write(stream, req)
+		}
+	}
+
+	impl_write!(raw: i8, u8, f32, f64);
 	impl_write!(isize, usize, i16, u16, i32, u32, i64, u64);
+
+	impl<'l, R, T: Write<'l, Requirements=R> + 'l> Write<'l> for &T {
+		type Requirements = R;
+		fn write<S: std::io::Write>(&'l self, stream: &mut S, req: Self::Requirements) -> Result<(), Error> {
+			Write::write(*self, stream, req)
+		}
+	}
+
+	impl<'l, R, T: Write<'l, Requirements=R> + 'l> Write<'l> for &mut T {
+		type Requirements = R;
+		fn write<S: std::io::Write>(&'l self, stream: &mut S, req: Self::Requirements) -> Result<(), Error> {
+			Write::write(*self, stream, req)
+		}
+	}
+
+	impl<'l, R: Copy, T: Write<'l, Requirements=R> + 'l> Write<'l> for Option<T> {
+		type Requirements = R;
+		fn write<S: std::io::Write>(&'l self, stream: &mut S, req: Self::Requirements) -> Result<(), Error> {
+			match self {
+				None => {
+					false.write(stream, ())
+				},
+				Some(value) => {
+					true.write(stream, ())?;
+					value.write(stream, req)
+				}
+			}
+		}
+	}
+
+	impl<'l, R: Copy, T: Write<'l, Requirements=R> + 'l> Write<'l> for Vec<T> {
+		type Requirements = R;
+		fn write<S: std::io::Write>(&'l self, stream: &mut S, req: Self::Requirements) -> Result<(), Error> {
+			self.len().write(stream, ())?;
+			for i in self {
+				Write::write(i, stream, req)?;
+			}
+			Ok(())
+		}
+	}
 }

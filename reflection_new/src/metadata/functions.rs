@@ -1,13 +1,32 @@
 use std::sync::OnceLock;
+use bitflags::bitflags;
 
+pub use crate::metadata::ssa::Opcode;
+use crate::metadata::ssa::SSAContext;
 use crate::Type;
 
 #[derive(Debug)]
 pub struct Function<'l> {
+	id: &'l str,
 	namespace: &'l str,
 	name: &'l str,
 	ret_ty: OnceLock<&'l Type<'l>>,
 	params: OnceLock<Vec<Parameter<'l>>>,
+	body: OnceLock<FunctionBody<'l>>,
+}
+
+impl Function<'_> {
+	pub fn id(&self) -> &str {
+		self.id
+	}
+
+	pub fn namespace(&self) -> &str {
+		self.namespace
+	}
+
+	pub fn name(&self) -> &str {
+		self.name
+	}
 }
 
 #[derive(Debug)]
@@ -16,17 +35,28 @@ pub struct Parameter<'l> {
 	ty: &'l Type<'l>,
 }
 
+pub type FunctionBody<'l> = SSAContext<'l>;
+
+bitflags! {
+	pub struct FunctionFlags: u32 {
+		const HAS_BODY = 0b0000000000000001;
+	}
+}
+
 #[cfg(feature = "build")]
 mod build {
 	use std::sync::OnceLock;
+
 	use crate::metadata::functions::{Function, Parameter};
-	use crate::Type;
+	use crate::{FunctionBody, Type};
 
 	impl<'l> Function<'l> {
-		pub(crate) fn new(namespace: &'l str, name: &'l str) -> Self {
+		pub(crate) fn new(id: &'l str, namespace: &'l str, name: &'l str) -> Self {
 			Self {
+				id,
 				name,
 				namespace,
+				body: OnceLock::new(),
 				ret_ty: OnceLock::new(),
 				params: OnceLock::new(),
 			}
@@ -38,6 +68,10 @@ mod build {
 
 		pub fn set_params(&self, params: Vec<Parameter<'l>>) -> Result<(), Vec<Parameter<'l>>> {
 			self.params.set(params)
+		}
+
+		pub fn set_body(&self, body: FunctionBody<'l>) -> Result<(), FunctionBody<'l>> {
+			self.body.set(body)
 		}
 	}
 
@@ -59,13 +93,15 @@ mod build {
 #[cfg(feature = "write")]
 mod write {
 	use std::io::{Error, ErrorKind};
+	use crate::FunctionFlags;
 
+	use crate::heaps::HeapScopeRefs;
 	use crate::metadata::functions::{Function, Parameter};
-	use crate::write::{Heaps, Write};
+	use crate::write::Write;
 
 	impl<'l> Write<'l> for Function<'l> {
-		type Requirements = Heaps<'l>;
-		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Heaps<'l>) -> Result<(), Error> {
+		type Requirements = HeapScopeRefs<'l>;
+		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
 			let Some(ret_ty) = self.ret_ty.get() else {
 				return Err(Error::new(
 					ErrorKind::AddrNotAvailable,
@@ -79,7 +115,14 @@ mod write {
 				));
 			};
 
-			let (_, string_heap) = req;
+			let body = self.body.get();
+
+			let mut flags = FunctionFlags::empty();
+			flags.set(FunctionFlags::HAS_BODY, body.is_some());
+
+			stream.write_all(&flags.bits().to_le_bytes())?;
+
+			let string_heap = req.string_heap();
 			string_heap.intern_str(self.namespace).1.write(stream, ())?;
 			string_heap.intern_str(self.name).1.write(stream, ())?;
 
@@ -88,14 +131,20 @@ mod write {
 				param.write(stream, req)?;
 			}
 
-			ret_ty.write(stream, req)
+			ret_ty.write(stream, req)?;
+
+			if let Some(body) = body {
+				body.write(stream, req)?;
+			}
+
+			Ok(())
 		}
 	}
 
 	impl<'l> Write<'l> for Parameter<'l> {
-		type Requirements = Heaps<'l>;
-		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Heaps<'l>) -> Result<(), Error> {
-			let (_, string_heap) = req;
+		type Requirements = HeapScopeRefs<'l>;
+		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+			let string_heap = req.string_heap();
 			string_heap.intern_str(self.name).1.write(stream, ())?;
 			self.ty.write(stream, req)
 		}

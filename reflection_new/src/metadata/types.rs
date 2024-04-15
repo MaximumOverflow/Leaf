@@ -161,14 +161,15 @@ mod write {
 	use std::io::{Cursor, Error};
 
 	use crate::{Field, Struct};
+	use crate::heaps::HeapScopeRefs;
 	use crate::metadata::types::Type;
-	use crate::write::{Heaps, Write};
+	use crate::write::Write;
 
 	impl<'l> Type<'l> {
 		fn write_recursive<T: std::io::Write>(
-			&self, stream: &mut T, req: Heaps<'l>,
+			&self, stream: &mut T, req: HeapScopeRefs<'l>,
 		) -> Result<(), Error> {
-			let (_, string_heap) = req;
+			let string_heap = req.string_heap();
 
 			let discriminant: u8 = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
 			stream.write_all(&[discriminant])?;
@@ -209,9 +210,9 @@ mod write {
 	}
 
 	impl<'l> Write<'l> for Type<'l> {
-		type Requirements = Heaps<'l>;
-		fn write<T: std::io::Write>(&self, stream: &mut T, req: Heaps<'l>) -> Result<(), Error> {
-			let (blob_heap, _) = req;
+		type Requirements = HeapScopeRefs<'l>;
+		fn write<T: std::io::Write>(&self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+			let blob_heap = req.blob_heap();
 
 			let mut buffer = vec![];
 			let mut buffer_stream = Cursor::new(&mut buffer);
@@ -223,9 +224,9 @@ mod write {
 	}
 
 	impl<'l> Write<'l> for Struct<'l> {
-		type Requirements = Heaps<'l>;
-		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Heaps<'l>) -> Result<(), Error> {
-			let (_, string_heap) = req;
+		type Requirements = HeapScopeRefs<'l>;
+		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+			let string_heap = req.string_heap();
 			string_heap.intern_str(self.namespace).1.write(stream, ())?;
 			string_heap.intern_str(self.name).1.write(stream, ())?;
 			for field in self.fields() {
@@ -236,11 +237,11 @@ mod write {
 	}
 
 	impl<'l> Write<'l> for Field<'l> {
-		type Requirements = Heaps<'l>;
+		type Requirements = HeapScopeRefs<'l>;
 		fn write<'a, T: std::io::Write>(
-			&self, stream: &mut T, req: Heaps<'l>,
+			&self, stream: &mut T, req: Self::Requirements,
 		) -> Result<(), Error> {
-			let (_, string_heap) = req;
+			let string_heap = req.string_heap();
 			string_heap.intern_str(self.name).1.write(stream, ())?;
 			self.ty.write(stream, req)
 		}
