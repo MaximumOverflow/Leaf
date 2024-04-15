@@ -15,6 +15,12 @@ pub struct Assembly<'l> {
 	string_heap: Arc<StringHeapScope<'l>>,
 }
 
+impl<'l> Assembly<'l> {
+	pub fn functions(&'l self) -> impl Iterator<Item=&'l Function<'l>> {
+		self.functions.values().map(move |f| &**f)
+	}
+}
+
 #[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Version {
 	pub major: u16,

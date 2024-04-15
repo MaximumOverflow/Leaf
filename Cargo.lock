@@ -385,12 +385,13 @@ dependencies = [
 
 [[package]]
 name = "leaf_reflection"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "bitflags 2.5.0",
+ "bumpalo",
  "bytemuck",
- "half",
+ "derivative",
  "leaf_derive",
- "paste",
 ]
 
 [[package]]
@@ -474,12 +475,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
-
-[[package]]
 name = "petgraph"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -546,17 +541,6 @@ dependencies = [
  "getrandom",
  "libredox",
  "thiserror",
-]
-
-[[package]]
-name = "reflection_new"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.5.0",
- "bumpalo",
- "bytemuck",
- "derivative",
- "leaf_derive",
 ]
 
 [[package]]

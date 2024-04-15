@@ -1,6 +1,6 @@
 mod metadata;
-pub mod structured;
+pub mod heaps;
+pub mod read_write;
 
 pub use metadata::*;
-
-const BUG_ERR: &str = "Congratulations, you found a bug. Please report it.";
+pub use read_write::*;

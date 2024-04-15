@@ -1,23 +1,9 @@
-mod refs;
 mod types;
+mod assembly;
 mod functions;
-mod read_write;
-mod opcodes;
-pub mod builders;
+mod ssa;
 
-pub use refs::*;
+pub use ssa::*;
 pub use types::*;
-pub use opcodes::*;
+pub use assembly::*;
 pub use functions::*;
-use leaf_derive::MetadataWrite;
-pub use read_write::*;
-
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, MetadataWrite)]
-pub struct MetadataOffsets {
-	pub type_table: Encoded<u64>,
-	pub field_table: Encoded<u64>,
-	pub function_table: Encoded<u64>,
-	pub parameter_table: Encoded<u64>,
-	pub blob_heap: Encoded<u64>,
-	pub string_heap: Encoded<u64>,
-}

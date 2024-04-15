@@ -43,6 +43,20 @@ pub struct SSAContext<'l> {
 	constants: Vec<Const<'l>>,
 }
 
+impl<'l> SSAContext<'l> {
+	pub fn opcodes(&self) -> &[Opcode<'l>] {
+		&self.opcodes
+	}
+
+	pub fn locals(&self) -> &[&'l Type<'l>] {
+		&self.locals
+	}
+
+	pub fn constants(&self) -> &[Const<'l>] {
+		&self.constants
+	}
+}
+
 impl PartialEq for SSAContext<'_> {
 	fn eq(&self, _: &Self) -> bool {
 		false

@@ -2,10 +2,10 @@ mod string_heap;
 mod blob_heap;
 mod type_heap;
 
-use bumpalo::Bump;
 pub use type_heap::*;
 pub use blob_heap::*;
 pub use string_heap::*;
+pub use bumpalo::Bump;
 
 pub struct Heaps<'l> {
 	type_heap: TypeHeap<'l>,

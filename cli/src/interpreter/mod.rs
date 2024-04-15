@@ -1,6 +1,6 @@
 mod value;
-mod memory;
 mod interpreter;
 mod instruction_cache;
+mod memory;
 
 pub use interpreter::Interpreter;
