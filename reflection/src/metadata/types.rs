@@ -79,8 +79,8 @@ impl Display for Type<'_> {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Array<'l> {
-	count: usize,
-	ty: &'l Type<'l>,
+	pub count: usize,
+	pub ty: &'l Type<'l>,
 }
 
 impl<'l> Array<'l> {

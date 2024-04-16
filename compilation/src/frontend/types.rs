@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 use tracing::trace;
 
-use leaf_parsing::ast::Type as TypeNode;
+use leaf_parsing::ast::{Expression, Integer, Literal, Type as TypeNode};
 use leaf_reflection::heaps::Bump;
-use leaf_reflection::{Pointer, Type};
+use leaf_reflection::{Array, Pointer, Type};
 
 pub struct TypeCache<'l> {
 	bump: &'l Bump,
+	array_types: RefCell<HashMap<(&'l Type<'l>, usize), &'l Type<'l>>>,
 	pointer_types: RefCell<HashMap<(&'l Type<'l>, bool), &'l Type<'l>>>,
 }
 
@@ -16,6 +17,7 @@ impl<'l> TypeCache<'l> {
 	pub fn new(bump: &'l Bump) -> Self {
 		Self {
 			bump,
+			array_types: RefCell::default(),
 			pointer_types: RefCell::default(),
 		}
 	}
@@ -61,6 +63,38 @@ pub trait TypeResolver<'l> {
 
 				Ok(ty)
 			},
+			TypeNode::Array { base, length } => {
+				match length.as_ref().map(|b| &**b) {
+					Some(Expression::Literal(Literal::Integer(length))) => {
+						trace!("Resolving array type");
+						let length: usize = match length {
+							Integer::Any(i) => (*i).try_into().unwrap(),
+							Integer::Int8(i) => (*i).try_into().unwrap(),
+							Integer::Int16(i) => (*i).try_into().unwrap(),
+							Integer::Int32(i) => (*i).try_into().unwrap(),
+							Integer::Int64(i) => (*i).try_into().unwrap(),
+							Integer::UInt8(i) => (*i).try_into().unwrap(),
+							Integer::UInt16(i) => (*i).try_into().unwrap(),
+							Integer::UInt32(i) => (*i).try_into().unwrap(),
+							Integer::UInt64(i) => (*i).try_into().unwrap(),
+						};
+
+						let base = self.resolve_type(base)?;
+						let cache = self.type_cache();
+						let mut arrays = cache.array_types.borrow_mut();
+
+						let ty = arrays
+							.entry((base, length))
+							.or_insert_with(|| cache.bump.alloc(Type::Array(Array {
+								ty: base,
+								count: length,
+							})));
+
+						Ok(ty)
+					}
+					_ => unimplemented!(),
+				}
+			}
 			_ => unimplemented!(),
 		}
 	}

@@ -113,6 +113,34 @@ impl<'a, 'l> Block<'a, 'l> {
 				Ok(())
 			},
 
+			Statement::If(stmt) => {
+				let cond = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?.unwrap_value();
+				match &stmt.r#else {
+					None => {
+						let true_case = body.create_block();
+						let false_case = body.create_block();
+						body.push_br(cond, true_case, false_case).unwrap();
+						body.set_current_block(true_case).unwrap();
+
+						body.set_current_block(true_case).unwrap();
+						let mut block = Block {
+							heaps: self.heaps,
+							func: self.func,
+							types: self.types,
+							values: self.values.clone(),
+							type_cache: self.type_cache,
+							functions: self.functions,
+						};
+						block.compile(&stmt.block, body)?;
+						body.push_jp(false_case).unwrap();
+						body.set_current_block(false_case).unwrap();
+						Ok(())
+					}
+					_ => unimplemented!(),
+				}
+
+			}
+
 			Statement::Expression(expr) => {
 				compile_expression(expr, None, self, body)?;
 				Ok(())
@@ -125,7 +153,7 @@ impl<'a, 'l> Block<'a, 'l> {
 
 impl<'l> TypeResolver<'l> for Block<'_, 'l> {
 	fn type_cache(&self) -> &TypeCache<'l> {
-		todo!()
+		self.type_cache
 	}
 	fn types(&self) -> &HashMap<&'l str, &'l Type<'l>> {
 		self.types

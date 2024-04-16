@@ -136,8 +136,29 @@ impl<'l> Interpreter<'l> {
 				Opcode::SAdd(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_add, lhs, rhs, dst, i8, i16, i32, i64);
 				},
+				Opcode::SSub(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_sub, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SMul(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_mul, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SDiv(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_div, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SMod(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_rem, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SCmp(lhs, rhs, dst, Comparison::Eq) => {
+					impl_cmp!(eq, lhs, rhs, dst, i8, i16, i32, i64);
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Lt) => {
 					impl_cmp!(lt, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::LNot(val, dst) => {
+					let val = value_bytes(stack_frame, &offsets, body, *val);
+					let result = val[0] == 0;
+					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
+					dst[0] = result as u8;
 				},
 				Opcode::Store(src, dst) => unsafe {
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
@@ -187,16 +208,16 @@ impl<'l> Interpreter<'l> {
 }
 
 fn value_bytes<'s, 'l: 's>(
-	stack_frame: &'s [u8], offsets: &[usize], body: &'l FunctionBody<'l>, value: ValueIdx,
+	stack_frame: &'s [u8], offsets: &[[usize; 2]], body: &'l FunctionBody<'l>, value: ValueIdx,
 ) -> &'s [u8] {
 	match value {
 		ValueIdx::Local(i) => {
-			let start = offsets[i];
-			let end = offsets.get(i + 1).cloned().unwrap_or(stack_frame.len());
-
+			let [start, size] = offsets[i];
+			let end = start + size;
 			&stack_frame[start..end]
 		},
 		ValueIdx::Const(i) => match &body.constants()[i] {
+			Const::Bool(v) => bytes_of(v),
 			Const::U8(v) => bytes_of(v),
 			Const::U16(v) => bytes_of(v),
 			Const::U32(v) => bytes_of(v),
@@ -220,12 +241,12 @@ fn value_bytes<'s, 'l: 's>(
 }
 
 fn value_bytes_mut<'s, 'l: 's>(
-	stack_frame: &'s mut [u8], offsets: &[usize], value: ValueIdx,
+	stack_frame: &'s mut [u8], offsets: &[[usize; 2]], value: ValueIdx,
 ) -> &'s mut [u8] {
 	match value {
 		ValueIdx::Local(i) => {
-			let start = offsets[i];
-			let end = offsets.get(i + 1).cloned().unwrap_or(stack_frame.len());
+			let [start, size] = offsets[i];
+			let end = start + size;
 
 			&mut stack_frame[start..end]
 		},

@@ -10,9 +10,22 @@ pub enum Opcode<'l> {
 	Br(ValueIdx, usize, usize) = 0x02,
 	Ret(Option<ValueIdx>) = 0x03,
 	Call(&'l Function<'l>, Vec<ValueIdx>,ValueIdx) = 0x04,
-	Store(ValueIdx, ValueIdx) = 0x10,
-	SCmp(ValueIdx, ValueIdx, ValueIdx, Comparison) = 0x20,
-	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x21,
+
+	Load(ValueIdx, ValueIdx) = 0x10,
+	LoadCI(ValueIdx, usize, ValueIdx) = 0x11,
+	LoadI(ValueIdx, ValueIdx, ValueIdx) = 0x12,
+	Store(ValueIdx, ValueIdx) = 0x13,
+	StoreCI(ValueIdx, usize, ValueIdx) = 0x14,
+	StoreI(ValueIdx, ValueIdx, ValueIdx) = 0x15,
+
+	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x20,
+	SSub(ValueIdx, ValueIdx, ValueIdx) = 0x21,
+	SMul(ValueIdx, ValueIdx, ValueIdx) = 0x22,
+	SDiv(ValueIdx, ValueIdx, ValueIdx) = 0x23,
+	SMod(ValueIdx, ValueIdx, ValueIdx) = 0x24,
+	SCmp(ValueIdx, ValueIdx, ValueIdx, Comparison) = 0x25,
+
+	LNot(ValueIdx, ValueIdx) = 0x30,
 }
 
 #[repr(u8)]
@@ -38,6 +51,7 @@ pub enum ValueIdx {
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum Const<'l> {
+	Bool(bool),
 	U8(u8),
 	U16(u16),
 	U32(u32),
@@ -247,7 +261,8 @@ mod write {
 				Opcode::Ret(val) => {
 					val.write(stream, ())?;
 				},
-				Opcode::Store(src, dst) => {
+				| Opcode::Load(src, dst)
+				| Opcode::Store(src, dst) => {
 					src.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
@@ -257,7 +272,19 @@ mod write {
 					args.write(stream, ())?;
 					res.write(stream, ())?;
 				}
-				Opcode::SAdd(lhs, rhs, dst) => {
+				| Opcode::SAdd(lhs, rhs, dst)
+				| Opcode::SSub(lhs, rhs, dst)
+				| Opcode::SMul(lhs, rhs, dst)
+				| Opcode::SDiv(lhs, rhs, dst)
+				| Opcode::SMod(lhs, rhs, dst)
+				| Opcode::LoadI(lhs, rhs, dst)
+				| Opcode::StoreI(lhs, rhs, dst) => {
+					lhs.write(stream, ())?;
+					rhs.write(stream, ())?;
+					dst.write(stream, ())?;
+				},
+				| Opcode::LoadCI(lhs, rhs, dst)
+				| Opcode::StoreCI(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
@@ -268,6 +295,10 @@ mod write {
 					dst.write(stream, ())?;
 					cmp.write(stream, ())?;
 				},
+				Opcode::LNot(val, dst) => {
+					val.write(stream, ())?;
+					dst.write(stream, ())?;
+				}
 			}
 			Ok(())
 		}
@@ -294,6 +325,7 @@ mod write {
 			stream.write(&[discriminant])?;
 
 			match self {
+				Const::Bool(v) => v.write(stream, ()),
 				Const::U8(v) => v.write(stream, ()),
 				Const::U16(v) => v.write(stream, ()),
 				Const::U32(v) => v.write(stream, ()),
@@ -328,6 +360,7 @@ pub fn value_type<'l>(
 	match value {
 		ValueIdx::Local(i) => Some(locals.get(i)?),
 		ValueIdx::Const(i) => Some(match constants.get(i)? {
+			Const::Bool(_) => &Type::Bool,
 			Const::U8(_) => &Type::UInt8,
 			Const::U16(_) => &Type::UInt16,
 			Const::U32(_) => &Type::UInt32,

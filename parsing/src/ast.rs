@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Sub, Rem};
+use std::ops::{Add, Div, Mul, Sub, Rem, Not};
 use lalrpop_util::lexer::Token;
 use std::collections::HashMap;
 
@@ -52,7 +52,7 @@ pub enum Integer {
 	UInt64(u64),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum UnaryOperator {
 	Pos,
 	Neg,
@@ -60,7 +60,7 @@ pub enum UnaryOperator {
 	Deref,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum BinaryOperator {
 	Add,
 	Sub,
@@ -73,7 +73,7 @@ pub enum BinaryOperator {
 	And,
 	Xor,
 	Eq,
-	Neq,
+	Ne,
 	Gt,
 	Lt,
 	Ge,
@@ -165,6 +165,20 @@ impl_binary_expr!(Sub, sub, Sub, wrapping_sub);
 impl_binary_expr!(Mul, mul, Mul, wrapping_mul);
 impl_binary_expr!(Div, div, Div, wrapping_div);
 impl_binary_expr!(Rem, rem, Mod, wrapping_rem);
+
+impl<'l> Not for Expression<'l> {
+	type Output = Expression<'l>;
+	fn not(self) -> Self::Output {
+		match self {
+			Expression::Literal(Literal::Boolean(v)) => {
+				Expression::Literal(Literal::Boolean(!v))
+			},
+			_ => {
+				Expression::Unary(UnaryOperator::Neg, Box::new(self))
+			},
+		}
+	}
+}
 
 #[derive(Debug, PartialEq)]
 pub struct NewStruct<'l> {

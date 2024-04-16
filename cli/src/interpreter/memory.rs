@@ -13,11 +13,11 @@ use leaf_compilation::reflection::{Function, Type};
 pub struct LayoutCache<'l> {
 	type_layouts: RefCell<HashMap<usize, Layout, BuildNoHashHasher<usize>>>,
 	field_layouts: RefCell<HashMap<(usize, usize), (usize, Layout, &'l Type<'l>)>>,
-	function_layouts: RefCell<HashMap<usize, (Layout, Arc<[usize]>), BuildNoHashHasher<usize>>>,
+	function_layouts: RefCell<HashMap<usize, (Layout, Arc<[[usize; 2]]>), BuildNoHashHasher<usize>>>,
 }
 
 impl<'l> LayoutCache<'l> {
-	pub fn get_function_stack_layout(&self, func: &'l Function<'l>) -> (Layout, Arc<[usize]>) {
+	pub fn get_function_stack_layout(&self, func: &'l Function<'l>) -> (Layout, Arc<[[usize; 2]]>) {
 		let key = func as *const _ as usize;
 		let mut function_layouts = self.function_layouts.borrow_mut();
 
@@ -28,12 +28,14 @@ impl<'l> LayoutCache<'l> {
 		let body = func.body().unwrap();
 
 		let mut layout = Layout::new::<()>();
-		let mut offsets = Arc::from_iter(repeat(0).take(body.locals().len()));
+		let mut offsets = Arc::from_iter(repeat([0; 2]).take(body.locals().len()));
 		let offsets_slice = Arc::get_mut(&mut offsets).unwrap();
 
 		for (i, ty) in body.locals().iter().enumerate() {
 			let ty_layout = self.get_type_layout(ty);
-			(layout, offsets_slice[i]) = layout.extend(ty_layout).unwrap();
+			let (new_layout, offset) = layout.extend(ty_layout).unwrap();
+			layout = new_layout;
+			offsets_slice[i] = [offset, ty_layout.size()];
 		}
 
 		let result = (layout, offsets);

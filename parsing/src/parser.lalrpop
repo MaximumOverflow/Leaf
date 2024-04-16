@@ -61,7 +61,7 @@ pub Expression: Expression<'input> = {
         => Expression::Binary(l.into(), BinaryOperator::Eq, r.into()),
 
     <l:Expression> "!=" <r:Factor>
-        => Expression::Binary(l.into(), BinaryOperator::Neq, r.into()),
+        => Expression::Binary(l.into(), BinaryOperator::Ne, r.into()),
 
     <expr: Expression> "as" <ty: Type>
         => Expression::Cast(Box::new(expr), ty),
@@ -78,6 +78,8 @@ pub Expression: Expression<'input> = {
 Factor: Expression<'input> = {
     <l:Factor> "*" <r:Term> => l * r,
     <l:Factor> "/" <r:Term> => l / r,
+    <l:Factor> "%" <r:Term> => l % r,
+    "!" <r:Term> => !r,
     Term,
 };
 

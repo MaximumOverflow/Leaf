@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 
-use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal};
+use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal, UnaryOperator};
 use leaf_reflection::{Comparison, Const, Function, Opcode, SSAContextBuilder, Type, ValueIdx};
 
 use crate::frontend::block::Block;
@@ -33,8 +33,11 @@ pub fn compile_expression<'a, 'l>(
 	body: &mut SSAContextBuilder<'l>,
 ) -> anyhow::Result<ExpressionResult<'l>> {
 	match expr {
+		Expression::Literal(Literal::Boolean(v)) => {
+			Ok(ExpressionResult::Value(body.push_constant(Const::Bool(*v))))
+		},
 		Expression::Literal(Literal::String(str)) => {
-			let mut str = str.to_string();
+			let mut str = unescape(str);
 			str.push('\0');
 			let str = block.heaps.string_heap().intern_str(&str);
 			Ok(ExpressionResult::Value(body.push_constant(Const::Str(str))))
@@ -82,6 +85,21 @@ pub fn compile_expression<'a, 'l>(
 			}
 			Err(anyhow!("Identifier {:?} is not present in the current scope", ident))
 		},
+		Expression::Unary(op, val) => {
+			let val = compile_expression(val, expected, block, body)?.unwrap_value();
+			let val_ty = body.value_type(val).unwrap();
+			match op {
+				UnaryOperator::Neg => match val_ty {
+					Type::Bool => {
+						let local = body.push_local(&Type::Bool);
+						body.push_opcode(Opcode::LNot(val, local));
+						Ok(ExpressionResult::Value(local))
+					}
+					_ => unimplemented!("{:#?}", op),
+				}
+				_ => unimplemented!("{:#?}", op),
+			}
+		},
 		Expression::Binary(lhs, op, rhs) => {
 			let lhs = compile_expression(lhs, expected, block, body)?.unwrap_value();
 			let rhs = compile_expression(rhs, expected, block, body)?.unwrap_value();
@@ -97,10 +115,24 @@ pub fn compile_expression<'a, 'l>(
 					},
 					_ => unimplemented!("{:?} {} {}", op, lhs_ty, rhs_ty),
 				},
-				BinaryOperator::Lt => match (lhs_ty, rhs_ty) {
+				BinaryOperator::Mod => match (lhs_ty, rhs_ty) {
+					(Type::Int32, Type::Int32) => {
+						let local = body.push_local(&Type::Int32);
+						body.push_opcode(Opcode::SMod(lhs, rhs, local));
+						Ok(ExpressionResult::Value(local))
+					},
+					_ => unimplemented!("{:?} {} {}", op, lhs_ty, rhs_ty),
+				},
+				| BinaryOperator::Eq
+				| BinaryOperator::Ne
+				| BinaryOperator::Lt
+				| BinaryOperator::Gt
+				| BinaryOperator::Le
+				| BinaryOperator::Ge
+				=> match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
 						let local = body.push_local(&Type::Bool);
-						body.push_opcode(Opcode::SCmp(lhs, rhs, local, Comparison::Lt));
+						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*op)));
 						Ok(ExpressionResult::Value(local))
 					},
 					_ => unimplemented!("{:?} {} {}", op, lhs_ty, rhs_ty),
@@ -125,4 +157,36 @@ pub fn compile_expression<'a, 'l>(
 		},
 		_ => unimplemented!("{:#?}", expr),
 	}
+}
+
+fn op_to_cmp(op: BinaryOperator) -> Comparison {
+	match op {
+		BinaryOperator::Eq => Comparison::Eq,
+		BinaryOperator::Ne => Comparison::Ne,
+		BinaryOperator::Gt => Comparison::Gt,
+		BinaryOperator::Lt => Comparison::Lt,
+		BinaryOperator::Ge => Comparison::Ge,
+		BinaryOperator::Le => Comparison::Le,
+		_ => unreachable!(),
+	}
+}
+
+fn unescape(str: &str) -> String {
+	let mut string = String::new();
+	let bytes = str.as_bytes();
+	let mut i = 0;
+	while let Some(ch) = bytes.get(i) {
+		match *ch {
+			b'\\' => {
+				i += 1;
+				match bytes[i] {
+					b'n' => string.push('\n'),
+					_ => unimplemented!(),
+				}
+			}
+			_ => string.push(*ch as char),
+		}
+		i += 1;
+	}
+	string
 }
