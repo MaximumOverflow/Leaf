@@ -50,7 +50,9 @@ pub type FunctionBody<'l> = SSAContext<'l>;
 
 bitflags! {
 	pub struct FunctionFlags: u32 {
-		const HAS_BODY = 0b0000000000000001;
+		const HAS_BODY	= 0b0000000000000001;
+		const EXTERNAL	= 0b0000000000000010;
+		const INTRINSIC	= 0b0000000000000100;
 	}
 }
 
@@ -132,6 +134,7 @@ mod write {
 
 			let mut flags = FunctionFlags::empty();
 			flags.set(FunctionFlags::HAS_BODY, body.is_some());
+			// flags.set(FunctionFlags::EXTERNAL, )
 
 			stream.write_all(&flags.bits().to_le_bytes())?;
 

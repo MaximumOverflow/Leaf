@@ -95,8 +95,8 @@ pub NewStructValue: (&'input str, Expression<'input>) = {
 // ### Objects ###
 
 pub SymbolDeclaration: SymbolDeclaration<'input> = {
-    <public: "pub"?> "def" <name: Identifier> ":" <symbol: Symbol>
-        => SymbolDeclaration { public: public.is_some(), name, symbol }
+    <attributes: Attribute*> <public: "pub"?> "def" <name: Identifier> ":" <symbol: Symbol>
+        => SymbolDeclaration { public: public.is_some(), name, symbol, attributes }
 }
 
 pub Symbol: Symbol<'input> = {
@@ -136,6 +136,11 @@ pub Type: Type<'input> = {
         base: Box::new(base),
         length: Some(Box::new(length)),
     },
+}
+
+pub Attribute: Attribute<'input> = {
+    "@" <id: Identifier> => Attribute { <>, params: vec![] },
+    "@" <id: Identifier> "(" <params:CommaSeparatedList<Expression>> ")"? => Attribute { <> },
 }
 
 // ### Statements ###

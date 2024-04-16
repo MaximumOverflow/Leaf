@@ -198,6 +198,7 @@ pub struct SymbolDeclaration<'l> {
 	pub public: bool,
 	pub name: &'l str,
 	pub symbol: Symbol<'l>,
+	pub attributes: Vec<Attribute<'l>>,
 }
 
 #[derive(Debug)]
@@ -328,6 +329,12 @@ pub enum Type<'l> {
 		base: Box<Type<'l>>,
 		length: Option<Box<Expression<'l>>>,
 	},
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Attribute<'l> {
+	pub id: &'l str,
+	pub params: Vec<Expression<'l>>,
 }
 
 #[derive(Debug)]
