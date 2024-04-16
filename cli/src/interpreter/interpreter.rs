@@ -183,27 +183,49 @@ impl<'l> Interpreter<'l> {
 						return Ok(value_bytes(stack_frame, &offsets, body, *value));
 					},
 					None => {
-						unimplemented!();
+						assert_eq!(function.ret_ty(), &Type::Void);
+						return Ok(&[]);
 					},
 				},
-				Opcode::Call(func, params, result) => {
-					let mut param_bytes = vec![];
+				Opcode::Call(func, params, result) => unsafe {
+					let mut offset = 0;
 					for param in params {
+						let ty = body.value_type(*param).unwrap();
+						let ty_layout = self.layout_cache.get_type_layout(ty);
+						let ptr = stack.as_ptr().add(offset);
+						let align_offset = ptr.align_offset(ty_layout.align());
 						let bytes = value_bytes(stack_frame, &offsets, body, *param);
-						param_bytes.extend_from_slice(bytes);
+						let start = offset + align_offset;
+						offset = start + ty_layout.size();
+						stack[start..offset].copy_from_slice(bytes);
 					}
 
 					if func.body().is_none() {
 						let Some(stub) = self.extern_functions.get(func.id()) else {
 							panic!("Unregistered external function {:?}", func.id());
 						};
-						let result_bytes = stub(&param_bytes);
+
+						let align = match params.get(0) {
+							None => 0,
+							Some(param) => {
+								let ty = body.value_type(*param).unwrap();
+								let ty_layout = self.layout_cache.get_type_layout(ty);
+								let ptr = stack.as_ptr();
+								ptr.align_offset(ty_layout.align())
+							},
+						};
+
+						let result_bytes = stub(&stack[align..offset]);
 						if let Some(result) = result {
 							value_bytes_mut(stack_frame, &offsets, *result)
 								.copy_from_slice(&result_bytes);
 						}
 					} else {
-						unimplemented!()
+						let result_bytes = self.call(func, stack)?;
+						if let Some(result) = result {
+							value_bytes_mut(stack_frame, &offsets, *result)
+								.copy_from_slice(&result_bytes);
+						}
 					}
 				},
 				_ => unimplemented!("{:?}", opcode),

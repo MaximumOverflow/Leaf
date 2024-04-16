@@ -25,6 +25,13 @@ pub enum Opcode<'l> {
 	SMod(ValueIdx, ValueIdx, ValueIdx) = 0x24,
 	SCmp(ValueIdx, ValueIdx, ValueIdx, Comparison) = 0x25,
 
+	UAdd(ValueIdx, ValueIdx, ValueIdx) = 0x26,
+	USub(ValueIdx, ValueIdx, ValueIdx) = 0x27,
+	UMul(ValueIdx, ValueIdx, ValueIdx) = 0x28,
+	UDiv(ValueIdx, ValueIdx, ValueIdx) = 0x29,
+	UMod(ValueIdx, ValueIdx, ValueIdx) = 0x2A,
+	UCmp(ValueIdx, ValueIdx, ValueIdx, Comparison) = 0x2B,
+
 	LNot(ValueIdx, ValueIdx) = 0x30,
 }
 
@@ -281,6 +288,11 @@ mod write {
 				| Opcode::SMul(lhs, rhs, dst)
 				| Opcode::SDiv(lhs, rhs, dst)
 				| Opcode::SMod(lhs, rhs, dst)
+				| Opcode::UAdd(lhs, rhs, dst)
+				| Opcode::USub(lhs, rhs, dst)
+				| Opcode::UMul(lhs, rhs, dst)
+				| Opcode::UDiv(lhs, rhs, dst)
+				| Opcode::UMod(lhs, rhs, dst)
 				| Opcode::LoadI(lhs, rhs, dst)
 				| Opcode::StoreI(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
@@ -292,7 +304,8 @@ mod write {
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
-				Opcode::SCmp(lhs, rhs, dst, cmp) => {
+				| Opcode::SCmp(lhs, rhs, dst, cmp)
+				| Opcode::UCmp(lhs, rhs, dst, cmp) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
