@@ -37,7 +37,7 @@ pub Literal: Literal<'input> = {
 	Integer => Literal::Integer(<>),
 	Decimal => Literal::Decimal(<>),
 	Character => Literal::Char(<>),
-	String => Literal::String(<>),
+	<str:String> => Literal::String(&str[1..str.len() - 1]),
 	Boolean => Literal::Boolean(<>),
 }
 
@@ -106,8 +106,8 @@ pub Symbol: Symbol<'input> = {
     "(" <params: CommaSeparatedList<FunctionParameter>> ")" "->" <return_ty: Type> <block: Block>
         => Symbol::Function(Function { params, return_ty, block: Some(block) }),
 
-        "(" <params: CommaSeparatedList<FunctionParameter>> ")" "->" <return_ty: Type> ";"
-                => Symbol::Function(Function { params, return_ty, block: None }),
+    "(" <params: CommaSeparatedList<FunctionParameter>> ")" "->" <return_ty: Type> ";"
+            => Symbol::Function(Function { params, return_ty, block: None }),
 }
 
 pub StructMember: StructMember<'input> = {
@@ -154,16 +154,16 @@ pub Statement: Statement<'input> = {
     <to: Expression> "=" <val: Expression> ";"
         => Statement::Assignment(to, val),
 
+    <expr: Expression> ";" => Statement::Expression(expr),
+
     If => Statement::If(<>),
 
     "while" <condition: Expression> <block: Block>
         => Statement::While(While { <> }),
 
-    "return" <expr: Expression?> ";" =>
-         Statement::Return(<>),
+    "return" <expr: Expression?> ";" => Statement::Return(<>),
 
-    "yield" <expr: Expression?> ";" =>
-          Statement::Yield(<>),
+    "yield" <expr: Expression?> ";" => Statement::Yield(<>),
 }
 
 If: If<'input> = {

@@ -7,10 +7,12 @@ use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol}
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
 use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, error, instrument, Level, span, trace, warn};
+use leaf_reflection::heaps::Heaps;
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
 pub struct CompilationUnit<'a, 'l> {
+	heaps: &'l Heaps<'l>,
 	type_cache: &'a TypeCache<'l>,
 	assembly: &'a mut Assembly<'l>,
 	types: HashMap<&'l str, &'l Type<'l>>,
@@ -19,7 +21,7 @@ pub struct CompilationUnit<'a, 'l> {
 
 impl<'a, 'l> CompilationUnit<'a, 'l> {
 	#[instrument(skip_all)]
-	pub fn compile(type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>, code: &str) -> anyhow::Result<()> {
+	pub fn compile(heaps: &'l Heaps<'l>, type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>, code: &str) -> anyhow::Result<()> {
 		static PARSER: OnceLock<AstParser> = OnceLock::new();
 		let parser = PARSER.get_or_init(AstParser::new);
 
@@ -28,16 +30,17 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Err(err) => return Err(Error::msg(err.to_string())),
 		};
 
-		let mut unit = Self::new(type_cache, assembly);
+		let mut unit = Self::new(heaps, type_cache, assembly);
 		let funcs = unit.create_functions(&ast)?;
 		unit.compile_functions(funcs)?;
 		Ok(())
 	}
 
-	fn new(type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>) -> Self {
+	fn new(heaps: &'l Heaps<'l>, type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>) -> Self {
 		Self {
 			type_cache,
 			assembly,
+			heaps,
 			types: HashMap::new(),
 			functions: HashMap::new(),
 		}
@@ -102,9 +105,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			let mut body = SSAContextBuilder::new();
 			let mut block = Block {
 				func,
+				heaps: self.heaps,
 				type_cache: self.type_cache,
 				values: HashMap::new(),
 				types: self.types(),
+				functions: &self.functions,
 			};
 
 			for i in func.params() {

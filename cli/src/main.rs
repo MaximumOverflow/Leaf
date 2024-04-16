@@ -1,12 +1,16 @@
-mod interpreter;
-
+use std::ffi::c_char;
 use std::path::PathBuf;
 use std::time::SystemTime;
+
 use clap::Parser;
+
 use leaf_compilation::frontend::{CompilationUnit, TypeCache};
 use leaf_compilation::reflection::{Assembly, Version};
 use leaf_compilation::reflection::heaps::{Bump, Heaps};
-use crate::interpreter::{Interpreter};
+
+use crate::interpreter::Interpreter;
+
+mod interpreter;
 
 #[derive(Debug, clap::Parser)]
 enum Args {
@@ -50,7 +54,7 @@ fn main() {
 			let type_cache = TypeCache::new(&bump);
 
 			let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
-			if let Err(err) = CompilationUnit::compile(&type_cache, &mut assembly, &code) {
+			if let Err(err) = CompilationUnit::compile(&heaps, &type_cache, &mut assembly, &code) {
 				return println!("{:#}", err);
 			}
 			let comp_time = time.elapsed().unwrap();
@@ -96,7 +100,7 @@ fn main() {
 			let type_cache = TypeCache::new(&bump);
 
 			let mut assembly = Assembly::new("compiler::tmp", Version::default(), &heaps);
-			if let Err(err) = CompilationUnit::compile(&type_cache, &mut assembly, &code) {
+			if let Err(err) = CompilationUnit::compile(&heaps, &type_cache, &mut assembly, &code) {
 				return println!("{:#}", err);
 			}
 			let comp_time = time.elapsed().unwrap();

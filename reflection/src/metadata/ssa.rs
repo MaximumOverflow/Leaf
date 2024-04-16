@@ -1,4 +1,4 @@
-use crate::{Function, Type};
+use crate::{Function, Pointer, Type};
 use leaf_derive::Write;
 
 #[repr(u8)]
@@ -9,7 +9,7 @@ pub enum Opcode<'l> {
 	Jp(usize) = 0x01,
 	Br(ValueIdx, usize, usize) = 0x02,
 	Ret(Option<ValueIdx>) = 0x03,
-	Call(&'l Function<'l>, Vec<ValueIdx>) = 0x04,
+	Call(&'l Function<'l>, Vec<ValueIdx>,ValueIdx) = 0x04,
 	Store(ValueIdx, ValueIdx) = 0x10,
 	SCmp(ValueIdx, ValueIdx, ValueIdx, Comparison) = 0x20,
 	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x21,
@@ -251,11 +251,12 @@ mod write {
 					src.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
-				Opcode::Call(func, args) => {
+				Opcode::Call(func, args, res) => {
 					let id = format!("{}/{}", func.namespace(), func.name());
 					req.string_heap().intern_str(&id).1.write(stream, ())?;
 					args.write(stream, ())?;
-				},
+					res.write(stream, ())?;
+				}
 				Opcode::SAdd(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
@@ -337,6 +338,10 @@ pub fn value_type<'l>(
 			Const::I64(_) => &Type::Int64,
 			Const::F32(_) => &Type::Float32,
 			Const::F64(_) => &Type::Float64,
+			Const::Str(_) => &Type::Pointer(Pointer {
+				mutable: false,
+				ty: &Type::Int8,
+			}),
 			_ => unimplemented!(),
 		}),
 	}

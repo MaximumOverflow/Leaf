@@ -5,15 +5,18 @@ use tracing::instrument;
 
 use leaf_parsing::ast::{Block as BlockAst, Expression, Literal, Statement};
 use leaf_reflection::{Function, Opcode, SSAContextBuilder, Type, ValueIdx};
+use leaf_reflection::heaps::Heaps;
 
 use crate::frontend::expressions::compile_expression;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
 pub struct Block<'a, 'l> {
+	pub heaps: &'l Heaps<'l>,
 	pub type_cache: &'a TypeCache<'l>,
 	pub func: &'l Function<'l>,
 	pub types: &'a HashMap<&'l str, &'l Type<'l>>,
 	pub values: HashMap<&'a str, (ValueIdx, bool)>,
+	pub functions: &'a HashMap<&'l str, &'l Function<'l>>,
 }
 
 impl<'a, 'l> Block<'a, 'l> {
@@ -39,7 +42,7 @@ impl<'a, 'l> Block<'a, 'l> {
 				},
 				Some(expr) => {
 					let value = compile_expression(expr, Some(self.func.ret_ty()), self, body)?;
-					body.push_opcode(Opcode::Ret(Some(value)));
+					body.push_opcode(Opcode::Ret(Some(value.unwrap_value())));
 					Ok(())
 				},
 				None => Err(anyhow!(
@@ -63,11 +66,11 @@ impl<'a, 'l> Block<'a, 'l> {
 					},
 					_ => {
 						let value = compile_expression(&decl.value, expected, self, body)?;
-						let ty = body.value_type(value).unwrap();
+						let ty = body.value_type(value.unwrap_value()).unwrap();
 						assert_eq!(Some(expected.unwrap_or(ty)), Some(ty));
 
 						let local = body.push_local(ty);
-						body.push_opcode(Opcode::Store(value, local));
+						body.push_opcode(Opcode::Store(value.unwrap_value(), local));
 						self.values.insert(decl.name, (local, decl.mutable));
 					},
 				}
@@ -76,9 +79,9 @@ impl<'a, 'l> Block<'a, 'l> {
 			},
 
 			Statement::Assignment(lhs, rhs) => {
-				let lhs = compile_expression(lhs, None, self, body)?;
+				let lhs = compile_expression(lhs, None, self, body)?.unwrap_value();
 				let lhs_t = body.value_type(lhs).unwrap();
-				let rhs = compile_expression(rhs, Some(lhs_t), self, body)?;
+				let rhs = compile_expression(rhs, Some(lhs_t), self, body)?.unwrap_value();
 				assert_eq!(Some(lhs_t), body.value_type(rhs));
 				body.push_opcode(Opcode::Store(rhs, lhs));
 				Ok(())
@@ -91,15 +94,17 @@ impl<'a, 'l> Block<'a, 'l> {
 
 				body.push_jp(check).unwrap();
 				body.set_current_block(check).unwrap();
-				let condition = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?;
+				let condition = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?.unwrap_value();
 				body.push_br(condition, exec, exit).unwrap();
 
 				body.set_current_block(exec).unwrap();
 				let mut block = Block {
+					heaps: self.heaps,
 					func: self.func,
 					types: self.types,
 					values: self.values.clone(),
 					type_cache: self.type_cache,
+					functions: self.functions,
 				};
 				block.compile(&stmt.block, body)?;
 				body.push_jp(check).unwrap();
@@ -107,6 +112,11 @@ impl<'a, 'l> Block<'a, 'l> {
 				body.set_current_block(exit).unwrap();
 				Ok(())
 			},
+
+			Statement::Expression(expr) => {
+				compile_expression(expr, None, self, body)?;
+				Ok(())
+			}
 
 			_ => unimplemented!("{:#?}", statement),
 		}
