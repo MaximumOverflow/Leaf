@@ -1,19 +1,22 @@
 use std::alloc::Layout;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::anyhow;
+use bytemuck::{bytes_of, from_bytes, Pod};
 use paste::paste;
-use bytemuck::{bytes_of, from_bytes};
 
 use leaf_compilation::reflection::{Comparison, Const, Function, FunctionBody, Opcode, Type, ValueIdx};
 
 use crate::interpreter::instruction_cache::InstructionCache;
 use crate::interpreter::memory::LayoutCache;
+use crate::interpreter::stubs::ExternFunctionStub;
 
 pub struct Interpreter<'l> {
 	stack: Box<[u8]>,
 	layout_cache: Rc<LayoutCache<'l>>,
 	instruction_cache: InstructionCache<'l>,
+	extern_functions: HashMap<&'l str, Box<dyn Fn(&[u8]) -> Vec<u8>>>,
 }
 
 impl<'l> Interpreter<'l> {
@@ -30,7 +33,16 @@ impl<'l> Interpreter<'l> {
 			},
 			instruction_cache: InstructionCache::default(),
 			layout_cache: Rc::new(LayoutCache::default()),
+			extern_functions: Default::default(),
 		}
+	}
+
+	pub unsafe fn register_extern_fn<T: Pod, R: Pod>(&mut self, path: &'l str, func: impl ExternFunctionStub<T, R>) {
+		let stub = move |bytes: &[u8]| -> Vec<u8> {
+			let result = func.dyn_call(bytes);
+			Vec::from(bytes_of(&result))
+		};
+		self.extern_functions.insert(path, Box::new(stub));
 	}
 
 	#[inline(never)]
@@ -146,6 +158,24 @@ impl<'l> Interpreter<'l> {
 						unimplemented!();
 					},
 				},
+				Opcode::Call(func, params, result) => {
+					let mut param_bytes = vec![];
+					for param in params {
+						let bytes = value_bytes(stack_frame, &offsets, body, *param);
+						param_bytes.extend_from_slice(bytes);
+					}
+
+					if func.body().is_none() {
+						let Some(stub) = self.extern_functions.get(func.id()) else {
+							panic!("Unregistered external function {:?}", func.id());
+						};
+						let result_bytes = stub(&param_bytes);
+						value_bytes_mut(stack_frame, &offsets, *result).copy_from_slice(&result_bytes);
+					}
+					else {
+						unimplemented!()
+					}
+				},
 				_ => unimplemented!("{:?}", opcode),
 			}
 
@@ -177,7 +207,13 @@ fn value_bytes<'s, 'l: 's>(
 			Const::I64(v) => bytes_of(v),
 			Const::F32(v) => bytes_of(v),
 			Const::F64(v) => bytes_of(v),
-			Const::Str(v) => v.as_bytes(),
+			Const::Str(v) => unsafe {
+				let data = &*(v as *const _ as *const [usize; 2]);
+				match data[1] == v.len() {
+					true => bytes_of(&data[0]),
+					false => bytes_of(&data[1]),
+				}
+			},
 			_ => unimplemented!(),
 		},
 	}

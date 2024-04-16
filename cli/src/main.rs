@@ -75,6 +75,19 @@ fn main() {
 
 			time = SystemTime::now();
 			let mut interpreter = Interpreter::new();
+			unsafe {
+				interpreter.register_extern_fn("core/containers/println", |fmt: usize| {
+					let mut len = 0;
+					let mut ptr = fmt as *const c_char;
+					while *ptr != 0 {
+						len += 1;
+						ptr = ptr.add(1);
+					}
+					let slice = std::slice::from_raw_parts(fmt as *const u8, len);
+					let str = std::str::from_utf8(slice).unwrap();
+					println!("{}", str);
+				});
+			}
 
 			match interpreter.call_as_main(main) {
 				Ok(value) => {
