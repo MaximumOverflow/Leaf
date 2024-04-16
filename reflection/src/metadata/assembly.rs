@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use bumpalo::Bump;
+
 use crate::heaps::{BlobHeapScope, StringHeapScope};
 use crate::metadata::functions::Function;
 use crate::Struct;
@@ -8,15 +10,16 @@ use crate::Struct;
 pub struct Assembly<'l> {
 	name: &'l str,
 	assembly_version: Version,
-	structs: HashMap<String, Arc<Struct<'l>>>,
-	functions: HashMap<&'l str, Arc<Function<'l>>>,
+	structs: HashMap<String, &'l Struct<'l>>,
+	functions: HashMap<&'l str, &'l Function<'l>>,
 
+	bump: &'l Bump,
 	blob_heap: Arc<BlobHeapScope<'l>>,
 	string_heap: Arc<StringHeapScope<'l>>,
 }
 
 impl<'l> Assembly<'l> {
-	pub fn functions(&'l self) -> impl Iterator<Item=&'l Function<'l>> {
+	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}
 }
@@ -52,6 +55,7 @@ mod build {
 		pub fn new(name: &'l str, version: Version, heaps: &'l Heaps<'l>) -> Self {
 			let assembly = Assembly {
 				name,
+				bump: heaps.bump(),
 				blob_heap: Arc::new(heaps.blob_heap().make_scope()),
 				string_heap: Arc::new(heaps.string_heap().make_scope()),
 				assembly_version: version,
@@ -61,9 +65,13 @@ mod build {
 			assembly
 		}
 
+		pub fn intern_str(&mut self, str: &str) -> &'l str {
+			self.string_heap.intern_str(str).0
+		}
+
 		pub fn create_struct(
 			&mut self, namespace: &str, name: &str,
-		) -> Result<Arc<Struct<'l>>, &'static str> {
+		) -> Result<&'l Struct<'l>, &'static str> {
 			if namespace.contains('/') {
 				return Err("Namespace shall not contain '/' characters");
 			}
@@ -79,14 +87,14 @@ mod build {
 				return Err("Type already exists");
 			}
 
-			let ty = Arc::new(Struct::new(namespace, name));
-			self.structs.insert(id, ty.clone());
+			let ty = self.bump.alloc(Struct::new(namespace, name));
+			self.structs.insert(id, ty);
 			Ok(ty)
 		}
 
 		pub fn create_function(
 			&mut self, namespace: &str, name: &str,
-		) -> Result<Arc<Function<'l>>, &'static str> {
+		) -> Result<&'l Function<'l>, &'static str> {
 			if namespace.contains('/') {
 				return Err("Namespace shall not contain '/' characters");
 			}
@@ -102,8 +110,8 @@ mod build {
 				return Err("Function already exists");
 			}
 
-			let func = Arc::new(Function::new(id, namespace, name));
-			self.functions.insert(id, func.clone());
+			let func = self.bump.alloc(Function::new(id, namespace, name));
+			self.functions.insert(id, func);
 			Ok(func)
 		}
 	}

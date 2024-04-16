@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use derivative::Derivative;
 
@@ -26,7 +26,7 @@ pub enum Type<'l> {
 
 	Array(Array<'l>) = 0x30,
 	Pointer(Pointer<'l>) = 0x31,
-	Struct(Arc<Struct<'l>>) = 0x32,
+	Struct(&'l Struct<'l>) = 0x32,
 }
 
 impl Eq for Type<'_> {}
@@ -45,7 +45,7 @@ impl PartialEq<Self> for Type<'_> {
 			(Type::Array(a), Type::Array(b)) => a == b,
 			(Type::Pointer(a), Type::Pointer(b)) => a == b,
 			(Type::Struct(a), Type::Struct(b)) => a == b,
-			_ => false,
+			_ => std::mem::discriminant(self) == std::mem::discriminant(other),
 		}
 	}
 }
@@ -71,7 +71,7 @@ impl Display for Type<'_> {
 			Type::Pointer(Pointer { mutable, ty }) => match *mutable {
 				false => write!(f, "*{}", ty),
 				true => write!(f, "*mut {}", ty),
-			}
+			},
 			Type::Struct(base) => write!(f, "{}::{}", base.namespace, base.name),
 		}
 	}
@@ -136,7 +136,7 @@ impl<'l> Struct<'l> {
 	}
 }
 
-impl<'l> Into<Type<'l>> for Arc<Struct<'l>> {
+impl<'l> Into<Type<'l>> for &'l Struct<'l> {
 	fn into(self) -> Type<'l> {
 		Type::Struct(self)
 	}
@@ -257,7 +257,9 @@ mod write {
 
 	impl<'l> Write<'l> for Type<'l> {
 		type Requirements = HeapScopeRefs<'l>;
-		fn write<T: std::io::Write>(&self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+		fn write<T: std::io::Write>(
+			&self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
 			let blob_heap = req.blob_heap();
 
 			let mut buffer = vec![];
@@ -271,7 +273,9 @@ mod write {
 
 	impl<'l> Write<'l> for Struct<'l> {
 		type Requirements = HeapScopeRefs<'l>;
-		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+		fn write<T: std::io::Write>(
+			&'l self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
 			string_heap.intern_str(self.namespace).1.write(stream, ())?;
 			string_heap.intern_str(self.name).1.write(stream, ())?;

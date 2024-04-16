@@ -1,15 +1,14 @@
-use std::collections::{HashMap, HashSet};
-use crate::{Pointer, Struct, Type};
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use bumpalo::Bump;
+use crate::{Pointer, Struct, Type};
 
 pub struct TypeHeap<'l> {
 	bump: &'l Bump,
 	set: RefCell<HashSet<usize>>,
 	primitives: [&'l Type<'l>; 14],
 	pointers: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
-	structs: RefCell<HashMap<usize, (&'l Type<'l>, Arc<Struct<'l>>)>>,
+	structs: RefCell<HashMap<usize, (&'l Type<'l>, &'l Struct<'l>)>>,
 	drops: RefCell<Vec<DropHelper>>,
 }
 
@@ -67,11 +66,11 @@ impl<'l> TypeHeap<'l> {
 
 #[rustfmt::skip]
 impl<'l> TypeHeap<'l> {
-    pub fn struct_ref(&self, ty: &Arc<Struct<'l>>) -> &'l Type<'l> {
+    pub fn struct_ref(&self, ty: &'l Struct<'l>) -> &'l Type<'l> {
         let mut structs = self.structs.borrow_mut();
         let mut set = self.set.borrow_mut();
 
-        let key = Arc::as_ptr(ty) as usize;
+        let key = ty as *const _ as usize;
         if let Some((ty, _)) = structs.get(&key) {
             return *ty;
         }
@@ -80,9 +79,9 @@ impl<'l> TypeHeap<'l> {
             assert!(set.contains(&as_key(field.ty())), "One or more field types don't belong to this TypeHeap");
         }
 
-        let ty_ref = self.alloc(Type::Struct(ty.clone()));
+        let ty_ref = self.alloc(Type::Struct(ty));
         set.insert(as_key(ty_ref));
-        structs.insert(key, (ty_ref, ty.clone()));
+        structs.insert(key, (ty_ref, ty));
         ty_ref
     }
 

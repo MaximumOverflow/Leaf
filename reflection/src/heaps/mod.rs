@@ -8,6 +8,7 @@ pub use string_heap::*;
 pub use bumpalo::Bump;
 
 pub struct Heaps<'l> {
+	bump: &'l Bump,
 	type_heap: TypeHeap<'l>,
 	blob_heap: BlobHeap<'l>,
 	string_heap: StringHeap<'l>,
@@ -16,10 +17,15 @@ pub struct Heaps<'l> {
 impl<'l> Heaps<'l> {
 	pub fn new(bump: &'l Bump) -> Self {
 		Self {
+			bump,
 			type_heap: TypeHeap::new(bump),
 			blob_heap: BlobHeap::new(bump),
 			string_heap: StringHeap::new(bump),
 		}
+	}
+
+	pub fn bump(&self) -> &'l Bump {
+		self.bump
 	}
 
 	pub fn type_heap(&self) -> &TypeHeap<'l> {
@@ -43,7 +49,10 @@ pub struct HeapScopeRefs<'l> {
 
 impl<'l> HeapScopeRefs<'l> {
 	pub fn new(blob_heap: &'l BlobHeapScope<'l>, string_heap: &'l StringHeapScope<'l>) -> Self {
-		Self { blob_heap, string_heap }
+		Self {
+			blob_heap,
+			string_heap,
+		}
 	}
 
 	pub fn blob_heap(&self) -> &BlobHeapScope<'l> {

@@ -27,7 +27,6 @@ impl<'l> Function<'l> {
 		self.name
 	}
 
-
 	pub fn ret_ty(&self) -> &'l Type<'l> {
 		self.ret_ty.get().unwrap()
 	}
@@ -113,7 +112,9 @@ mod write {
 
 	impl<'l> Write<'l> for Function<'l> {
 		type Requirements = HeapScopeRefs<'l>;
-		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+		fn write<T: std::io::Write>(
+			&'l self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
 			let Some(ret_ty) = self.ret_ty.get() else {
 				return Err(Error::new(
 					ErrorKind::AddrNotAvailable,
@@ -155,7 +156,9 @@ mod write {
 
 	impl<'l> Write<'l> for Parameter<'l> {
 		type Requirements = HeapScopeRefs<'l>;
-		fn write<T: std::io::Write>(&'l self, stream: &mut T, req: Self::Requirements) -> Result<(), Error> {
+		fn write<T: std::io::Write>(
+			&'l self, stream: &mut T, req: Self::Requirements,
+		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
 			string_heap.intern_str(self.name).1.write(stream, ())?;
 			self.ty.write(stream, req)
