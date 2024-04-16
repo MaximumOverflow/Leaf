@@ -29,9 +29,18 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 		Data::Struct(data) => {
 			let mut writes = vec![];
 
-			for field in &data.fields {
-				let ident = field.ident.as_ref().unwrap();
-				writes.push(quote!(crate::write::Write::write(&self.#ident, stream, req)?;))
+			for (i, field) in data.fields.iter().enumerate() {
+				match field.ident.as_ref() {
+					Some(ident) => {
+						writes
+							.push(quote!(crate::write::Write::write(&self.#ident, stream, req)?;));
+					},
+					None => {
+						let ident: proc_macro2::TokenStream = format!("{}", i).parse().unwrap();
+						writes
+							.push(quote!(crate::write::Write::write(&self.#ident, stream, req)?;));
+					},
+				}
 			}
 
 			let implementation = quote! {

@@ -1,23 +1,47 @@
-use nohash_hasher::BuildNoHashHasher;
-use std::mem::{align_of, size_of};
-use std::fmt::{Debug, Formatter};
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::alloc::Layout;
-use std::fmt::Write;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::iter::repeat;
 use std::sync::Arc;
-use std::rc::Rc;
+
 use half::f16;
-use leaf_compilation::reflection::Type;
+use nohash_hasher::BuildNoHashHasher;
+
+use leaf_compilation::reflection::{Function, Type};
 
 #[derive(Default)]
-pub struct TypeLayoutCache<'l> {
-	layouts: RefCell<HashMap<&'l Type<'l>, Layout, BuildNoHashHasher<usize>>>,
-	field_layouts: RefCell<HashMap<(&'l Type<'l>, usize), (usize, Layout, &'l Type<'l>)>>,
+pub struct LayoutCache<'l> {
+	type_layouts: RefCell<HashMap<usize, Layout, BuildNoHashHasher<usize>>>,
+	field_layouts: RefCell<HashMap<(usize, usize), (usize, Layout, &'l Type<'l>)>>,
+	function_layouts: RefCell<HashMap<usize, (Layout, Arc<[usize]>), BuildNoHashHasher<usize>>>,
 }
 
-impl<'l> TypeLayoutCache<'l> {
-	pub fn get_layout(&self, ty: &'l Type<'l>) -> Layout {
+impl<'l> LayoutCache<'l> {
+	pub fn get_function_stack_layout(&self, func: &'l Function<'l>) -> (Layout, Arc<[usize]>) {
+		let key = func as *const _ as usize;
+		let mut function_layouts = self.function_layouts.borrow_mut();
+
+		if let Some(data) = function_layouts.get(&key) {
+			return data.clone();
+		};
+
+		let body = func.body().unwrap();
+
+		let mut layout = Layout::new::<()>();
+		let mut offsets = Arc::from_iter(repeat(0).take(body.locals().len()));
+		let offsets_slice = Arc::get_mut(&mut offsets).unwrap();
+
+		for (i, ty) in body.locals().iter().enumerate() {
+			let ty_layout = self.get_type_layout(ty);
+			(layout, offsets_slice[i]) = layout.extend(ty_layout).unwrap();
+		}
+
+		let result = (layout, offsets);
+		function_layouts.insert(key, result.clone());
+		result
+	}
+
+	pub fn get_type_layout(&self, ty: &'l Type<'l>) -> Layout {
 		match ty {
 			Type::Void => Layout::new::<()>(),
 			Type::Char => Layout::new::<char>(),
@@ -35,24 +59,25 @@ impl<'l> TypeLayoutCache<'l> {
 			Type::Float64 => Layout::new::<f64>(),
 			Type::Pointer(_) => Layout::new::<*const u8>(),
 			Type::Array(data) => {
-				let layout = self.get_layout(data.ty());
+				let layout = self.get_type_layout(data.ty());
 				Layout::from_size_align(layout.size() * data.count(), layout.align()).unwrap()
-			}
+			},
 			Type::Struct(data) => {
-				if let Some(layout) = self.layouts.borrow().get(ty).cloned() {
+				let key = ty as *const _ as usize;
+				if let Some(layout) = self.type_layouts.borrow().get(&key).cloned() {
 					return layout;
 				}
 
 				let mut layout = Layout::new::<()>();
 				for field in data.fields() {
 					let ty = field.ty();
-					let ty = self.get_layout(&ty);
+					let ty = self.get_type_layout(&ty);
 					layout = layout.extend(ty).unwrap().0;
 				}
-				let mut layouts = self.layouts.borrow_mut();
-				layouts.insert(ty, layout);
+				let mut layouts = self.type_layouts.borrow_mut();
+				layouts.insert(key, layout);
 				layout
-			}
+			},
 		}
 	}
 
@@ -69,7 +94,7 @@ impl<'l> TypeLayoutCache<'l> {
 			return None;
 		}
 
-		let key = (ty, field);
+		let key = (ty as *const _ as usize, field);
 		if let Some((offset, layout, ty)) = self.field_layouts.borrow().get(&key).cloned() {
 			return Some((offset, layout, ty));
 		}
@@ -85,7 +110,7 @@ impl<'l> TypeLayoutCache<'l> {
 			};
 
 			fld_ty = field.ty();
-			fld_layout = self.get_layout(&fld_ty);
+			fld_layout = self.get_type_layout(&fld_ty);
 			(layout, offset) = layout.extend(fld_layout).unwrap();
 		}
 

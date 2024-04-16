@@ -105,6 +105,9 @@ pub Symbol: Symbol<'input> = {
 
     "(" <params: CommaSeparatedList<FunctionParameter>> ")" "->" <return_ty: Type> <block: Block>
         => Symbol::Function(Function { params, return_ty, block: Some(block) }),
+
+        "(" <params: CommaSeparatedList<FunctionParameter>> ")" "->" <return_ty: Type> ";"
+                => Symbol::Function(Function { params, return_ty, block: None }),
 }
 
 pub StructMember: StructMember<'input> = {

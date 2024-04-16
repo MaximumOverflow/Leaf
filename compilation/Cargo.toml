@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 half = "2.3.1"
 anyhow = "1.0"
+tracing = "0.1.40"
 leaf_parsing = { path = "../parsing" }
 leaf_reflection = { path = "../reflection", features = ["build", "read", "write"] }

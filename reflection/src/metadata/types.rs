@@ -101,8 +101,8 @@ impl<'l> Into<Type<'l>> for Array<'l> {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Pointer<'l> {
-	mutable: bool,
-	ty: &'l Type<'l>,
+	pub mutable: bool,
+	pub ty: &'l Type<'l>,
 }
 
 impl<'l> Into<Type<'l>> for Pointer<'l> {

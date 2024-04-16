@@ -1,0 +1,123 @@
+use std::collections::HashMap;
+
+use anyhow::anyhow;
+use tracing::instrument;
+
+use leaf_parsing::ast::{Block as BlockAst, Expression, Literal, Statement};
+use leaf_reflection::{Function, Opcode, SSAContextBuilder, Type, ValueIdx};
+
+use crate::frontend::expressions::compile_expression;
+use crate::frontend::types::{TypeCache, TypeResolver};
+
+pub struct Block<'a, 'l> {
+	pub type_cache: &'a TypeCache<'l>,
+	pub func: &'l Function<'l>,
+	pub types: &'a HashMap<&'l str, &'l Type<'l>>,
+	pub values: HashMap<&'a str, (ValueIdx, bool)>,
+}
+
+impl<'a, 'l> Block<'a, 'l> {
+	#[instrument(skip_all)]
+	pub fn compile(
+		&mut self, ast: &'a BlockAst<'a>, body: &mut SSAContextBuilder<'l>,
+	) -> anyhow::Result<()> {
+		for statement in &ast.statements {
+			self.compile_statement(statement, body)?;
+		}
+		Ok(())
+	}
+
+	#[instrument(skip_all)]
+	fn compile_statement(
+		&mut self, statement: &'a Statement<'a>, body: &mut SSAContextBuilder<'l>,
+	) -> anyhow::Result<()> {
+		match statement {
+			Statement::Return(expr) => match expr {
+				None if self.func.ret_ty() == &Type::Void => {
+					body.push_opcode(Opcode::Ret(None));
+					Ok(())
+				},
+				Some(expr) => {
+					let value = compile_expression(expr, Some(self.func.ret_ty()), self, body)?;
+					body.push_opcode(Opcode::Ret(Some(value)));
+					Ok(())
+				},
+				None => Err(anyhow!(
+					"Expected type {}, found {}",
+					self.func.ret_ty(),
+					Type::Void
+				)),
+			},
+
+			Statement::VarDecl(decl) => {
+				let expected = match &decl.ty {
+					None => None,
+					Some(ty) => Some(self.resolve_type(ty)?),
+				};
+
+				match decl.value {
+					Expression::Literal(Literal::Uninit) => {
+						let ty = expected.unwrap();
+						let local = body.push_local(ty);
+						self.values.insert(decl.name, (local, decl.mutable));
+					},
+					_ => {
+						let value = compile_expression(&decl.value, expected, self, body)?;
+						let ty = body.value_type(value).unwrap();
+						assert_eq!(Some(expected.unwrap_or(ty)), Some(ty));
+
+						let local = body.push_local(ty);
+						body.push_opcode(Opcode::Store(value, local));
+						self.values.insert(decl.name, (local, decl.mutable));
+					},
+				}
+
+				Ok(())
+			},
+
+			Statement::Assignment(lhs, rhs) => {
+				let lhs = compile_expression(lhs, None, self, body)?;
+				let lhs_t = body.value_type(lhs).unwrap();
+				let rhs = compile_expression(rhs, Some(lhs_t), self, body)?;
+				assert_eq!(Some(lhs_t), body.value_type(rhs));
+				body.push_opcode(Opcode::Store(rhs, lhs));
+				Ok(())
+			},
+
+			Statement::While(stmt) => {
+				let check = body.create_block();
+				let exec = body.create_block();
+				let exit = body.create_block();
+
+				body.push_jp(check).unwrap();
+				body.set_current_block(check).unwrap();
+				let condition = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?;
+				body.push_br(condition, exec, exit).unwrap();
+
+				body.set_current_block(exec).unwrap();
+				let mut block = Block {
+					func: self.func,
+					types: self.types,
+					values: self.values.clone(),
+					type_cache: self.type_cache,
+				};
+				block.compile(&stmt.block, body)?;
+				body.push_jp(check).unwrap();
+
+				body.set_current_block(exit).unwrap();
+				Ok(())
+			},
+
+			_ => unimplemented!("{:#?}", statement),
+		}
+	}
+}
+
+impl<'l> TypeResolver<'l> for Block<'_, 'l> {
+	fn type_cache(&self) -> &TypeCache<'l> {
+		todo!()
+	}
+	fn types(&self) -> &HashMap<&'l str, &'l Type<'l>> {
+		self.types
+	}
+}

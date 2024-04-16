@@ -1,9 +1,9 @@
-use leaf_compilation::reflection::{Function, Opcode};
 use std::collections::HashMap;
-use std::io::Cursor;
-use anyhow::anyhow;
-use std::rc::Rc;
 use std::sync::Arc;
+
+use anyhow::anyhow;
+
+use leaf_compilation::reflection::{Function, Opcode};
 
 #[derive(Default)]
 pub struct InstructionCache<'l> {
@@ -12,7 +12,9 @@ pub struct InstructionCache<'l> {
 
 impl<'l> InstructionCache<'l> {
 	#[inline(never)]
-	pub fn get_instructions(&mut self, function: &'l Function<'l>) -> anyhow::Result<Arc<[Opcode<'l>]>> {
+	pub fn get_instructions(
+		&mut self, function: &'l Function<'l>,
+	) -> anyhow::Result<Arc<[Opcode<'l>]>> {
 		let key = function as *const _ as usize;
 		if let Some(opcodes) = self.functions.get(&key) {
 			return Ok(opcodes.clone());

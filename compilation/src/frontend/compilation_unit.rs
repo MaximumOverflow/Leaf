@@ -1,23 +1,25 @@
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use anyhow::Error;
 
-use leaf_parsing::ast::CompilationUnit as Ast;
+use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol};
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
-use leaf_reflection::Assembly;
+use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
+use tracing::{debug, error, instrument, Level, span, trace, warn};
+use crate::frontend::block::Block;
+use crate::frontend::types::{TypeCache, TypeResolver};
 
 pub struct CompilationUnit<'a, 'l> {
-	ast: Ast<'a>,
+	type_cache: &'a TypeCache<'l>,
 	assembly: &'a mut Assembly<'l>,
+	types: HashMap<&'l str, &'l Type<'l>>,
+	functions: HashMap<&'l str, &'l Function<'l>>,
 }
 
 impl<'a, 'l> CompilationUnit<'a, 'l> {
-	pub fn compile(assembly: &'a mut Assembly<'l>, code: &'a str) -> anyhow::Result<()> {
-		let unit = Self::new(assembly, code)?;
-		Ok(())
-	}
-
-	fn new(assembly: &'a mut Assembly<'l>, code: &'a str) -> anyhow::Result<Self> {
+	#[instrument(skip_all)]
+	pub fn compile(type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>, code: &str) -> anyhow::Result<()> {
 		static PARSER: OnceLock<AstParser> = OnceLock::new();
 		let parser = PARSER.get_or_init(AstParser::new);
 
@@ -26,11 +28,104 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Err(err) => return Err(Error::msg(err.to_string())),
 		};
 
-		Ok(
-			Self {
-				ast,
-				assembly,
+		let mut unit = Self::new(type_cache, assembly);
+		let funcs = unit.create_functions(&ast)?;
+		unit.compile_functions(funcs)?;
+		Ok(())
+	}
+
+	fn new(type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>) -> Self {
+		Self {
+			type_cache,
+			assembly,
+			types: HashMap::new(),
+			functions: HashMap::new(),
+		}
+	}
+
+	fn create_functions<'c>(
+		&mut self, ast: &'c Ast<'c>,
+	) -> anyhow::Result<Vec<(&'l Function<'l>, &'c FunctionAst<'c>)>> {
+		let mut funcs = vec![];
+		for decl in &ast.declarations {
+			let name = decl.name;
+			let Symbol::Function(decl) = &decl.symbol else {
+				continue;
+			};
+
+			let func = self.assembly.create_function(ast.namespace, name).unwrap();
+
+			let span = span!(Level::DEBUG, "create_function", id = func.id());
+			let _span = span.enter();
+			debug!("Creating function");
+
+			trace!("Resolving return type");
+			let ret_ty = self.resolve_type(&decl.return_ty)?;
+			func.set_return_type(ret_ty).unwrap();
+
+			trace!("Resolving parameter types");
+			let mut params = Vec::with_capacity(decl.params.len());
+			for p in &decl.params {
+				let name = self.assembly.intern_str(p.name);
+				params.push(Parameter::new(name, self.resolve_type(&p.ty)?));
 			}
-		)
+			func.set_params(params).unwrap();
+
+			if self.functions.contains_key(name) {
+				error!("Duplicate declaration");
+				return Err(Error::msg(format!(
+					"Duplicate declaration of {}::{}",
+					ast.namespace, name
+				)));
+			}
+
+			self.functions.insert(func.name(), func);
+
+			if decl.block.is_some() {
+				funcs.push((func, decl));
+			}
+
+			debug!("Function successfully created");
+		}
+
+		Ok(funcs)
+	}
+
+	fn compile_functions(
+		&mut self, funcs: Vec<(&'l Function<'l>, &FunctionAst)>,
+	) -> anyhow::Result<()> {
+		for (func, decl) in funcs {
+			let span = span!(Level::DEBUG, "compile_function", id = func.id());
+			let _span = span.enter();
+			debug!("Compiling function");
+
+			let mut body = SSAContextBuilder::new();
+			let mut block = Block {
+				func,
+				type_cache: self.type_cache,
+				values: HashMap::new(),
+				types: self.types(),
+			};
+
+			for i in func.params() {
+				let idx = body.push_local(i.ty());
+				block.values.insert(i.name(), (idx, false));
+			}
+
+			block.compile(decl.block.as_ref().unwrap(), &mut body)?;
+
+			func.set_body(body.build()).unwrap();
+			debug!("Function successfully compiled");
+		}
+		Ok(())
+	}
+}
+
+impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
+	fn type_cache(&self) -> &TypeCache<'l> {
+		self.type_cache
+	}
+	fn types(&self) -> &HashMap<&'l str, &'l Type<'l>> {
+		&self.types
 	}
 }
