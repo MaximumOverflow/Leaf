@@ -20,9 +20,10 @@ pub struct Block<'a, 'l> {
 }
 
 impl<'a, 'l> Block<'a, 'l> {
-	#[instrument(skip_all)]
 	pub fn compile(
-		&mut self, ast: &'a BlockAst<'a>, body: &mut SSAContextBuilder<'l>,
+		&mut self,
+		ast: &'a BlockAst<'a>,
+		body: &mut SSAContextBuilder<'l>,
 	) -> anyhow::Result<()> {
 		for statement in &ast.statements {
 			self.compile_statement(statement, body)?;
@@ -32,7 +33,9 @@ impl<'a, 'l> Block<'a, 'l> {
 
 	#[instrument(skip_all)]
 	fn compile_statement(
-		&mut self, statement: &'a Statement<'a>, body: &mut SSAContextBuilder<'l>,
+		&mut self,
+		statement: &'a Statement<'a>,
+		body: &mut SSAContextBuilder<'l>,
 	) -> anyhow::Result<()> {
 		match statement {
 			Statement::Return(expr) => match expr {
@@ -94,7 +97,8 @@ impl<'a, 'l> Block<'a, 'l> {
 
 				body.push_jp(check).unwrap();
 				body.set_current_block(check).unwrap();
-				let condition = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?.unwrap_value();
+				let condition = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?
+					.unwrap_value();
 				body.push_br(condition, exec, exit).unwrap();
 
 				body.set_current_block(exec).unwrap();
@@ -114,7 +118,8 @@ impl<'a, 'l> Block<'a, 'l> {
 			},
 
 			Statement::If(stmt) => {
-				let cond = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?.unwrap_value();
+				let cond = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?
+					.unwrap_value();
 				match &stmt.r#else {
 					None => {
 						let true_case = body.create_block();
@@ -135,16 +140,15 @@ impl<'a, 'l> Block<'a, 'l> {
 						body.push_jp(false_case).unwrap();
 						body.set_current_block(false_case).unwrap();
 						Ok(())
-					}
+					},
 					_ => unimplemented!(),
 				}
-
-			}
+			},
 
 			Statement::Expression(expr) => {
 				compile_expression(expr, None, self, body)?;
 				Ok(())
-			}
+			},
 
 			_ => unimplemented!("{:#?}", statement),
 		}

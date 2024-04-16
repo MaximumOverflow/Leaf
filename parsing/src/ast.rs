@@ -170,12 +170,8 @@ impl<'l> Not for Expression<'l> {
 	type Output = Expression<'l>;
 	fn not(self) -> Self::Output {
 		match self {
-			Expression::Literal(Literal::Boolean(v)) => {
-				Expression::Literal(Literal::Boolean(!v))
-			},
-			_ => {
-				Expression::Unary(UnaryOperator::Neg, Box::new(self))
-			},
+			Expression::Literal(Literal::Boolean(v)) => Expression::Literal(Literal::Boolean(!v)),
+			_ => Expression::Unary(UnaryOperator::Neg, Box::new(self)),
 		}
 	}
 }
@@ -188,7 +184,8 @@ pub struct NewStruct<'l> {
 
 impl<'l> NewStruct<'l> {
 	pub(crate) fn new(
-		ty: Type<'l>, fields: impl IntoIterator<Item = (&'l str, Expression<'l>)>,
+		ty: Type<'l>,
+		fields: impl IntoIterator<Item = (&'l str, Expression<'l>)>,
 	) -> Self {
 		let mut values = HashMap::new();
 		for (i, (key, value)) in fields.into_iter().enumerate() {
@@ -292,7 +289,10 @@ pub struct VarDecl<'l> {
 
 impl<'l> VarDecl<'l> {
 	pub fn new(
-		name: &'l str, mutable: bool, ty: Option<Type<'l>>, value: Expression<'l>,
+		name: &'l str,
+		mutable: bool,
+		ty: Option<Type<'l>>,
+		value: Expression<'l>,
 	) -> Result<'l, VarDecl<'l>> {
 		if ty.is_none() && value == Expression::Literal(Literal::Uninit) {
 			return Err(ParseError::User {

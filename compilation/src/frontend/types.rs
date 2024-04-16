@@ -54,47 +54,45 @@ pub trait TypeResolver<'l> {
 				let cache = self.type_cache();
 				let mut pointers = cache.pointer_types.borrow_mut();
 
-				let ty = pointers
-					.entry((base, *mutable))
-					.or_insert_with(|| cache.bump.alloc(Type::Pointer(Pointer {
+				let ty = pointers.entry((base, *mutable)).or_insert_with(|| {
+					cache.bump.alloc(Type::Pointer(Pointer {
 						ty: base,
 						mutable: *mutable,
-					})));
+					}))
+				});
 
 				Ok(ty)
 			},
-			TypeNode::Array { base, length } => {
-				match length.as_ref().map(|b| &**b) {
-					Some(Expression::Literal(Literal::Integer(length))) => {
-						trace!("Resolving array type");
-						let length: usize = match length {
-							Integer::Any(i) => (*i).try_into().unwrap(),
-							Integer::Int8(i) => (*i).try_into().unwrap(),
-							Integer::Int16(i) => (*i).try_into().unwrap(),
-							Integer::Int32(i) => (*i).try_into().unwrap(),
-							Integer::Int64(i) => (*i).try_into().unwrap(),
-							Integer::UInt8(i) => (*i).try_into().unwrap(),
-							Integer::UInt16(i) => (*i).try_into().unwrap(),
-							Integer::UInt32(i) => (*i).try_into().unwrap(),
-							Integer::UInt64(i) => (*i).try_into().unwrap(),
-						};
+			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
+				Some(Expression::Literal(Literal::Integer(length))) => {
+					trace!("Resolving array type");
+					let length: usize = match length {
+						Integer::Any(i) => (*i).try_into().unwrap(),
+						Integer::Int8(i) => (*i).try_into().unwrap(),
+						Integer::Int16(i) => (*i).try_into().unwrap(),
+						Integer::Int32(i) => (*i).try_into().unwrap(),
+						Integer::Int64(i) => (*i).try_into().unwrap(),
+						Integer::UInt8(i) => (*i).try_into().unwrap(),
+						Integer::UInt16(i) => (*i).try_into().unwrap(),
+						Integer::UInt32(i) => (*i).try_into().unwrap(),
+						Integer::UInt64(i) => (*i).try_into().unwrap(),
+					};
 
-						let base = self.resolve_type(base)?;
-						let cache = self.type_cache();
-						let mut arrays = cache.array_types.borrow_mut();
+					let base = self.resolve_type(base)?;
+					let cache = self.type_cache();
+					let mut arrays = cache.array_types.borrow_mut();
 
-						let ty = arrays
-							.entry((base, length))
-							.or_insert_with(|| cache.bump.alloc(Type::Array(Array {
-								ty: base,
-								count: length,
-							})));
+					let ty = arrays.entry((base, length)).or_insert_with(|| {
+						cache.bump.alloc(Type::Array(Array {
+							ty: base,
+							count: length,
+						}))
+					});
 
-						Ok(ty)
-					}
-					_ => unimplemented!(),
-				}
-			}
+					Ok(ty)
+				},
+				_ => unimplemented!(),
+			},
 			_ => unimplemented!(),
 		}
 	}

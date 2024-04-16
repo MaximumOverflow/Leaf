@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::Error;
@@ -6,7 +7,7 @@ use anyhow::Error;
 use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol};
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
 use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
-use tracing::{debug, error, instrument, Level, span, trace, warn};
+use tracing::{debug, error, info, instrument, Level, span, trace, warn};
 use leaf_reflection::heaps::Heaps;
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
@@ -20,8 +21,50 @@ pub struct CompilationUnit<'a, 'l> {
 }
 
 impl<'a, 'l> CompilationUnit<'a, 'l> {
-	#[instrument(skip_all)]
-	pub fn compile(heaps: &'l Heaps<'l>, type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>, code: &str) -> anyhow::Result<()> {
+	pub fn compile_file(
+		heaps: &'l Heaps<'l>,
+		type_cache: &'a TypeCache<'l>,
+		assembly: &'a mut Assembly<'l>,
+		path: &impl AsRef<Path>,
+	) -> anyhow::Result<()> {
+		let path = path.as_ref();
+		let absolute_path = path
+			.canonicalize()
+			.unwrap()
+			.to_str()
+			.unwrap()
+			.replace("\\\\?\\", "")
+			.replace('\\', "/");
+
+		span!(Level::DEBUG, "compile_file", file = absolute_path).in_scope(|| {
+			info!("Compiling file `{}`", absolute_path);
+			let code = std::fs::read_to_string(path)?;
+			Self::compile_internal(heaps, type_cache, assembly, &code)?;
+			info!("File `{}` compiled successfully", absolute_path);
+			Ok(())
+		})
+	}
+
+	pub fn compile_code(
+		heaps: &'l Heaps<'l>,
+		type_cache: &'a TypeCache<'l>,
+		assembly: &'a mut Assembly<'l>,
+		code: &str,
+	) -> anyhow::Result<()> {
+		span!(Level::DEBUG, "compile_code").in_scope(|| {
+			info!("Compiling code");
+			Self::compile_internal(heaps, type_cache, assembly, code)?;
+			info!("Code compiled successfully");
+			Ok(())
+		})
+	}
+
+	fn compile_internal(
+		heaps: &'l Heaps<'l>,
+		type_cache: &'a TypeCache<'l>,
+		assembly: &'a mut Assembly<'l>,
+		code: &str,
+	) -> anyhow::Result<()> {
 		static PARSER: OnceLock<AstParser> = OnceLock::new();
 		let parser = PARSER.get_or_init(AstParser::new);
 
@@ -36,7 +79,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(())
 	}
 
-	fn new(heaps: &'l Heaps<'l>, type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>) -> Self {
+	fn new(
+		heaps: &'l Heaps<'l>,
+		type_cache: &'a TypeCache<'l>,
+		assembly: &'a mut Assembly<'l>,
+	) -> Self {
 		Self {
 			type_cache,
 			assembly,
@@ -47,7 +94,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 	}
 
 	fn create_functions<'c>(
-		&mut self, ast: &'c Ast<'c>,
+		&mut self,
+		ast: &'c Ast<'c>,
 	) -> anyhow::Result<Vec<(&'l Function<'l>, &'c FunctionAst<'c>)>> {
 		let mut funcs = vec![];
 		for decl in &ast.declarations {
@@ -86,21 +134,23 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 			if decl.block.is_some() {
 				funcs.push((func, decl));
+				debug!("Function `{}` declared successfully", func.id());
+			} else {
+				info!("External function `{}` declared successfully", func.id());
 			}
-
-			debug!("Function successfully created");
 		}
 
 		Ok(funcs)
 	}
 
 	fn compile_functions(
-		&mut self, funcs: Vec<(&'l Function<'l>, &FunctionAst)>,
+		&mut self,
+		funcs: Vec<(&'l Function<'l>, &FunctionAst)>,
 	) -> anyhow::Result<()> {
 		for (func, decl) in funcs {
 			let span = span!(Level::DEBUG, "compile_function", id = func.id());
 			let _span = span.enter();
-			debug!("Compiling function");
+			debug!("Compiling function `{}`", func.id());
 
 			let mut body = SSAContextBuilder::new();
 			let mut block = Block {
@@ -120,7 +170,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			block.compile(decl.block.as_ref().unwrap(), &mut body)?;
 
 			func.set_body(body.build()).unwrap();
-			debug!("Function successfully compiled");
+			info!("Function `{}` compiled successfully", func.id());
 		}
 		Ok(())
 	}

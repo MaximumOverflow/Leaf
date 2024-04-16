@@ -115,7 +115,9 @@ mod write {
 	impl<'l> Write<'l> for Function<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let Some(ret_ty) = self.ret_ty.get() else {
 				return Err(Error::new(
@@ -160,7 +162,9 @@ mod write {
 	impl<'l> Write<'l> for Parameter<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
 			string_heap.intern_str(self.name).1.write(stream, ())?;

@@ -39,7 +39,7 @@ fn main() {
 		.with_file(false)
 		.with_target(false)
 		.with_level(true)
-		.with_max_level(tracing::level_filters::LevelFilter::TRACE)
+		.with_max_level(tracing::level_filters::LevelFilter::INFO)
 		.finish();
 
 	tracing::subscriber::set_global_default(logger).unwrap();
@@ -47,14 +47,15 @@ fn main() {
 	match args {
 		Args::Interpret(InterpretArgs { file }) => {
 			let mut time = SystemTime::now();
-			let code = std::fs::read_to_string(&file).unwrap();
 
 			let bump = Bump::new();
 			let heaps = Heaps::new(&bump);
 			let type_cache = TypeCache::new(&bump);
 
 			let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
-			if let Err(err) = CompilationUnit::compile(&heaps, &type_cache, &mut assembly, &code) {
+			if let Err(err) =
+				CompilationUnit::compile_file(&heaps, &type_cache, &mut assembly, &file)
+			{
 				return println!("{:#}", err);
 			}
 			let comp_time = time.elapsed().unwrap();
@@ -106,14 +107,15 @@ fn main() {
 		},
 		Args::Compile(CompileArgs { file, .. }) => {
 			let time = SystemTime::now();
-			let code = std::fs::read_to_string(&file).unwrap();
 
 			let bump = Bump::new();
 			let heaps = Heaps::new(&bump);
 			let type_cache = TypeCache::new(&bump);
 
 			let mut assembly = Assembly::new("compiler::tmp", Version::default(), &heaps);
-			if let Err(err) = CompilationUnit::compile(&heaps, &type_cache, &mut assembly, &code) {
+			if let Err(err) =
+				CompilationUnit::compile_file(&heaps, &type_cache, &mut assembly, &file)
+			{
 				return println!("{:#}", err);
 			}
 			let comp_time = time.elapsed().unwrap();

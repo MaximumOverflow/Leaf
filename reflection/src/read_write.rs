@@ -5,7 +5,9 @@ pub mod write {
 	pub trait Write<'l> {
 		type Requirements;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error>;
 	}
 
@@ -44,7 +46,9 @@ pub mod write {
 	impl Write<'_> for bool {
 		type Requirements = ();
 		fn write<T: std::io::Write>(
-			&'_ self, stream: &mut T, req: Self::Requirements,
+			&'_ self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			(*self as u8).write(stream, req)
 		}
@@ -56,7 +60,9 @@ pub mod write {
 	impl<'l, R, T: Write<'l, Requirements = R> + 'l> Write<'l> for &T {
 		type Requirements = R;
 		fn write<S: std::io::Write>(
-			&'l self, stream: &mut S, req: Self::Requirements,
+			&'l self,
+			stream: &mut S,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			Write::write(*self, stream, req)
 		}
@@ -65,7 +71,9 @@ pub mod write {
 	impl<'l, R, T: Write<'l, Requirements = R> + 'l> Write<'l> for &mut T {
 		type Requirements = R;
 		fn write<S: std::io::Write>(
-			&'l self, stream: &mut S, req: Self::Requirements,
+			&'l self,
+			stream: &mut S,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			Write::write(*self, stream, req)
 		}
@@ -74,7 +82,9 @@ pub mod write {
 	impl<'l, R: Copy, T: Write<'l, Requirements = R> + 'l> Write<'l> for Option<T> {
 		type Requirements = R;
 		fn write<S: std::io::Write>(
-			&'l self, stream: &mut S, req: Self::Requirements,
+			&'l self,
+			stream: &mut S,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			match self {
 				None => false.write(stream, ()),
@@ -89,7 +99,9 @@ pub mod write {
 	impl<'l, R: Copy, T: Write<'l, Requirements = R> + 'l> Write<'l> for Vec<T> {
 		type Requirements = R;
 		fn write<S: std::io::Write>(
-			&'l self, stream: &mut S, req: Self::Requirements,
+			&'l self,
+			stream: &mut S,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			self.len().write(stream, ())?;
 			for i in self {

@@ -13,7 +13,8 @@ pub struct InstructionCache<'l> {
 impl<'l> InstructionCache<'l> {
 	#[inline(never)]
 	pub fn get_instructions(
-		&mut self, function: &'l Function<'l>,
+		&mut self,
+		function: &'l Function<'l>,
 	) -> anyhow::Result<Arc<[Opcode<'l>]>> {
 		let key = function as *const _ as usize;
 		if let Some(opcodes) = self.functions.get(&key) {

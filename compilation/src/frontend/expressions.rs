@@ -6,6 +6,7 @@ use leaf_reflection::{Comparison, Const, Function, Opcode, SSAContextBuilder, Ty
 use crate::frontend::block::Block;
 
 pub enum ExpressionResult<'l> {
+	Void,
 	Value(ValueIdx),
 	Function(&'l Function<'l>),
 }
@@ -83,7 +84,10 @@ pub fn compile_expression<'a, 'l>(
 			if let Some(func) = block.functions.get(ident) {
 				return Ok(ExpressionResult::Function(func));
 			}
-			Err(anyhow!("Identifier {:?} is not present in the current scope", ident))
+			Err(anyhow!(
+				"Identifier {:?} is not present in the current scope",
+				ident
+			))
 		},
 		Expression::Unary(op, val) => {
 			let val = compile_expression(val, expected, block, body)?.unwrap_value();
@@ -94,9 +98,9 @@ pub fn compile_expression<'a, 'l>(
 						let local = body.push_local(&Type::Bool);
 						body.push_opcode(Opcode::LNot(val, local));
 						Ok(ExpressionResult::Value(local))
-					}
+					},
 					_ => unimplemented!("{:#?}", op),
-				}
+				},
 				_ => unimplemented!("{:#?}", op),
 			}
 		},
@@ -128,8 +132,7 @@ pub fn compile_expression<'a, 'l>(
 				| BinaryOperator::Lt
 				| BinaryOperator::Gt
 				| BinaryOperator::Le
-				| BinaryOperator::Ge
-				=> match (lhs_ty, rhs_ty) {
+				| BinaryOperator::Ge => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
 						let local = body.push_local(&Type::Bool);
 						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*op)));
@@ -151,9 +154,17 @@ pub fn compile_expression<'a, 'l>(
 				params.push(value);
 			}
 
-			let result = body.push_local(func.ret_ty());
-			body.push_opcode(Opcode::Call(func, params, result));
-			Ok(ExpressionResult::Value(result))
+			match func.ret_ty() {
+				Type::Void => {
+					body.push_opcode(Opcode::Call(func, params, None));
+					Ok(ExpressionResult::Void)
+				},
+				_ => {
+					let result = body.push_local(func.ret_ty());
+					body.push_opcode(Opcode::Call(func, params, Some(result)));
+					Ok(ExpressionResult::Value(result))
+				},
+			}
 		},
 		_ => unimplemented!("{:#?}", expr),
 	}
@@ -183,7 +194,7 @@ fn unescape(str: &str) -> String {
 					b'n' => string.push('\n'),
 					_ => unimplemented!(),
 				}
-			}
+			},
 			_ => string.push(*ch as char),
 		}
 		i += 1;

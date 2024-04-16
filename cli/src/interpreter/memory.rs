@@ -13,7 +13,8 @@ use leaf_compilation::reflection::{Function, Type};
 pub struct LayoutCache<'l> {
 	type_layouts: RefCell<HashMap<usize, Layout, BuildNoHashHasher<usize>>>,
 	field_layouts: RefCell<HashMap<(usize, usize), (usize, Layout, &'l Type<'l>)>>,
-	function_layouts: RefCell<HashMap<usize, (Layout, Arc<[[usize; 2]]>), BuildNoHashHasher<usize>>>,
+	function_layouts:
+		RefCell<HashMap<usize, (Layout, Arc<[[usize; 2]]>), BuildNoHashHasher<usize>>>,
 }
 
 impl<'l> LayoutCache<'l> {
@@ -84,7 +85,9 @@ impl<'l> LayoutCache<'l> {
 	}
 
 	pub fn get_field_offset_and_layout(
-		&self, ty: &'l Type<'l>, field: usize,
+		&self,
+		ty: &'l Type<'l>,
+		field: usize,
 	) -> Option<(usize, Layout, &'l Type<'l>)> {
 		let Type::Struct(data) = ty else {
 			return None;

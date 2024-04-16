@@ -37,7 +37,11 @@ impl<'l> Interpreter<'l> {
 		}
 	}
 
-	pub unsafe fn register_extern_fn<T: Pod, R: Pod>(&mut self, path: &'l str, func: impl ExternFunctionStub<T, R>) {
+	pub unsafe fn register_extern_fn<T: Pod, R: Pod>(
+		&mut self,
+		path: &'l str,
+		func: impl ExternFunctionStub<T, R>,
+	) {
 		let stub = move |bytes: &[u8]| -> Vec<u8> {
 			let result = func.dyn_call(bytes);
 			Vec::from(bytes_of(&result))
@@ -47,7 +51,8 @@ impl<'l> Interpreter<'l> {
 
 	#[inline(never)]
 	pub fn call_as_main(
-		&mut self, function: &'l Function<'l>,
+		&mut self,
+		function: &'l Function<'l>,
 	) -> anyhow::Result<(Vec<u8>, &'l Type<'l>)> {
 		let mut stack = std::mem::take(&mut self.stack);
 		let result = self.call(function, &mut *stack);
@@ -59,7 +64,9 @@ impl<'l> Interpreter<'l> {
 
 	#[inline(never)]
 	fn call<'s>(
-		&mut self, function: &'l Function<'l>, stack: &'s mut [u8],
+		&mut self,
+		function: &'l Function<'l>,
+		stack: &'s mut [u8],
 	) -> anyhow::Result<&'s [u8]>
 	where
 		'l: 's,
@@ -191,9 +198,11 @@ impl<'l> Interpreter<'l> {
 							panic!("Unregistered external function {:?}", func.id());
 						};
 						let result_bytes = stub(&param_bytes);
-						value_bytes_mut(stack_frame, &offsets, *result).copy_from_slice(&result_bytes);
-					}
-					else {
+						if let Some(result) = result {
+							value_bytes_mut(stack_frame, &offsets, *result)
+								.copy_from_slice(&result_bytes);
+						}
+					} else {
 						unimplemented!()
 					}
 				},
@@ -208,7 +217,10 @@ impl<'l> Interpreter<'l> {
 }
 
 fn value_bytes<'s, 'l: 's>(
-	stack_frame: &'s [u8], offsets: &[[usize; 2]], body: &'l FunctionBody<'l>, value: ValueIdx,
+	stack_frame: &'s [u8],
+	offsets: &[[usize; 2]],
+	body: &'l FunctionBody<'l>,
+	value: ValueIdx,
 ) -> &'s [u8] {
 	match value {
 		ValueIdx::Local(i) => {
@@ -241,7 +253,9 @@ fn value_bytes<'s, 'l: 's>(
 }
 
 fn value_bytes_mut<'s, 'l: 's>(
-	stack_frame: &'s mut [u8], offsets: &[[usize; 2]], value: ValueIdx,
+	stack_frame: &'s mut [u8],
+	offsets: &[[usize; 2]],
+	value: ValueIdx,
 ) -> &'s mut [u8] {
 	match value {
 		ValueIdx::Local(i) => {

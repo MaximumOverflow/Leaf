@@ -9,7 +9,7 @@ pub enum Opcode<'l> {
 	Jp(usize) = 0x01,
 	Br(ValueIdx, usize, usize) = 0x02,
 	Ret(Option<ValueIdx>) = 0x03,
-	Call(&'l Function<'l>, Vec<ValueIdx>,ValueIdx) = 0x04,
+	Call(&'l Function<'l>, Vec<ValueIdx>, Option<ValueIdx>) = 0x04,
 
 	Load(ValueIdx, ValueIdx) = 0x10,
 	LoadCI(ValueIdx, usize, ValueIdx) = 0x11,
@@ -164,7 +164,10 @@ mod build {
 		}
 
 		pub fn push_br(
-			&mut self, value: ValueIdx, true_case: BlockIndex, false_case: BlockIndex,
+			&mut self,
+			value: ValueIdx,
+			true_case: BlockIndex,
+			false_case: BlockIndex,
 		) -> Result<(), &'static str> {
 			assert_valid!(
 				self.value_type(value) == Some(&Type::Bool),
@@ -243,7 +246,9 @@ mod write {
 	impl<'l> Write<'l> for Opcode<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'_ self, stream: &mut T, req: Self::Requirements,
+			&'_ self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let discriminant: u8 = unsafe { transmute(discriminant(self)) };
 			stream.write(&[discriminant])?;
@@ -261,8 +266,7 @@ mod write {
 				Opcode::Ret(val) => {
 					val.write(stream, ())?;
 				},
-				| Opcode::Load(src, dst)
-				| Opcode::Store(src, dst) => {
+				| Opcode::Load(src, dst) | Opcode::Store(src, dst) => {
 					src.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
@@ -271,7 +275,7 @@ mod write {
 					req.string_heap().intern_str(&id).1.write(stream, ())?;
 					args.write(stream, ())?;
 					res.write(stream, ())?;
-				}
+				},
 				| Opcode::SAdd(lhs, rhs, dst)
 				| Opcode::SSub(lhs, rhs, dst)
 				| Opcode::SMul(lhs, rhs, dst)
@@ -283,8 +287,7 @@ mod write {
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
-				| Opcode::LoadCI(lhs, rhs, dst)
-				| Opcode::StoreCI(lhs, rhs, dst) => {
+				| Opcode::LoadCI(lhs, rhs, dst) | Opcode::StoreCI(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
@@ -298,7 +301,7 @@ mod write {
 				Opcode::LNot(val, dst) => {
 					val.write(stream, ())?;
 					dst.write(stream, ())?;
-				}
+				},
 			}
 			Ok(())
 		}
@@ -307,7 +310,9 @@ mod write {
 	impl<'l> Write<'l> for &[Opcode<'l>] {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			for opcode in self.iter() {
 				opcode.write(stream, req)?
@@ -319,7 +324,9 @@ mod write {
 	impl<'l> Write<'l> for Const<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let discriminant: u8 = unsafe { transmute(discriminant(self)) };
 			stream.write(&[discriminant])?;
@@ -345,7 +352,9 @@ mod write {
 	impl<'l> Write<'l> for SSAContext<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			self.locals.write(stream, req)?;
 			self.constants.write(stream, req)?;
@@ -355,7 +364,9 @@ mod write {
 }
 
 pub fn value_type<'l>(
-	locals: &[&'l Type<'l>], constants: &[Const<'l>], value: ValueIdx,
+	locals: &[&'l Type<'l>],
+	constants: &[Const<'l>],
+	value: ValueIdx,
 ) -> Option<&'l Type<'l>> {
 	match value {
 		ValueIdx::Local(i) => Some(locals.get(i)?),

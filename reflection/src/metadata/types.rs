@@ -213,7 +213,9 @@ mod write {
 
 	impl<'l> Type<'l> {
 		fn write_recursive<T: std::io::Write>(
-			&self, stream: &mut T, req: HeapScopeRefs<'l>,
+			&self,
+			stream: &mut T,
+			req: HeapScopeRefs<'l>,
 		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
 
@@ -258,7 +260,9 @@ mod write {
 	impl<'l> Write<'l> for Type<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&self, stream: &mut T, req: Self::Requirements,
+			&self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let blob_heap = req.blob_heap();
 
@@ -274,7 +278,9 @@ mod write {
 	impl<'l> Write<'l> for Struct<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<T: std::io::Write>(
-			&'l self, stream: &mut T, req: Self::Requirements,
+			&'l self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
 			string_heap.intern_str(self.namespace).1.write(stream, ())?;
@@ -289,7 +295,9 @@ mod write {
 	impl<'l> Write<'l> for Field<'l> {
 		type Requirements = HeapScopeRefs<'l>;
 		fn write<'a, T: std::io::Write>(
-			&self, stream: &mut T, req: Self::Requirements,
+			&self,
+			stream: &mut T,
+			req: Self::Requirements,
 		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
 			string_heap.intern_str(self.name).1.write(stream, ())?;

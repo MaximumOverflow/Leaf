@@ -70,7 +70,9 @@ mod build {
 		}
 
 		pub fn create_struct(
-			&mut self, namespace: &str, name: &str,
+			&mut self,
+			namespace: &str,
+			name: &str,
 		) -> Result<&'l Struct<'l>, &'static str> {
 			if namespace.contains('/') {
 				return Err("Namespace shall not contain '/' characters");
@@ -93,7 +95,9 @@ mod build {
 		}
 
 		pub fn create_function(
-			&mut self, namespace: &str, name: &str,
+			&mut self,
+			namespace: &str,
+			name: &str,
 		) -> Result<&'l Function<'l>, &'static str> {
 			if namespace.contains('/') {
 				return Err("Namespace shall not contain '/' characters");
