@@ -7,7 +7,7 @@ use anyhow::Error;
 use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol};
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
 use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
-use tracing::{debug, error, info, instrument, Level, span, trace, warn};
+use tracing::{debug, error, info, Level, span, trace};
 use leaf_reflection::heaps::Heaps;
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};

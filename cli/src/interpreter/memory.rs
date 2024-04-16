@@ -17,6 +17,7 @@ pub struct LayoutCache<'l> {
 		RefCell<HashMap<usize, (Layout, Arc<[[usize; 2]]>), BuildNoHashHasher<usize>>>,
 }
 
+#[allow(unused)]
 impl<'l> LayoutCache<'l> {
 	pub fn get_function_stack_layout(&self, func: &'l Function<'l>) -> (Layout, Arc<[[usize; 2]]>) {
 		let key = func as *const _ as usize;

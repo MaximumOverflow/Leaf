@@ -98,6 +98,7 @@ pub trait TypeResolver<'l> {
 	}
 }
 
+#[allow(unused)]
 pub fn invalid_type_err(expected: &Type, got: Option<&Type>) -> anyhow::Error {
 	match got {
 		None => anyhow!("Expected type '{}', got '?'", expected),

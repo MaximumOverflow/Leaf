@@ -6,17 +6,12 @@ where
 	P: Pod,
 	R: Pod,
 {
-	fn call(&self, params: P) -> R;
-	fn dyn_call(&self, params: &[u8]) -> R;
+	unsafe fn dyn_call(&self, params: &[u8]) -> R;
 }
 
 impl<P: Pod, R: Pod, F: Fn(P) -> R + 'static> ExternFunctionStub<P, R> for F {
-	fn call(&self, params: P) -> R {
-		self(params)
-	}
-
-	fn dyn_call(&self, params: &[u8]) -> R {
+	unsafe fn dyn_call(&self, params: &[u8]) -> R {
 		let p0 = pod_read_unaligned::<P>(params);
-		self.call(p0)
+		self(p0)
 	}
 }

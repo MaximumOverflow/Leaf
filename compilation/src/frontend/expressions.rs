@@ -49,11 +49,11 @@ pub fn compile_expression<'a, 'l>(
 		#[rustfmt::skip]
 		Expression::Literal(Literal::Integer(Integer::Any(v))) => {
 			macro_rules! impl_int {
-				($([$ty: ty, $int: ident, $const: ident]),+) => {
+				($v: expr, $([$ty: ty, $int: ident, $const: ident]),+) => {
 					match expected {
 						$(
 							Some(Type::$int) => {
-								let v = (*v).try_into().map_err(|_| anyhow! {
+								let v = (*$v).try_into().map_err(|_| anyhow! {
 									"Integer {v} cannot fit into range {:?} of type {}",
 									<$ty>::MIN..<$ty>::MAX,
 									Type::$int,
@@ -67,6 +67,7 @@ pub fn compile_expression<'a, 'l>(
 			}
 
 			impl_int! {
+				v,
 				[i8, Int8, I8],
 				[i16, Int16, I16],
 				[i32, Int32, I32],

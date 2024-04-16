@@ -304,8 +304,7 @@ mod write {
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
-				| Opcode::SCmp(lhs, rhs, dst, cmp)
-				| Opcode::UCmp(lhs, rhs, dst, cmp) => {
+				| Opcode::SCmp(lhs, rhs, dst, cmp) | Opcode::UCmp(lhs, rhs, dst, cmp) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;

@@ -1,5 +1,5 @@
-use std::alloc::Layout;
 use std::collections::HashMap;
+use std::alloc::Layout;
 use std::rc::Rc;
 
 use anyhow::anyhow;
@@ -8,14 +8,12 @@ use paste::paste;
 
 use leaf_compilation::reflection::{Comparison, Const, Function, FunctionBody, Opcode, Type, ValueIdx};
 
-use crate::interpreter::instruction_cache::InstructionCache;
 use crate::interpreter::memory::LayoutCache;
 use crate::interpreter::stubs::ExternFunctionStub;
 
 pub struct Interpreter<'l> {
 	stack: Box<[u8]>,
 	layout_cache: Rc<LayoutCache<'l>>,
-	instruction_cache: InstructionCache<'l>,
 	extern_functions: HashMap<&'l str, Box<dyn Fn(&[u8]) -> Vec<u8>>>,
 }
 
@@ -31,7 +29,6 @@ impl<'l> Interpreter<'l> {
 				let slice = std::slice::from_raw_parts_mut(ptr, layout.size());
 				Box::from_raw(slice)
 			},
-			instruction_cache: InstructionCache::default(),
 			layout_cache: Rc::new(LayoutCache::default()),
 			extern_functions: Default::default(),
 		}
@@ -158,8 +155,53 @@ impl<'l> Interpreter<'l> {
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Eq) => {
 					impl_cmp!(eq, lhs, rhs, dst, i8, i16, i32, i64);
 				},
+				Opcode::SCmp(lhs, rhs, dst, Comparison::Ne) => {
+					impl_cmp!(ne, lhs, rhs, dst, i8, i16, i32, i64);
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Lt) => {
 					impl_cmp!(lt, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SCmp(lhs, rhs, dst, Comparison::Gt) => {
+					impl_cmp!(gt, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SCmp(lhs, rhs, dst, Comparison::Le) => {
+					impl_cmp!(le, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::SCmp(lhs, rhs, dst, Comparison::Ge) => {
+					impl_cmp!(ge, lhs, rhs, dst, i8, i16, i32, i64);
+				},
+				Opcode::UAdd(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_add, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::USub(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_sub, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UMul(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_mul, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UDiv(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_div, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UMod(lhs, rhs, dst) => {
+					impl_bin_op!(wrapping_rem, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UCmp(lhs, rhs, dst, Comparison::Eq) => {
+					impl_cmp!(eq, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UCmp(lhs, rhs, dst, Comparison::Ne) => {
+					impl_cmp!(ne, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UCmp(lhs, rhs, dst, Comparison::Lt) => {
+					impl_cmp!(lt, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UCmp(lhs, rhs, dst, Comparison::Gt) => {
+					impl_cmp!(gt, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UCmp(lhs, rhs, dst, Comparison::Le) => {
+					impl_cmp!(le, lhs, rhs, dst, u8, u16, u32, u64);
+				},
+				Opcode::UCmp(lhs, rhs, dst, Comparison::Ge) => {
+					impl_cmp!(ge, lhs, rhs, dst, u8, u16, u32, u64);
 				},
 				Opcode::LNot(val, dst) => {
 					let val = value_bytes(stack_frame, &offsets, body, *val);
@@ -286,7 +328,7 @@ fn value_bytes_mut<'s, 'l: 's>(
 
 			&mut stack_frame[start..end]
 		},
-		ValueIdx::Const(i) => {
+		ValueIdx::Const(_) => {
 			panic!("Cannot borrow constants mutably");
 		},
 	}
