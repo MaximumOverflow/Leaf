@@ -19,6 +19,9 @@ pub enum Opcode<'l> {
 	Store(ValueIdx, ValueIdx) = 0x13,
 	StoreCI(ValueIdx, usize, ValueIdx) = 0x14,
 	StoreI(ValueIdx, ValueIdx, ValueIdx) = 0x15,
+	StoreCIA(ValueIdx, usize, ValueIdx) = 0x16,
+	StoreIA(ValueIdx, ValueIdx, ValueIdx) = 0x17,
+
 
 	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x20,
 	SSub(ValueIdx, ValueIdx, ValueIdx) = 0x21,
@@ -364,12 +367,15 @@ mod write {
 				| Opcode::UDiv(lhs, rhs, dst)
 				| Opcode::UMod(lhs, rhs, dst)
 				| Opcode::LoadI(lhs, rhs, dst)
-				| Opcode::StoreI(lhs, rhs, dst) => {
+				| Opcode::StoreI(lhs, rhs, dst)
+				| Opcode::StoreIA(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
-				| Opcode::LoadCI(lhs, rhs, dst) | Opcode::StoreCI(lhs, rhs, dst) => {
+				| Opcode::LoadCI(lhs, rhs, dst)
+				| Opcode::StoreCI(lhs, rhs, dst)
+				| Opcode::StoreCIA(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;

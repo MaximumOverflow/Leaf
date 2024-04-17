@@ -38,7 +38,28 @@ pub fn compile_expression<'a, 'l>(
 		Expression::Literal(Literal::String(str)) => {
 			Ok(ExpressionResult::Value(body.use_const(unescape(str))))
 		},
+		Expression::Literal(Literal::Integer(Integer::Int8(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
+		Expression::Literal(Literal::Integer(Integer::Int16(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
 		Expression::Literal(Literal::Integer(Integer::Int32(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
+		Expression::Literal(Literal::Integer(Integer::Int64(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
+		Expression::Literal(Literal::Integer(Integer::UInt8(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
+		Expression::Literal(Literal::Integer(Integer::UInt16(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
+		Expression::Literal(Literal::Integer(Integer::UInt32(v))) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		},
+		Expression::Literal(Literal::Integer(Integer::UInt64(v))) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
 		},
 		#[rustfmt::skip]

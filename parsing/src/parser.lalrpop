@@ -20,15 +20,24 @@ pub Boolean: bool = {
 };
 
 pub Integer: Integer = {
-    <s:r"-?[0-9]+">     =>? Ok(Integer::Any(i128::from_str(s).map_err(|_| format!("{s} does not fit in type 'i128'"))?)),
-    <s:r"[0-9]+u8">     =>? Ok(Integer::UInt8(u8::from_str(&s[..s.len() - 2]).map_err(|_| format!("{s} does not fit in type 'u8'"))?)),
-    <s:r"[0-9]+u16">    =>? Ok(Integer::UInt16(u16::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'u16'"))?)),
-    <s:r"[0-9]+u32">    =>? Ok(Integer::UInt32(u32::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'u32'"))?)),
-    <s:r"[0-9]+u64">    =>? Ok(Integer::UInt64(u64::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'u64'"))?)),
-    <s:r"-?[0-9]+i8">   =>? Ok(Integer::Int8(i8::from_str(&s[..s.len() - 2]).map_err(|_| format!("{s} does not fit in type 'i8'"))?)),
-    <s:r"-?[0-9]+i16">  =>? Ok(Integer::Int16(i16::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'i16'"))?)),
-    <s:r"-?[0-9]+i32">  =>? Ok(Integer::Int32(i32::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'i32'"))?)),
-    <s:r"-?[0-9]+i64">  =>? Ok(Integer::Int64(i64::from_str(&s[..s.len() - 3]).map_err(|_| format!("{s} does not fit in type 'i64'"))?)),
+    <s:r"-?[0-9]+">     =>? Ok(Integer::try_from(s)?),
+    <s:r"[0-9]+u8">     =>? Ok(Integer::try_from(s)?),
+    <s:r"[0-9]+u16">    =>? Ok(Integer::try_from(s)?),
+    <s:r"[0-9]+u32">    =>? Ok(Integer::try_from(s)?),
+    <s:r"[0-9]+u64">    =>? Ok(Integer::try_from(s)?),
+    <s:r"-?[0-9]+i8">   =>? Ok(Integer::try_from(s)?),
+    <s:r"-?[0-9]+i16">  =>? Ok(Integer::try_from(s)?),
+    <s:r"-?[0-9]+i32">  =>? Ok(Integer::try_from(s)?),
+    <s:r"-?[0-9]+i64">  =>? Ok(Integer::try_from(s)?),
+    <s:r"-?0x[0-9a-fA-F]+">     =>? Ok(Integer::try_from(s)?),
+    <s:r"0x[0-9a-fA-F]+u8">     =>? Ok(Integer::try_from(s)?),
+    <s:r"0x[0-9a-fA-F]+u16">    =>? Ok(Integer::try_from(s)?),
+    <s:r"0x[0-9a-fA-F]+u32">    =>? Ok(Integer::try_from(s)?),
+    <s:r"0x[0-9a-fA-F]+u64">    =>? Ok(Integer::try_from(s)?),
+    <s:r"-?0x[0-9a-fA-F]+i8">   =>? Ok(Integer::try_from(s)?),
+    <s:r"-?0x[0-9a-fA-F]+i16">  =>? Ok(Integer::try_from(s)?),
+    <s:r"-?0x[0-9a-fA-F]+i32">  =>? Ok(Integer::try_from(s)?),
+    <s:r"-?0x[0-9a-fA-F]+i64">  =>? Ok(Integer::try_from(s)?),
 }
 
 pub Literal: Literal<'input> = {

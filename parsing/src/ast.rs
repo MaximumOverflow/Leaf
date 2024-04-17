@@ -1,6 +1,7 @@
-use std::ops::{Add, Div, Mul, Sub, Rem, Not};
-use lalrpop_util::lexer::Token;
 use std::collections::HashMap;
+use std::ops::{Add, Div, Mul, Not, Rem, Sub};
+
+use lalrpop_util::lexer::Token;
 
 type Result<'l, T> = std::result::Result<T, ParseError<'l>>;
 pub type ParseError<'l> = lalrpop_util::ParseError<usize, Token<'l>, String>;
@@ -50,6 +51,76 @@ pub enum Integer {
 	UInt16(u16),
 	UInt32(u32),
 	UInt64(u64),
+}
+
+impl<'l> TryFrom<&'l str> for Integer {
+	type Error = ParseError<'l>;
+	fn try_from(mut value: &'l str) -> std::result::Result<Self, Self::Error> {
+		let neg = value.as_bytes()[0] == b'-';
+
+		value = &value[neg as usize..];
+		let radix = match value.get(0..2) {
+			Some("0b") => 2,
+			Some("0o") => 8,
+			Some("0x") => 16,
+			_ => 10,
+		};
+
+		if radix != 10 {
+			value = &value[2..];
+		}
+
+		match value.rfind(|c| c == 'i' || c == 'u') {
+			None => {
+				i128::from_str_radix(value, radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::Any(if neg { -v } else { v }))
+			},
+			Some(i) => match &value[i..] {
+				"u8" => {
+					u8::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::UInt8(v))
+				}
+				"u16" => {
+					u16::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::UInt16(v))
+				}
+				"u32" => {
+					u32::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::UInt32(v))
+				}
+				"u64" => {
+					u64::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::UInt64(v))
+				}
+				"i8" => {
+					i8::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::Int8(if neg { -v } else { v }))
+				}
+				"i16" => {
+					i16::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::Int16(if neg { -v } else { v }))
+				}
+				"i32" => {
+					i32::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::Int32(if neg { -v } else { v }))
+				}
+				"i64" => {
+					i64::from_str_radix(&value[..i], radix)
+						.map_err(|e| ParseError::from(e.to_string()))
+						.map(|v| Integer::Int64(if neg { -v } else { v }))
+				}
+				_ => unreachable!("Invalid integer literal {:?}", value),
+			}
+		}
+	}
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
