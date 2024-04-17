@@ -44,16 +44,26 @@ impl<'l> Heaps<'l> {
 
 #[derive(Clone)]
 pub struct HeapScopes<'l> {
+	bump: &'l Bump,
 	blob_heap: Arc<BlobHeapScope<'l>>,
 	string_heap: Arc<StringHeapScope<'l>>,
 }
 
 impl<'l> HeapScopes<'l> {
-	pub fn new(blob_heap: Arc<BlobHeapScope<'l>>, string_heap: Arc<StringHeapScope<'l>>) -> Self {
+	pub fn new(
+		bump: &'l Bump,
+		blob_heap: Arc<BlobHeapScope<'l>>,
+		string_heap: Arc<StringHeapScope<'l>>,
+	) -> Self {
 		Self {
+			bump,
 			blob_heap,
 			string_heap,
 		}
+	}
+
+	pub fn bump(&self) -> &'l Bump {
+		self.bump
 	}
 
 	pub fn blob_heap(&self) -> &BlobHeapScope<'l> {

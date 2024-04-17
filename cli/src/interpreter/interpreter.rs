@@ -227,13 +227,10 @@ impl<'l> Interpreter<'l> {
 					assert_eq!(dst_size, src_size);
 					std::ptr::copy(src_ptr, dst_ptr, dst_size);
 				},
-				Opcode::StoreCIA(val, idx, dst) => unsafe {
-					let base_ptr = value_bytes(stack_frame, &offsets, body, *val).as_ptr();
-					let val_ty = body.value_type(*val).unwrap();
-					let size = self.layout_cache.get_type_layout(val_ty).size();
-					let val_ptr = base_ptr.add(size) as usize;
+				Opcode::StoreA(val, dst) => {
+					let ptr = value_bytes(stack_frame, &offsets, body, *val).as_ptr() as usize;
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
-					dst.copy_from_slice(bytes_of(&val_ptr));
+					dst.copy_from_slice(bytes_of(&ptr));
 				},
 
 				Opcode::Ret(value) => match value {
@@ -274,9 +271,11 @@ impl<'l> Interpreter<'l> {
 							},
 						};
 
-						let result_bytes = trace_span!("call_native", func = func.id()).in_scope(|| {
-							stub(&stack[align..offset])
-						});
+						let result_bytes =
+							trace_span!("call_native", func = func.id()).in_scope(|| {
+								trace!("{}", function.id());
+								stub(&stack[align..offset])
+							});
 						if let Some(result) = result {
 							value_bytes_mut(stack_frame, &offsets, *result)
 								.copy_from_slice(&result_bytes);

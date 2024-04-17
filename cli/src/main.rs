@@ -1,3 +1,4 @@
+use std::alloc::Layout;
 use std::ffi::c_char;
 use std::fs::File;
 use std::io::BufWriter;
@@ -46,7 +47,7 @@ fn main() {
 	let args = Args::parse();
 
 	let trace = match &args {
-		Args::Compile(CompileArgs{ trace, .. }) => *trace,
+		Args::Compile(CompileArgs { trace, .. }) => *trace,
 		Args::Interpret(InterpretArgs { trace, .. }) => *trace,
 	};
 
@@ -70,7 +71,7 @@ fn main() {
 			let registry = Registry::default().with(fmt_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			None
-		}
+		},
 
 		Some(file) => {
 			let flame_layer = FlameLayer::new(BufWriter::new(file));
@@ -78,7 +79,7 @@ fn main() {
 			let registry = Registry::default().with(fmt_layer).with(flame_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			Some(guard)
-		}
+		},
 	};
 
 	match args {
@@ -122,6 +123,16 @@ fn main() {
 					let slice = std::slice::from_raw_parts(fmt as *const u8, len);
 					let str = std::str::from_utf8(slice).unwrap();
 					print!("{}", str);
+				});
+				interpreter.register_extern_fn("core/test/alloc", |info: [usize; 2]| {
+					let [size, align] = info;
+					let layout = Layout::from_size_align_unchecked(size, align);
+					std::alloc::alloc(layout) as usize
+				});
+				interpreter.register_extern_fn("core/test/dealloc", |info: [usize; 3]| {
+					let [ptr, size, align] = info;
+					let layout = Layout::from_size_align_unchecked(size, align);
+					std::alloc::dealloc(ptr as *mut u8, layout);
 				});
 			}
 

@@ -71,54 +71,36 @@ impl<'l> TryFrom<&'l str> for Integer {
 		}
 
 		match value.rfind(|c| c == 'i' || c == 'u') {
-			None => {
-				i128::from_str_radix(value, radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::Any(if neg { -v } else { v }))
-			},
+			None => i128::from_str_radix(value, radix)
+				.map_err(|e| ParseError::from(e.to_string()))
+				.map(|v| Integer::Any(if neg { -v } else { v })),
 			Some(i) => match &value[i..] {
-				"u8" => {
-					u8::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::UInt8(v))
-				}
-				"u16" => {
-					u16::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::UInt16(v))
-				}
-				"u32" => {
-					u32::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::UInt32(v))
-				}
-				"u64" => {
-					u64::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::UInt64(v))
-				}
-				"i8" => {
-					i8::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::Int8(if neg { -v } else { v }))
-				}
-				"i16" => {
-					i16::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::Int16(if neg { -v } else { v }))
-				}
-				"i32" => {
-					i32::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::Int32(if neg { -v } else { v }))
-				}
-				"i64" => {
-					i64::from_str_radix(&value[..i], radix)
-						.map_err(|e| ParseError::from(e.to_string()))
-						.map(|v| Integer::Int64(if neg { -v } else { v }))
-				}
+				"u8" => u8::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::UInt8(v)),
+				"u16" => u16::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::UInt16(v)),
+				"u32" => u32::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::UInt32(v)),
+				"u64" => u64::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::UInt64(v)),
+				"i8" => i8::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::Int8(if neg { -v } else { v })),
+				"i16" => i16::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::Int16(if neg { -v } else { v })),
+				"i32" => i32::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::Int32(if neg { -v } else { v })),
+				"i64" => i64::from_str_radix(&value[..i], radix)
+					.map_err(|e| ParseError::from(e.to_string()))
+					.map(|v| Integer::Int64(if neg { -v } else { v })),
 				_ => unreachable!("Invalid integer literal {:?}", value),
-			}
+			},
 		}
 	}
 }

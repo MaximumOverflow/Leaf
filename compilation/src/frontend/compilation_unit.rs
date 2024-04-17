@@ -4,10 +4,13 @@ use std::sync::OnceLock;
 
 use anyhow::Error;
 
-use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol};
+use leaf_parsing::ast::{
+	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst, Enum as EnumAst,
+	SymbolDeclaration,
+};
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
-use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
-use tracing::{debug, error, info, Level, span, trace};
+use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Struct, Type};
+use tracing::{debug, error, info, instrument, Level, span, trace};
 use leaf_reflection::heaps::HeapScopes;
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
@@ -71,8 +74,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		};
 
 		let mut unit = Self::new(type_cache, assembly);
-		let funcs = unit.create_functions(&ast)?;
-		unit.compile_functions(funcs)?;
+		let symbols = unit.declare_symbols(&ast)?;
+		unit.compile_functions(symbols.functions)?;
 		Ok(())
 	}
 
@@ -86,11 +89,29 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		}
 	}
 
-	fn create_functions<'c>(
+	#[instrument(skip_all)]
+	fn declare_symbols<'c>(
 		&mut self,
 		ast: &'c Ast<'c>,
-	) -> anyhow::Result<Vec<(&'l Function<'l>, &'c FunctionAst<'c>)>> {
-		let mut funcs = vec![];
+	) -> anyhow::Result<SymbolDeclarations<'l, 'c>> {
+		let mut symbols = SymbolDeclarations::default();
+		for decl in &ast.declarations {
+			let name = decl.name;
+			match &decl.symbol {
+				Symbol::Struct(decl) => {
+					let span = span!(Level::DEBUG, "create_struct", name);
+					let _span = span.enter();
+					debug!("Creating struct");
+
+					let r#struct = self.assembly.create_struct(ast.namespace, name).unwrap();
+					let ty = self.heaps.bump().alloc(Type::Struct(r#struct));
+					self.types.insert(r#struct.name(), ty);
+					symbols.structs.push((r#struct, decl));
+				},
+				_ => {},
+			}
+		}
+
 		for decl in &ast.declarations {
 			let name = decl.name;
 			let Symbol::Function(decl) = &decl.symbol else {
@@ -126,14 +147,14 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			self.functions.insert(func.name(), func);
 
 			if decl.block.is_some() {
-				funcs.push((func, decl));
+				symbols.functions.push((func, decl));
 				debug!("Function `{}` declared successfully", func.id());
 			} else {
 				info!("External function `{}` declared successfully", func.id());
 			}
 		}
 
-		Ok(funcs)
+		Ok(symbols)
 	}
 
 	fn compile_functions(
@@ -176,4 +197,10 @@ impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
 	fn types(&self) -> &HashMap<&'l str, &'l Type<'l>> {
 		&self.types
 	}
+}
+
+#[derive(Default)]
+struct SymbolDeclarations<'l, 'a> {
+	structs: Vec<(&'l Struct<'l>, &'a StructAst<'a>)>,
+	functions: Vec<(&'l Function<'l>, &'a FunctionAst<'a>)>,
 }

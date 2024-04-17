@@ -14,14 +14,8 @@ pub enum Opcode<'l> {
 	Call(&'l Function<'l>, Vec<ValueIdx>, Option<ValueIdx>) = 0x04,
 
 	Load(ValueIdx, ValueIdx) = 0x10,
-	LoadCI(ValueIdx, usize, ValueIdx) = 0x11,
-	LoadI(ValueIdx, ValueIdx, ValueIdx) = 0x12,
-	Store(ValueIdx, ValueIdx) = 0x13,
-	StoreCI(ValueIdx, usize, ValueIdx) = 0x14,
-	StoreI(ValueIdx, ValueIdx, ValueIdx) = 0x15,
-	StoreCIA(ValueIdx, usize, ValueIdx) = 0x16,
-	StoreIA(ValueIdx, ValueIdx, ValueIdx) = 0x17,
-
+	Store(ValueIdx, ValueIdx) = 0x11,
+	StoreA(ValueIdx, ValueIdx) = 0x12,
 
 	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x20,
 	SSub(ValueIdx, ValueIdx, ValueIdx) = 0x21,
@@ -36,6 +30,9 @@ pub enum Opcode<'l> {
 	UDiv(ValueIdx, ValueIdx, ValueIdx) = 0x29,
 	UMod(ValueIdx, ValueIdx, ValueIdx) = 0x2A,
 	UCmp(ValueIdx, ValueIdx, ValueIdx, Comparison) = 0x2B,
+
+	SConv(ValueIdx, ValueIdx, usize) = 0x2C,
+	UConv(ValueIdx, ValueIdx, usize) = 0x2D,
 
 	LNot(ValueIdx, ValueIdx) = 0x30,
 }
@@ -346,7 +343,7 @@ mod write {
 				Opcode::Ret(val) => {
 					val.write(stream, ())?;
 				},
-				| Opcode::Load(src, dst) | Opcode::Store(src, dst) => {
+				| Opcode::Load(src, dst) | Opcode::Store(src, dst) | Opcode::StoreA(src, dst) => {
 					src.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
@@ -365,17 +362,7 @@ mod write {
 				| Opcode::USub(lhs, rhs, dst)
 				| Opcode::UMul(lhs, rhs, dst)
 				| Opcode::UDiv(lhs, rhs, dst)
-				| Opcode::UMod(lhs, rhs, dst)
-				| Opcode::LoadI(lhs, rhs, dst)
-				| Opcode::StoreI(lhs, rhs, dst)
-				| Opcode::StoreIA(lhs, rhs, dst) => {
-					lhs.write(stream, ())?;
-					rhs.write(stream, ())?;
-					dst.write(stream, ())?;
-				},
-				| Opcode::LoadCI(lhs, rhs, dst)
-				| Opcode::StoreCI(lhs, rhs, dst)
-				| Opcode::StoreCIA(lhs, rhs, dst) => {
+				| Opcode::UMod(lhs, rhs, dst) => {
 					lhs.write(stream, ())?;
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
@@ -385,6 +372,11 @@ mod write {
 					rhs.write(stream, ())?;
 					dst.write(stream, ())?;
 					cmp.write(stream, ())?;
+				},
+				| Opcode::SConv(val, dst, bytes) | Opcode::UConv(val, dst, bytes) => {
+					val.write(stream, ())?;
+					dst.write(stream, ())?;
+					bytes.write(stream, ())?;
 				},
 				Opcode::LNot(val, dst) => {
 					val.write(stream, ())?;

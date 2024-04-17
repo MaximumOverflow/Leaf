@@ -24,9 +24,9 @@ impl<'l> TypeCache<'l> {
 
 	pub fn make_pointer(&self, base: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
 		let mut pointers = self.pointer_types.borrow_mut();
-		pointers.entry((base, mutable)).or_insert_with(|| {
-			self.bump.alloc(Type::Pointer(Pointer { ty: base, mutable}))
-		})
+		pointers
+			.entry((base, mutable))
+			.or_insert_with(|| self.bump.alloc(Type::Pointer(Pointer { ty: base, mutable })))
 	}
 }
 

@@ -120,7 +120,7 @@ mod build {
 		}
 
 		pub fn heaps(&self) -> HeapScopes<'l> {
-			HeapScopes::new(self.blob_heap.clone(), self.string_heap.clone())
+			HeapScopes::new(self.bump, self.blob_heap.clone(), self.string_heap.clone())
 		}
 	}
 }
@@ -131,7 +131,6 @@ mod write {
 
 	use bytemuck::bytes_of;
 
-	use crate::heaps::HeapScopes;
 	use crate::metadata::assembly::Assembly;
 	use crate::Version;
 	use crate::write::Write;
@@ -149,7 +148,7 @@ mod write {
 
 			let mut tmp = vec![];
 			let mut tmp_stream = Cursor::new(&mut tmp);
-			let heaps = HeapScopes::new(self.blob_heap.clone(), self.string_heap.clone());
+			let heaps = self.heaps();
 
 			self.structs.len().write(&mut tmp_stream, ())?;
 			for ty in self.structs.values() {
