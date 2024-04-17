@@ -69,8 +69,8 @@ impl<'l> Interpreter<'l> {
 		function: &'l Function<'l>,
 		stack: &'s mut [u8],
 	) -> anyhow::Result<&'s [u8]>
-	where
-		'l: 's,
+		where
+			'l: 's,
 	{
 		let scope = trace_span!("call", func = function.id());
 		let _scope = scope.enter();
@@ -102,7 +102,7 @@ impl<'l> Interpreter<'l> {
 								let result = from_bytes::<$ty>(lhs).$do(*from_bytes::<$ty>(rhs));
 								let dst = value_bytes_mut(stack_frame, &offsets, *$dst);
 								dst[..std::mem::size_of_val(&result)].copy_from_slice(bytes_of(&result));
-							},
+							}
 						)*
 						_ => unimplemented!(),
 					}
@@ -123,7 +123,7 @@ impl<'l> Interpreter<'l> {
 								let result = from_bytes::<$ty>(lhs).$do(from_bytes::<$ty>(rhs));
 								let dst = value_bytes_mut(stack_frame, &offsets, *$dst);
 								dst[..std::mem::size_of_val(&result)].copy_from_slice(bytes_of(&result));
-							},
+							}
 						)*
 						_ => unimplemented!(),
 					}
@@ -131,11 +131,11 @@ impl<'l> Interpreter<'l> {
 			}
 
 			match opcode {
-				Opcode::Nop => {},
+				Opcode::Nop => {}
 				Opcode::Jp(target) => {
 					pc = *target;
 					continue;
-				},
+				}
 				Opcode::Br(cond, true_case, false_case) => {
 					debug_assert_eq!(body.value_type(*cond), Some(&Type::Bool));
 					pc = match value_bytes(stack_frame, &offsets, body, *cond)[0] {
@@ -143,79 +143,79 @@ impl<'l> Interpreter<'l> {
 						_ => *true_case,
 					};
 					continue;
-				},
+				}
 				Opcode::SAdd(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_add, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SSub(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_sub, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SMul(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_mul, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SDiv(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_div, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SMod(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_rem, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Eq) => {
 					impl_cmp!(eq, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Ne) => {
 					impl_cmp!(ne, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Lt) => {
 					impl_cmp!(lt, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Gt) => {
 					impl_cmp!(gt, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Le) => {
 					impl_cmp!(le, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Ge) => {
 					impl_cmp!(ge, lhs, rhs, dst, i8, i16, i32, i64);
-				},
+				}
 				Opcode::UAdd(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_add, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::USub(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_sub, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UMul(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_mul, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UDiv(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_div, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UMod(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_rem, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Eq) => {
 					impl_cmp!(eq, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Ne) => {
 					impl_cmp!(ne, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Lt) => {
 					impl_cmp!(lt, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Gt) => {
 					impl_cmp!(gt, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Le) => {
 					impl_cmp!(le, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Ge) => {
 					impl_cmp!(ge, lhs, rhs, dst, u8, u16, u32, u64);
-				},
+				}
 				Opcode::LNot(val, dst) => {
 					let val = value_bytes(stack_frame, &offsets, body, *val);
 					let result = val[0] == 0;
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					dst[0] = result as u8;
-				},
+				}
 
 				Opcode::Store(src, dst) => unsafe {
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
@@ -231,50 +231,38 @@ impl<'l> Interpreter<'l> {
 					let ptr = value_bytes(stack_frame, &offsets, body, *val).as_ptr() as usize;
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					dst.copy_from_slice(bytes_of(&ptr));
-				},
+				}
+				Opcode::Aggregate(values, dst) => {
+					let (bytes, _) = push_values(
+						stack_frame, stack, &offsets, body, &self.layout_cache, values,
+					);
+
+					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
+					dst.copy_from_slice(bytes);
+				}
 
 				Opcode::Ret(value) => match value {
 					Some(value) => {
 						assert_eq!(body.value_type(*value), Some(function.ret_ty()));
 						return Ok(value_bytes(stack_frame, &offsets, body, *value));
-					},
+					}
 					None => {
 						assert_eq!(function.ret_ty(), &Type::Void);
 						return Ok(&[]);
-					},
-				},
-				Opcode::Call(func, params, result) => unsafe {
-					let mut offset = 0;
-					for param in params {
-						let ty = body.value_type(*param).unwrap();
-						let ty_layout = self.layout_cache.get_type_layout(ty);
-						let ptr = stack.as_ptr().add(offset);
-						let align_offset = ptr.align_offset(ty_layout.align());
-						let bytes = value_bytes(stack_frame, &offsets, body, *param);
-						let start = offset + align_offset;
-						offset = start + ty_layout.size();
-						stack[start..offset].copy_from_slice(bytes);
 					}
+				},
+				Opcode::Call(func, params, result) => {
+					let (call_frame, _) = push_values(stack_frame, stack, &offsets, body, &self.layout_cache, params);
 
 					if func.body().is_none() {
 						let Some(stub) = self.extern_functions.get(func.id()) else {
 							panic!("Unregistered external function {:?}", func.id());
 						};
 
-						let align = match params.get(0) {
-							None => 0,
-							Some(param) => {
-								let ty = body.value_type(*param).unwrap();
-								let ty_layout = self.layout_cache.get_type_layout(ty);
-								let ptr = stack.as_ptr();
-								ptr.align_offset(ty_layout.align())
-							},
-						};
-
 						let result_bytes =
 							trace_span!("call_native", func = func.id()).in_scope(|| {
 								trace!("{}", function.id());
-								stub(&stack[align..offset])
+								stub(call_frame)
 							});
 						if let Some(result) = result {
 							value_bytes_mut(stack_frame, &offsets, *result)
@@ -287,7 +275,7 @@ impl<'l> Interpreter<'l> {
 								.copy_from_slice(&result_bytes);
 						}
 					}
-				},
+				}
 				_ => unimplemented!("{:?}", opcode),
 			}
 
@@ -308,9 +296,9 @@ fn value_bytes<'s, 'l: 's>(
 		Value {
 			const_data: Some(data),
 			ty: Type::Pointer(Pointer {
-				mutable: false,
-				ty: &Type::UInt8,
-			}),
+								  mutable: false,
+								  ty: &Type::UInt8,
+							  }),
 		} => unsafe {
 			let ptr_data: &[usize; 2] = transmute(data);
 			bytes_of(&ptr_data[(ptr_data[0] == data.len()) as usize])
@@ -325,7 +313,7 @@ fn value_bytes<'s, 'l: 's>(
 			let [start, size] = offsets[value.0];
 			let end = start + size;
 			&stack_frame[start..end]
-		},
+		}
 	}
 }
 
@@ -337,4 +325,41 @@ fn value_bytes_mut<'s, 'l: 's>(
 	let [start, size] = offsets[value.0];
 	let end = start + size;
 	&mut stack_frame[start..end]
+}
+
+fn push_values<'s, 'l: 's>(
+	stack_frame: &[u8],
+	stack: &'s mut [u8],
+	offsets: &[[usize; 2]],
+	body: &'l FunctionBody<'l>,
+	layout_cache: &LayoutCache<'l>,
+	values: &[ValueIdx],
+) -> (&'s [u8], &'s mut [u8]) {
+	unsafe {
+		let mut offset = 0;
+		for value in values {
+			let ty = body.value_type(*value).unwrap();
+			let ty_layout = layout_cache.get_type_layout(ty);
+			let ptr = stack.as_ptr().add(offset);
+			let align_offset = ptr.align_offset(ty_layout.align());
+			let bytes = value_bytes(stack_frame, &offsets, body, *value);
+			let start = offset + align_offset;
+			offset = start + ty_layout.size();
+			stack[start..offset].copy_from_slice(bytes);
+		}
+
+		let align = match values.get(0) {
+			None => 0,
+			Some(param) => {
+				let ty = body.value_type(*param).unwrap();
+				let ty_layout = layout_cache.get_type_layout(ty);
+				let ptr = stack.as_ptr();
+				ptr.align_offset(ty_layout.align())
+			}
+		};
+
+		let (stack_frame, stack) = stack.split_at_mut(offset);
+		let stack_frame = &stack_frame[align..];
+		(stack_frame, stack)
+	}
 }

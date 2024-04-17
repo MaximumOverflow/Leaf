@@ -19,7 +19,7 @@ pub struct Assembly<'l> {
 }
 
 impl<'l> Assembly<'l> {
-	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
+	pub fn functions(&'l self) -> impl Iterator<Item=&'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}
 }
@@ -85,11 +85,13 @@ mod build {
 			let name = self.string_heap.intern_str(name).0;
 
 			let id = format!("{}/{}", namespace, name);
+			let heap_id = self.string_heap.intern_str(&id).0;
+
 			if self.structs.contains_key(&id) {
 				return Err("Type already exists");
 			}
 
-			let ty = self.bump.alloc(Struct::new(namespace, name));
+			let ty = self.bump.alloc(Struct::new(heap_id, namespace, name));
 			self.structs.insert(id, ty);
 			Ok(ty)
 		}

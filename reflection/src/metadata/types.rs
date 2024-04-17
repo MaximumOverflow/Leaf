@@ -114,12 +114,17 @@ impl<'l> Into<Type<'l>> for Pointer<'l> {
 #[derive(Derivative)]
 #[derivative(Debug, Eq, PartialEq)]
 pub struct Struct<'l> {
+	id: &'l str,
 	name: &'l str,
 	namespace: &'l str,
 	fields: OnceLock<Vec<Field<'l>>>,
 }
 
 impl<'l> Struct<'l> {
+	pub fn id(&self) -> &'l str {
+		self.id
+	}
+
 	pub fn name(&self) -> &str {
 		&self.name
 	}
@@ -188,8 +193,9 @@ mod build {
 	}
 
 	impl<'l> Struct<'l> {
-		pub(crate) fn new(namespace: &'l str, name: &'l str) -> Self {
+		pub(crate) fn new(id: &'l str, namespace: &'l str, name: &'l str) -> Self {
 			Self {
+				id,
 				name,
 				namespace,
 				fields: OnceLock::new(),
@@ -239,22 +245,22 @@ mod write {
 				| Type::UInt64
 				| Type::Float16
 				| Type::Float32
-				| Type::Float64 => {},
+				| Type::Float64 => {}
 
 				Type::Array(data) => {
 					data.ty.write_recursive(&mut cursor, req.clone())?;
 					data.count.write(&mut cursor, ())?;
-				},
+				}
 
 				Type::Pointer(data) => {
 					data.ty.write_recursive(&mut cursor, req.clone())?;
 					data.mutable.write(&mut cursor, ())?;
-				},
+				}
 
 				Type::Struct(data) => {
 					string_heap.intern_str(&data.namespace).1.write(&mut cursor, ())?;
 					string_heap.intern_str(&data.name).1.write(&mut cursor, ())?;
-				},
+				}
 			}
 
 			let (_, id) = blob_heap.intern_blob(&signature);

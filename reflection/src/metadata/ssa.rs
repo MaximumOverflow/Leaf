@@ -16,6 +16,7 @@ pub enum Opcode<'l> {
 	Load(ValueIdx, ValueIdx) = 0x10,
 	Store(ValueIdx, ValueIdx) = 0x11,
 	StoreA(ValueIdx, ValueIdx) = 0x12,
+	Aggregate(Vec<ValueIdx>, ValueIdx) = 0x1A,
 
 	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x20,
 	SSub(ValueIdx, ValueIdx, ValueIdx) = 0x21,
@@ -347,6 +348,10 @@ mod write {
 					src.write(stream, ())?;
 					dst.write(stream, ())?;
 				},
+				Opcode::Aggregate(values, dst) => {
+					values.write(stream, ())?;
+					dst.write(stream, ())?;
+				}
 				Opcode::Call(func, args, res) => {
 					let id = format!("{}/{}", func.namespace(), func.name());
 					req.string_heap().intern_str(&id).1.write(stream, ())?;

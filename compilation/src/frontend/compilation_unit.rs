@@ -9,7 +9,7 @@ use leaf_parsing::ast::{
 	SymbolDeclaration,
 };
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
-use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Struct, Type};
+use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Struct, Type};
 use tracing::{debug, error, info, instrument, Level, span, trace};
 use leaf_reflection::heaps::HeapScopes;
 use crate::frontend::block::Block;
@@ -75,6 +75,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 		let mut unit = Self::new(type_cache, assembly);
 		let symbols = unit.declare_symbols(&ast)?;
+		unit.compile_types(symbols.structs)?;
 		unit.compile_functions(symbols.functions)?;
 		Ok(())
 	}
@@ -155,6 +156,28 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		}
 
 		Ok(symbols)
+	}
+
+	fn compile_types(
+		&mut self,
+		structs: Vec<(&'l Struct<'l>, &StructAst)>,
+	) -> anyhow::Result<()> {
+		for (r#struct, decl) in structs {
+			let span = span!(Level::DEBUG, "compile_struct", id = r#struct.id());
+			let _span = span.enter();
+			debug!("Compiling function `{}`", r#struct.id());
+
+			let mut members = vec![];
+			for member in &decl.members {
+				let ty = self.resolve_type(&member.ty)?;
+				let name = self.heaps.string_heap().intern_str(member.name).0;
+				members.push(Field::new(name, ty));
+			}
+
+			r#struct.set_fields(members).unwrap();
+			info!("Type `{}` compiled successfully", r#struct.id());
+		}
+		Ok(())
 	}
 
 	fn compile_functions(

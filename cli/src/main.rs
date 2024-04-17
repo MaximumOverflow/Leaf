@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use clap::Parser;
-use tracing::{debug, info, Level};
+use tracing::{debug, info, Level, trace};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -127,12 +127,16 @@ fn main() {
 				interpreter.register_extern_fn("core/test/alloc", |info: [usize; 2]| {
 					let [size, align] = info;
 					let layout = Layout::from_size_align_unchecked(size, align);
-					std::alloc::alloc(layout) as usize
+					let ptr = std::alloc::alloc(layout);
+					trace!("Allocated buffer at {ptr:#?} with {layout:?}");
+					ptr as usize
 				});
 				interpreter.register_extern_fn("core/test/dealloc", |info: [usize; 3]| {
 					let [ptr, size, align] = info;
 					let layout = Layout::from_size_align_unchecked(size, align);
-					std::alloc::dealloc(ptr as *mut u8, layout);
+					let ptr = ptr as *mut u8;
+					std::alloc::dealloc(ptr, layout);
+					trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
 				});
 			}
 

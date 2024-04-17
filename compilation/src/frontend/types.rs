@@ -52,7 +52,10 @@ pub trait TypeResolver<'l> {
 					"f16" => Ok(&Type::Float16),
 					"f32" => Ok(&Type::Float32),
 					"f64" => Ok(&Type::Float64),
-					_ => todo!(),
+					_ => match self.types().get(id) {
+						Some(ty) => Ok(ty),
+						None => Err(anyhow!("Type `{id}` is not available in the current scope")),
+					},
 				}
 			},
 			TypeNode::Pointer(base, mutable) => {

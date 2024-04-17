@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
 use anyhow::anyhow;
 
 use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal, UnaryOperator};
 use leaf_reflection::{Comparison, Function, Opcode, SSAContextBuilder, Type, ValueIdx};
 
 use crate::frontend::block::Block;
+use crate::frontend::types::TypeResolver;
 
 pub enum ExpressionResult<'l> {
 	Void,
@@ -105,6 +107,30 @@ pub fn compile_expression<'a, 'l>(
 				"Identifier {:?} is not present in the current scope",
 				ident
 			))
+		},
+		Expression::NewStruct(new) => {
+			let ty = block.resolve_type(&new.ty)?;
+			let Type::Struct(r#struct) = ty else {
+				return Err(anyhow!("Type `{ty}` is not a struct"));
+			};
+
+			let mut exprs = BTreeMap::new();
+			for (name, (i, expr)) in &new.values {
+				let Some(pos) = r#struct.fields().iter().position(|f| f.name() == *name) else {
+					return Err(anyhow!("Field `{name}` not found in type `{ty}`"));
+				};
+				exprs.insert(*i, (pos, expr, r#struct.fields()[pos].ty()));
+			}
+
+			let mut values = vec![ValueIdx(0); exprs.len()];
+			for (i, expr, ty) in exprs.values().cloned() {
+				values[i] = compile_expression(expr, Some(ty), block, body)?.unwrap_value();
+				assert_eq!(Some(ty), body.value_type(values[i]));
+			}
+
+			let local = body.alloca(ty);
+			body.push_opcode(Opcode::Aggregate(values, local));
+			Ok(ExpressionResult::Value(local))
 		},
 		Expression::Unary(op, val) => {
 			let val = compile_expression(val, expected, block, body)?.unwrap_value();
