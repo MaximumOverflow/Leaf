@@ -60,7 +60,7 @@ pub struct SSAContext<'l> {
 	opcodes: Vec<Opcode<'l>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Value<'l> {
 	pub ty: &'l Type<'l>,
 	pub const_data: Option<&'l [u8]>,
@@ -71,7 +71,7 @@ impl<'l> SSAContext<'l> {
 		&self.opcodes
 	}
 
-	pub fn values(&self) -> &[Value<'l>] {
+	pub fn values(&'l self) -> &'l [Value<'l>] {
 		&self.values
 	}
 
@@ -93,12 +93,9 @@ impl PartialEq for SSAContext<'_> {
 mod build {
 	use std::collections::HashMap;
 
-	use bytemuck::{bytes_of, Pod};
-	use num_traits::{PrimInt, Signed, Unsigned};
-
 	use leaf_derive::Write;
 
-	use crate::{Opcode, Type, Value};
+	use crate::{Opcode, Pointer, Type, Value};
 	use crate::heaps::HeapScopes;
 	use crate::metadata::ssa::{SSAContext, ValueIdx};
 
@@ -184,58 +181,16 @@ mod build {
 
 		pub fn alloca(&mut self, ty: &'l Type<'l>) -> ValueIdx {
 			let idx = ValueIdx(self.values.len());
-			self.values.push(Value { ty, const_data: None });
+			self.values.push(Value {
+				ty,
+				const_data: None,
+			});
 			idx
 		}
 
-		pub fn use_int<T: PrimInt + Signed + Pod>(&mut self, v: T) -> ValueIdx {
-			let ty = match std::mem::size_of::<T>() {
-				1 => &Type::Int8,
-				2 => &Type::Int16,
-				4 => &Type::Int32,
-				8 => &Type::Int64,
-				_ => unimplemented!(),
-			};
-
-			#[cfg(target_endian = "big")]
-			let v = v.swap_bytes();
-
-			let (data, id) = self.heaps.blob_heap().intern_blob(bytes_of(&v));
-			*self.consts.entry((ty, id)).or_insert_with(|| {
-				let idx = ValueIdx(self.values.len());
-				self.values.push(Value { ty, const_data: Some(data) });
-				idx
-			})
-		}
-
-		pub fn use_uint<T: PrimInt + Unsigned + Pod>(&mut self, v: T) -> ValueIdx {
-			let ty = match std::mem::size_of::<T>() {
-				1 => &Type::UInt8,
-				2 => &Type::UInt16,
-				4 => &Type::UInt32,
-				8 => &Type::UInt64,
-				_ => unimplemented!(),
-			};
-
-			#[cfg(target_endian = "big")]
-			let v = v.swap_bytes();
-
-			let (data, id) = self.heaps.blob_heap().intern_blob(bytes_of(&v));
-			*self.consts.entry((ty, id)).or_insert_with(|| {
-				let idx = ValueIdx(self.values.len());
-				self.values.push(Value { ty, const_data: Some(data) });
-				idx
-			})
-		}
-
-		pub fn use_bool(&mut self, v: bool) -> ValueIdx {
-			let ty = &Type::Bool;
-			let (data, id) = self.heaps.blob_heap().intern_blob(&[v as u8]);
-			*self.consts.entry((ty, id)).or_insert_with(|| {
-				let idx = ValueIdx(self.values.len());
-				self.values.push(Value { ty, const_data: Some(data) });
-				idx
-			})
+		#[allow(private_bounds)]
+		pub fn use_const<T: UseConst>(&mut self, value: T) -> ValueIdx {
+			value.use_const(self)
 		}
 
 		pub fn values(&self) -> &[Value<'l>] {
@@ -278,6 +233,79 @@ mod build {
 				opcodes,
 				values: self.values,
 			}
+		}
+	}
+
+	trait UseConst {
+		fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx;
+	}
+
+	macro_rules! impl_const {
+		($([$ty: ty; $ty_enum: ident]),*) => {$(
+			impl UseConst for $ty {
+				fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
+					let ty = &Type::$ty_enum;
+					let bytes = self.to_le_bytes();
+					let (data, id) = builder.heaps.blob_heap().intern_blob(bytes.as_ref());
+					*builder.consts.entry((ty, id)).or_insert_with(|| {
+						let idx = ValueIdx(builder.values.len());
+						builder.values.push(Value { ty, const_data: Some(data) });
+						idx
+					})
+				}
+			}
+		)*};
+	}
+
+	impl_const! {
+		[i8; Int8],
+		[i16; Int16],
+		[i32; Int32],
+		[i64; Int64],
+		[u8; UInt8],
+		[u16; UInt16],
+		[u32; UInt32],
+		[u64; UInt64],
+		[f32; Float32],
+		[f64; Float64]
+	}
+
+	impl UseConst for bool {
+		fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
+			(self as u8).use_const(builder)
+		}
+	}
+
+	impl UseConst for &str {
+		fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
+			self.to_string().use_const(builder)
+		}
+	}
+
+	impl UseConst for String {
+		fn use_const(mut self, builder: &mut SSAContextBuilder) -> ValueIdx {
+			if self.as_bytes().last() != Some(&b'\0') {
+				self.push('\0');
+			}
+			self.into_bytes().use_const(builder)
+		}
+	}
+
+	impl UseConst for Vec<u8> {
+		fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
+			let ty = &Type::Pointer(Pointer {
+				mutable: false,
+				ty: &Type::UInt8,
+			});
+			let (data, id) = builder.heaps.blob_heap().intern_blob(&self);
+			*builder.consts.entry((ty, id)).or_insert_with(|| {
+				let idx = ValueIdx(builder.values.len());
+				builder.values.push(Value {
+					ty,
+					const_data: Some(data),
+				});
+				idx
+			})
 		}
 	}
 }

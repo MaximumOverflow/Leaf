@@ -34,30 +34,26 @@ pub fn compile_expression<'a, 'l>(
 	body: &mut SSAContextBuilder<'l>,
 ) -> anyhow::Result<ExpressionResult<'l>> {
 	match expr {
-		Expression::Literal(Literal::Boolean(v)) => {
-			Ok(ExpressionResult::Value(body.use_bool(*v)))
-		},
+		Expression::Literal(Literal::Boolean(v)) => Ok(ExpressionResult::Value(body.use_const(*v))),
 		Expression::Literal(Literal::String(str)) => {
-			let mut str = unescape(str);
-			str.push('\0');
-			unimplemented!()
+			Ok(ExpressionResult::Value(body.use_const(unescape(str))))
 		},
 		Expression::Literal(Literal::Integer(Integer::Int32(v))) => {
-			Ok(ExpressionResult::Value(body.use_int(*v)))
+			Ok(ExpressionResult::Value(body.use_const(*v)))
 		},
 		#[rustfmt::skip]
 		Expression::Literal(Literal::Integer(Integer::Any(v))) => {
 			macro_rules! impl_int {
-				($v: expr, $([$ty: ty, $int: ident, $use: ident]),+) => {
+				($v: expr, $([$ty: ty; $int: ident]),+) => {
 					match expected {
 						$(
 							Some(Type::$int) => {
-								let v = (*$v).try_into().map_err(|_| anyhow! {
+								let v: $ty = (*$v).try_into().map_err(|_| anyhow! {
 									"Integer {v} cannot fit into range {:?} of type {}",
 									<$ty>::MIN..<$ty>::MAX,
 									Type::$int,
 								})?;
-								Ok(ExpressionResult::Value(body.$use::<$ty>(v)))
+								Ok(ExpressionResult::Value(body.use_const(v)))
 							},
 						)*
 						_ => unimplemented!("{:#?}", expr),
@@ -67,14 +63,14 @@ pub fn compile_expression<'a, 'l>(
 
 			impl_int! {
 				v,
-				[i8, Int8, use_int],
-				[i16, Int16, use_int],
-				[i32, Int32, use_int],
-				[i64, Int64, use_int],
-				[u8, UInt8, use_uint],
-				[u16, UInt16, use_uint],
-				[u32, UInt32, use_uint],
-				[u64, UInt64, use_uint]
+				[i8; Int8],
+				[i16; Int16],
+				[i32; Int32],
+				[i64; Int64],
+				[u8; UInt8],
+				[u16; UInt16],
+				[u32; UInt32],
+				[u64; UInt64]
 			}
 		},
 		Expression::Literal(Literal::Id(ident)) => {

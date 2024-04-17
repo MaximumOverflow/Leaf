@@ -5,7 +5,7 @@ use tracing::instrument;
 
 use leaf_parsing::ast::{Block as BlockAst, Expression, Literal, Statement};
 use leaf_reflection::{Function, Opcode, SSAContextBuilder, Type, ValueIdx};
-use leaf_reflection::heaps::{Heaps, HeapScopes};
+use leaf_reflection::heaps::HeapScopes;
 
 use crate::frontend::expressions::compile_expression;
 use crate::frontend::types::{TypeCache, TypeResolver};

@@ -8,7 +8,7 @@ use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol}
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
 use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, error, info, Level, span, trace};
-use leaf_reflection::heaps::{Heaps, HeapScopes};
+use leaf_reflection::heaps::HeapScopes;
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
@@ -76,10 +76,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(())
 	}
 
-	fn new(
-		type_cache: &'a TypeCache<'l>,
-		assembly: &'a mut Assembly<'l>,
-	) -> Self {
+	fn new(type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>) -> Self {
 		Self {
 			type_cache,
 			heaps: assembly.heaps(),

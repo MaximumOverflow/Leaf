@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 use std::alloc::Layout;
+use std::mem::transmute;
 use std::rc::Rc;
 
 use anyhow::anyhow;
 use bytemuck::{bytes_of, from_bytes, Pod};
 use paste::paste;
+use tracing::trace;
 
-use leaf_compilation::reflection::{Comparison, Function, FunctionBody, Opcode, Type, ValueIdx};
+use leaf_compilation::reflection::{
+	Comparison, Function, FunctionBody, Opcode, Pointer, Type, Value, ValueIdx,
+};
 
 use crate::interpreter::memory::LayoutCache;
 use crate::interpreter::stubs::ExternFunctionStub;
@@ -78,7 +82,7 @@ impl<'l> Interpreter<'l> {
 			(&mut stack_frame[align_offset..], stack)
 		};
 
-		println!("{:?} {:?}", layout, offsets);
+		trace!("{}: {:?} {:?}", function.id(), layout, offsets);
 		let mut pc = 0;
 		while let Some(opcode) = body.opcodes().get(pc) {
 			macro_rules! impl_bin_op {
@@ -286,9 +290,27 @@ fn value_bytes<'s, 'l: 's>(
 	body: &'l FunctionBody<'l>,
 	value: ValueIdx,
 ) -> &'s [u8] {
-	match body.values()[value.0].const_data {
-		Some(data) => data,
-		None => {
+	match &body.values()[value.0] {
+		Value {
+			const_data: Some(data),
+			ty: Type::Pointer(Pointer {
+				mutable: false,
+				ty: &Type::UInt8,
+			}),
+		} => unsafe {
+			let ptr_data: &[usize; 2] = transmute(data);
+			match ptr_data[0] == data.len() {
+				true => bytes_of(&ptr_data[1]),
+				false => bytes_of(&ptr_data[0]),
+			}
+		},
+		Value {
+			const_data: Some(data),
+			..
+		} => data,
+		Value {
+			const_data: None, ..
+		} => {
 			let [start, size] = offsets[value.0];
 			let end = start + size;
 			&stack_frame[start..end]
