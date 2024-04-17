@@ -6,7 +6,7 @@ use std::rc::Rc;
 use anyhow::anyhow;
 use bytemuck::{bytes_of, from_bytes, Pod};
 use paste::paste;
-use tracing::trace;
+use tracing::{trace, trace_span};
 
 use leaf_compilation::reflection::{
 	Comparison, Function, FunctionBody, Opcode, Pointer, Type, Value, ValueIdx,
@@ -72,6 +72,9 @@ impl<'l> Interpreter<'l> {
 	where
 		'l: 's,
 	{
+		let scope = trace_span!("call", func = function.id());
+		let _scope = scope.enter();
+
 		let body = function.body().unwrap();
 		let (layout, offsets) = self.layout_cache.get_function_stack_layout(function);
 
@@ -261,7 +264,9 @@ impl<'l> Interpreter<'l> {
 							},
 						};
 
-						let result_bytes = stub(&stack[align..offset]);
+						let result_bytes = trace_span!("call_native", func = func.id()).in_scope(|| {
+							stub(&stack[align..offset])
+						});
 						if let Some(result) = result {
 							value_bytes_mut(stack_frame, &offsets, *result)
 								.copy_from_slice(&result_bytes);
@@ -299,10 +304,7 @@ fn value_bytes<'s, 'l: 's>(
 			}),
 		} => unsafe {
 			let ptr_data: &[usize; 2] = transmute(data);
-			match ptr_data[0] == data.len() {
-				true => bytes_of(&ptr_data[1]),
-				false => bytes_of(&ptr_data[0]),
-			}
+			bytes_of(&ptr_data[(ptr_data[0] == data.len()) as usize])
 		},
 		Value {
 			const_data: Some(data),

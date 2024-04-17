@@ -1,8 +1,15 @@
 use std::ffi::c_char;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 use clap::Parser;
+use tracing::{debug, info, Level};
+use tracing_flame::FlameLayer;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Registry;
 
 use leaf_compilation::frontend::{CompilationUnit, TypeCache};
 use leaf_compilation::reflection::{Assembly, Version};
@@ -24,28 +31,58 @@ enum Args {
 struct CompileArgs {
 	file: PathBuf,
 	out: Option<PathBuf>,
+	#[arg(long = "trace")]
+	trace: bool,
 }
 
 #[derive(Debug, clap::Args)]
 struct InterpretArgs {
 	file: PathBuf,
+	#[arg(long = "trace")]
+	trace: bool,
 }
 
 fn main() {
 	let args = Args::parse();
 
-	let logger = tracing_subscriber::fmt()
+	let trace = match &args {
+		Args::Compile(CompileArgs{ trace, .. }) => *trace,
+		Args::Interpret(InterpretArgs { trace, .. }) => *trace,
+	};
+
+	let fmt_layer = tracing_subscriber::fmt::layer()
 		.compact()
 		.with_file(false)
 		.with_target(false)
 		.with_level(true)
-		.with_max_level(tracing::level_filters::LevelFilter::INFO)
-		.finish();
+		.with_writer(std::io::stderr.with_max_level(match trace {
+			true => Level::TRACE,
+			false => Level::INFO,
+		}));
 
-	tracing::subscriber::set_global_default(logger).unwrap();
+	let trace = match trace {
+		false => None,
+		true => File::create("./trace.folded").ok(),
+	};
+
+	let _flame = match trace {
+		None => {
+			let registry = Registry::default().with(fmt_layer);
+			tracing::subscriber::set_global_default(registry).unwrap();
+			None
+		}
+
+		Some(file) => {
+			let flame_layer = FlameLayer::new(BufWriter::new(file));
+			let guard = flame_layer.flush_on_drop();
+			let registry = Registry::default().with(fmt_layer).with(flame_layer);
+			tracing::subscriber::set_global_default(registry).unwrap();
+			Some(guard)
+		}
+	};
 
 	match args {
-		Args::Interpret(InterpretArgs { file }) => {
+		Args::Interpret(InterpretArgs { file, .. }) => {
 			let mut time = SystemTime::now();
 
 			let bump = Bump::new();
@@ -59,7 +96,7 @@ fn main() {
 			let comp_time = time.elapsed().unwrap();
 
 			// println!("{:#?}", assembly);
-			println!("Compilation time: {:?}", comp_time);
+			debug!("Compilation time: {:?}", comp_time);
 
 			// let namespace = {
 			// 	let start = code.find("namespace ").unwrap() + 10;
@@ -93,9 +130,9 @@ fn main() {
 					let interp_time = time.elapsed().unwrap();
 
 					// println!("Stack dump: {:#?}", interpreter.stack());
-					println!("Result: {:#?}", value);
+					info!("Result: {:#?}", value);
 
-					println!("Interpretation time: {:?}", interp_time);
+					debug!("Interpretation time: {:?}", interp_time);
 				},
 				Err(err) => {
 					// println!("Stack dump: {:#?}", interpreter.stack());
