@@ -85,7 +85,7 @@ impl<'l> Interpreter<'l> {
 			(&mut stack_frame[align_offset..], stack)
 		};
 
-		trace!("{}: {:?} {:?}", function.id(), layout, offsets);
+		trace!("{}: {:?} {:X?}", function.id(), layout, offsets);
 		let mut pc = 0;
 		while let Some(opcode) = body.opcodes().get(pc) {
 			macro_rules! impl_bin_op {

@@ -35,9 +35,13 @@ impl<'l> LayoutCache<'l> {
 
 		for (i, value) in body.values().iter().enumerate() {
 			let ty_layout = self.get_type_layout(value.ty);
-			let (new_layout, offset) = layout.extend(ty_layout).unwrap();
-			layout = new_layout;
-			offsets_slice[i] = [offset, ty_layout.size()];
+			if value.const_data.is_some() {
+				offsets_slice[i] = [0, ty_layout.size()];
+			} else {
+				let (new_layout, offset) = layout.extend(ty_layout).unwrap();
+				layout = new_layout;
+				offsets_slice[i] = [offset, ty_layout.size()];
+			}
 		}
 
 		let result = (layout, offsets);
