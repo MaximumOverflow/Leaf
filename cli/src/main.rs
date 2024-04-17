@@ -111,9 +111,7 @@ fn main() {
 			let type_cache = TypeCache::new(&bump);
 
 			let mut assembly = Assembly::new("compiler::tmp", Version::default(), &heaps);
-			if let Err(err) =
-				CompilationUnit::compile_file(&type_cache, &mut assembly, &file)
-			{
+			if let Err(err) = CompilationUnit::compile_file(&type_cache, &mut assembly, &file) {
 				return println!("{:#}", err);
 			}
 			let comp_time = time.elapsed().unwrap();
