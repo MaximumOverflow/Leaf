@@ -6,62 +6,22 @@ use crate::{Pointer, Struct, Type};
 pub struct TypeHeap<'l> {
 	bump: &'l Bump,
 	set: RefCell<HashSet<usize>>,
-	primitives: [&'l Type<'l>; 14],
+	drops: RefCell<Vec<DropHelper>>,
 	pointers: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
 	structs: RefCell<HashMap<usize, (&'l Type<'l>, &'l Struct<'l>)>>,
-	drops: RefCell<Vec<DropHelper>>,
 }
 
 #[rustfmt::skip]
 impl<'l> TypeHeap<'l> {
     pub fn new(bump: &'l Bump) -> Self {
-        let primitives = [
-            &*bump.alloc(Type::Void),
-            &*bump.alloc(Type::Char),
-            &*bump.alloc(Type::Bool),
-            &*bump.alloc(Type::Int8),
-            &*bump.alloc(Type::Int16),
-            &*bump.alloc(Type::Int32),
-            &*bump.alloc(Type::Int64),
-            &*bump.alloc(Type::UInt8),
-            &*bump.alloc(Type::UInt16),
-            &*bump.alloc(Type::UInt32),
-            &*bump.alloc(Type::UInt64),
-            &*bump.alloc(Type::Float16),
-            &*bump.alloc(Type::Float32),
-            &*bump.alloc(Type::Float64),
-        ];
         Self {
             structs: Default::default(),
             pointers: Default::default(),
             drops: Default::default(),
-
-            set: primitives
-                .iter()
-                .cloned()
-                .map(as_key)
-                .collect::<HashSet<_>>()
-                .into(),
-
-            primitives: unsafe { std::mem::transmute(primitives) },
+			set: Default::default(),
             bump,
         }
     }
-
-    pub fn void(&self) -> &'l Type<'l> { self.primitives[0] }
-    pub fn char(&self) -> &'l Type<'l> { self.primitives[1] }
-    pub fn bool(&self) -> &'l Type<'l> { self.primitives[2] }
-    pub fn int8(&self) -> &'l Type<'l> { self.primitives[3] }
-    pub fn int16(&self) -> &'l Type<'l> { self.primitives[4] }
-    pub fn int32(&self) -> &'l Type<'l> { self.primitives[5] }
-    pub fn int64(&self) -> &'l Type<'l> { self.primitives[6] }
-    pub fn uint8(&self) -> &'l Type<'l> { self.primitives[7] }
-    pub fn uint16(&self) -> &'l Type<'l> { self.primitives[8] }
-    pub fn uint32(&self) -> &'l Type<'l> { self.primitives[9] }
-    pub fn uint64(&self) -> &'l Type<'l> { self.primitives[10] }
-    pub fn float16(&self) -> &'l Type<'l> { self.primitives[11] }
-    pub fn float32(&self) -> &'l Type<'l> { self.primitives[12] }
-    pub fn float64(&self) -> &'l Type<'l> { self.primitives[13] }
 }
 
 #[rustfmt::skip]

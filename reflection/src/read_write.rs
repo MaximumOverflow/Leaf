@@ -2,6 +2,7 @@
 pub mod write {
 	use std::io::Error;
 
+	// TODO add support for lifetimes in requirements
 	pub trait Write<'l> {
 		type Requirements;
 		fn write<T: std::io::Write>(
@@ -96,7 +97,7 @@ pub mod write {
 		}
 	}
 
-	impl<'l, R: Copy, T: Write<'l, Requirements = R> + 'l> Write<'l> for Vec<T> {
+	impl<'l, R: Clone, T: Write<'l, Requirements = R> + 'l> Write<'l> for Vec<T> {
 		type Requirements = R;
 		fn write<S: std::io::Write>(
 			&'l self,
@@ -105,7 +106,7 @@ pub mod write {
 		) -> Result<(), Error> {
 			self.len().write(stream, ())?;
 			for i in self {
-				Write::write(i, stream, req)?;
+				Write::write(i, stream, req.clone())?;
 			}
 			Ok(())
 		}

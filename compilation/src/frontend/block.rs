@@ -5,13 +5,13 @@ use tracing::instrument;
 
 use leaf_parsing::ast::{Block as BlockAst, Expression, Literal, Statement};
 use leaf_reflection::{Function, Opcode, SSAContextBuilder, Type, ValueIdx};
-use leaf_reflection::heaps::Heaps;
+use leaf_reflection::heaps::{Heaps, HeapScopes};
 
 use crate::frontend::expressions::compile_expression;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
 pub struct Block<'a, 'l> {
-	pub heaps: &'l Heaps<'l>,
+	pub heaps: HeapScopes<'l>,
 	pub type_cache: &'a TypeCache<'l>,
 	pub func: &'l Function<'l>,
 	pub types: &'a HashMap<&'l str, &'l Type<'l>>,
@@ -64,7 +64,7 @@ impl<'a, 'l> Block<'a, 'l> {
 				match decl.value {
 					Expression::Literal(Literal::Uninit) => {
 						let ty = expected.unwrap();
-						let local = body.push_local(ty);
+						let local = body.alloca(ty);
 						self.values.insert(decl.name, (local, decl.mutable));
 					},
 					_ => {
@@ -72,7 +72,7 @@ impl<'a, 'l> Block<'a, 'l> {
 						let ty = body.value_type(value.unwrap_value()).unwrap();
 						assert_eq!(Some(expected.unwrap_or(ty)), Some(ty));
 
-						let local = body.push_local(ty);
+						let local = body.alloca(ty);
 						body.push_opcode(Opcode::Store(value.unwrap_value(), local));
 						self.values.insert(decl.name, (local, decl.mutable));
 					},
@@ -103,7 +103,7 @@ impl<'a, 'l> Block<'a, 'l> {
 
 				body.set_current_block(exec).unwrap();
 				let mut block = Block {
-					heaps: self.heaps,
+					heaps: self.heaps.clone(),
 					func: self.func,
 					types: self.types,
 					values: self.values.clone(),
@@ -129,7 +129,7 @@ impl<'a, 'l> Block<'a, 'l> {
 
 						body.set_current_block(true_case).unwrap();
 						let mut block = Block {
-							heaps: self.heaps,
+							heaps: self.heaps.clone(),
 							func: self.func,
 							types: self.types,
 							values: self.values.clone(),

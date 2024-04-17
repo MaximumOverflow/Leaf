@@ -2,6 +2,7 @@ mod string_heap;
 mod blob_heap;
 mod type_heap;
 
+use std::sync::Arc;
 pub use type_heap::*;
 pub use blob_heap::*;
 pub use string_heap::*;
@@ -41,14 +42,14 @@ impl<'l> Heaps<'l> {
 	}
 }
 
-#[derive(Copy, Clone)]
-pub struct HeapScopeRefs<'l> {
-	blob_heap: &'l BlobHeapScope<'l>,
-	string_heap: &'l StringHeapScope<'l>,
+#[derive(Clone)]
+pub struct HeapScopes<'l> {
+	blob_heap: Arc<BlobHeapScope<'l>>,
+	string_heap: Arc<StringHeapScope<'l>>,
 }
 
-impl<'l> HeapScopeRefs<'l> {
-	pub fn new(blob_heap: &'l BlobHeapScope<'l>, string_heap: &'l StringHeapScope<'l>) -> Self {
+impl<'l> HeapScopes<'l> {
+	pub fn new(blob_heap: Arc<BlobHeapScope<'l>>, string_heap: Arc<StringHeapScope<'l>>) -> Self {
 		Self {
 			blob_heap,
 			string_heap,
@@ -56,10 +57,10 @@ impl<'l> HeapScopeRefs<'l> {
 	}
 
 	pub fn blob_heap(&self) -> &BlobHeapScope<'l> {
-		self.blob_heap
+		&self.blob_heap
 	}
 
 	pub fn string_heap(&self) -> &StringHeapScope<'l> {
-		self.string_heap
+		&self.string_heap
 	}
 }

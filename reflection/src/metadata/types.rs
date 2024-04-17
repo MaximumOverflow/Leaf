@@ -204,10 +204,10 @@ mod build {
 
 #[cfg(feature = "write")]
 mod write {
-	use std::io::{Cursor, Error};
+	use std::io::{Cursor, Error, Write as IoWrite};
 
 	use crate::{Field, Struct};
-	use crate::heaps::HeapScopeRefs;
+	use crate::heaps::HeapScopes;
 	use crate::metadata::types::Type;
 	use crate::write::Write;
 
@@ -215,12 +215,15 @@ mod write {
 		fn write_recursive<T: std::io::Write>(
 			&self,
 			stream: &mut T,
-			req: HeapScopeRefs<'l>,
+			req: HeapScopes<'l>,
 		) -> Result<(), Error> {
 			let string_heap = req.string_heap();
+			let blob_heap = req.blob_heap();
 
+			let mut signature = vec![];
+			let mut cursor = Cursor::new(&mut signature);
 			let discriminant: u8 = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
-			stream.write_all(&[discriminant])?;
+			cursor.write_all(&[discriminant])?;
 
 			match self {
 				| Type::Void
@@ -236,29 +239,31 @@ mod write {
 				| Type::UInt64
 				| Type::Float16
 				| Type::Float32
-				| Type::Float64 => Ok(()),
+				| Type::Float64 => {},
 
 				Type::Array(data) => {
-					data.ty.write_recursive(stream, req)?;
-					data.count.write(stream, ())
+					data.ty.write_recursive(&mut cursor, req.clone())?;
+					data.count.write(&mut cursor, ())?;
 				},
 
 				Type::Pointer(data) => {
-					data.ty.write_recursive(stream, req)?;
-					data.mutable.write(stream, ())
+					data.ty.write_recursive(&mut cursor, req.clone())?;
+					data.mutable.write(&mut cursor, ())?;
 				},
 
 				Type::Struct(data) => {
-					string_heap.intern_str(&data.namespace).1.write(stream, ())?;
-					string_heap.intern_str(&data.name).1.write(stream, ())?;
-					Ok(())
+					string_heap.intern_str(&data.namespace).1.write(&mut cursor, ())?;
+					string_heap.intern_str(&data.name).1.write(&mut cursor, ())?;
 				},
 			}
+
+			let (_, id) = blob_heap.intern_blob(&signature);
+			id.write(stream, ())
 		}
 	}
 
 	impl<'l> Write<'l> for Type<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&self,
 			stream: &mut T,
@@ -269,14 +274,14 @@ mod write {
 			let mut buffer = vec![];
 			let mut buffer_stream = Cursor::new(&mut buffer);
 
-			self.write_recursive(&mut buffer_stream, req)?;
+			self.write_recursive(&mut buffer_stream, req.clone())?;
 
 			blob_heap.intern_blob(&buffer).1.write(stream, ())
 		}
 	}
 
 	impl<'l> Write<'l> for Struct<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'l self,
 			stream: &mut T,
@@ -286,14 +291,14 @@ mod write {
 			string_heap.intern_str(self.namespace).1.write(stream, ())?;
 			string_heap.intern_str(self.name).1.write(stream, ())?;
 			for field in self.fields() {
-				field.write(stream, req)?;
+				field.write(stream, req.clone())?;
 			}
 			Ok(())
 		}
 	}
 
 	impl<'l> Write<'l> for Field<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<'a, T: std::io::Write>(
 			&self,
 			stream: &mut T,

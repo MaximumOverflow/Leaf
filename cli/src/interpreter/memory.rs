@@ -30,11 +30,11 @@ impl<'l> LayoutCache<'l> {
 		let body = func.body().unwrap();
 
 		let mut layout = Layout::new::<()>();
-		let mut offsets = Arc::from_iter(repeat([0; 2]).take(body.locals().len()));
+		let mut offsets = Arc::from_iter(repeat([0; 2]).take(body.values().len()));
 		let offsets_slice = Arc::get_mut(&mut offsets).unwrap();
 
-		for (i, ty) in body.locals().iter().enumerate() {
-			let ty_layout = self.get_type_layout(ty);
+		for (i, value) in body.values().iter().enumerate() {
+			let ty_layout = self.get_type_layout(value.ty);
 			let (new_layout, offset) = layout.extend(ty_layout).unwrap();
 			layout = new_layout;
 			offsets_slice[i] = [offset, ty_layout.size()];

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 
 use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal, UnaryOperator};
-use leaf_reflection::{Comparison, Const, Function, Opcode, SSAContextBuilder, Type, ValueIdx};
+use leaf_reflection::{Comparison, Function, Opcode, SSAContextBuilder, Type, ValueIdx};
 
 use crate::frontend::block::Block;
 
@@ -35,21 +35,20 @@ pub fn compile_expression<'a, 'l>(
 ) -> anyhow::Result<ExpressionResult<'l>> {
 	match expr {
 		Expression::Literal(Literal::Boolean(v)) => {
-			Ok(ExpressionResult::Value(body.push_constant(Const::Bool(*v))))
+			Ok(ExpressionResult::Value(body.use_bool(*v)))
 		},
 		Expression::Literal(Literal::String(str)) => {
 			let mut str = unescape(str);
 			str.push('\0');
-			let str = block.heaps.string_heap().intern_str(&str);
-			Ok(ExpressionResult::Value(body.push_constant(Const::Str(str))))
+			unimplemented!()
 		},
 		Expression::Literal(Literal::Integer(Integer::Int32(v))) => {
-			Ok(ExpressionResult::Value(body.push_constant(Const::I32(*v))))
+			Ok(ExpressionResult::Value(body.use_int(*v)))
 		},
 		#[rustfmt::skip]
 		Expression::Literal(Literal::Integer(Integer::Any(v))) => {
 			macro_rules! impl_int {
-				($v: expr, $([$ty: ty, $int: ident, $const: ident]),+) => {
+				($v: expr, $([$ty: ty, $int: ident, $use: ident]),+) => {
 					match expected {
 						$(
 							Some(Type::$int) => {
@@ -58,7 +57,7 @@ pub fn compile_expression<'a, 'l>(
 									<$ty>::MIN..<$ty>::MAX,
 									Type::$int,
 								})?;
-								Ok(ExpressionResult::Value(body.push_constant(Const::$const(v))))
+								Ok(ExpressionResult::Value(body.$use::<$ty>(v)))
 							},
 						)*
 						_ => unimplemented!("{:#?}", expr),
@@ -68,14 +67,14 @@ pub fn compile_expression<'a, 'l>(
 
 			impl_int! {
 				v,
-				[i8, Int8, I8],
-				[i16, Int16, I16],
-				[i32, Int32, I32],
-				[i64, Int64, I64],
-				[u8, UInt8, I8],
-				[u16, UInt16, U16],
-				[u32, UInt32, U32],
-				[u64, UInt64, U64]
+				[i8, Int8, use_int],
+				[i16, Int16, use_int],
+				[i32, Int32, use_int],
+				[i64, Int64, use_int],
+				[u8, UInt8, use_uint],
+				[u16, UInt16, use_uint],
+				[u32, UInt32, use_uint],
+				[u64, UInt64, use_uint]
 			}
 		},
 		Expression::Literal(Literal::Id(ident)) => {
@@ -96,7 +95,7 @@ pub fn compile_expression<'a, 'l>(
 			match op {
 				UnaryOperator::Neg => match val_ty {
 					Type::Bool => {
-						let local = body.push_local(&Type::Bool);
+						let local = body.alloca(&Type::Bool);
 						body.push_opcode(Opcode::LNot(val, local));
 						Ok(ExpressionResult::Value(local))
 					},
@@ -114,7 +113,7 @@ pub fn compile_expression<'a, 'l>(
 			match op {
 				BinaryOperator::Add => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
-						let local = body.push_local(&Type::Int32);
+						let local = body.alloca(&Type::Int32);
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
 					},
@@ -122,7 +121,7 @@ pub fn compile_expression<'a, 'l>(
 				},
 				BinaryOperator::Mod => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
-						let local = body.push_local(&Type::Int32);
+						let local = body.alloca(&Type::Int32);
 						body.push_opcode(Opcode::SMod(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
 					},
@@ -135,7 +134,7 @@ pub fn compile_expression<'a, 'l>(
 				| BinaryOperator::Le
 				| BinaryOperator::Ge => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
-						let local = body.push_local(&Type::Bool);
+						let local = body.alloca(&Type::Bool);
 						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*op)));
 						Ok(ExpressionResult::Value(local))
 					},
@@ -161,7 +160,7 @@ pub fn compile_expression<'a, 'l>(
 					Ok(ExpressionResult::Void)
 				},
 				_ => {
-					let result = body.push_local(func.ret_ty());
+					let result = body.alloca(func.ret_ty());
 					body.push_opcode(Opcode::Call(func, params, Some(result)));
 					Ok(ExpressionResult::Value(result))
 				},

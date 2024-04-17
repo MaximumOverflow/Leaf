@@ -108,12 +108,12 @@ mod write {
 	use std::io::{Error, ErrorKind};
 	use crate::FunctionFlags;
 
-	use crate::heaps::HeapScopeRefs;
+	use crate::heaps::HeapScopes;
 	use crate::metadata::functions::{Function, Parameter};
 	use crate::write::Write;
 
 	impl<'l> Write<'l> for Function<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'l self,
 			stream: &mut T,
@@ -146,10 +146,10 @@ mod write {
 
 			params.len().write(stream, ())?;
 			for param in params {
-				param.write(stream, req)?;
+				param.write(stream, req.clone())?;
 			}
 
-			ret_ty.write(stream, req)?;
+			ret_ty.write(stream, req.clone())?;
 
 			if let Some(body) = body {
 				body.write(stream, req)?;
@@ -160,7 +160,7 @@ mod write {
 	}
 
 	impl<'l> Write<'l> for Parameter<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'l self,
 			stream: &mut T,

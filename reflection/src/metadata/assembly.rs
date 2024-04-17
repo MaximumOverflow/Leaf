@@ -47,7 +47,7 @@ mod build {
 	use std::sync::Arc;
 
 	use crate::{Struct, Version};
-	use crate::heaps::Heaps;
+	use crate::heaps::{Heaps, HeapScopes};
 	use crate::metadata::assembly::Assembly;
 	use crate::metadata::functions::Function;
 
@@ -118,6 +118,10 @@ mod build {
 			self.functions.insert(id, func);
 			Ok(func)
 		}
+
+		pub fn heaps(&self) -> HeapScopes<'l> {
+			HeapScopes::new(self.blob_heap.clone(), self.string_heap.clone())
+		}
 	}
 }
 
@@ -127,7 +131,7 @@ mod write {
 
 	use bytemuck::bytes_of;
 
-	use crate::heaps::HeapScopeRefs;
+	use crate::heaps::HeapScopes;
 	use crate::metadata::assembly::Assembly;
 	use crate::Version;
 	use crate::write::Write;
@@ -145,16 +149,16 @@ mod write {
 
 			let mut tmp = vec![];
 			let mut tmp_stream = Cursor::new(&mut tmp);
-			let heaps = HeapScopeRefs::new(&self.blob_heap, &self.string_heap);
+			let heaps = HeapScopes::new(self.blob_heap.clone(), self.string_heap.clone());
 
 			self.structs.len().write(&mut tmp_stream, ())?;
 			for ty in self.structs.values() {
-				ty.write(&mut tmp_stream, heaps)?;
+				ty.write(&mut tmp_stream, heaps.clone())?;
 			}
 
 			self.functions.len().write(&mut tmp_stream, ())?;
 			for func in self.functions.values() {
-				func.write(&mut tmp_stream, heaps)?;
+				func.write(&mut tmp_stream, heaps.clone())?;
 			}
 
 			self.string_heap.write(stream, ())?;

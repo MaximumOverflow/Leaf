@@ -54,7 +54,7 @@ fn main() {
 
 			let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
 			if let Err(err) =
-				CompilationUnit::compile_file(&heaps, &type_cache, &mut assembly, &file)
+				CompilationUnit::compile_file(&type_cache, &mut assembly, &file)
 			{
 				return println!("{:#}", err);
 			}
@@ -114,7 +114,7 @@ fn main() {
 
 			let mut assembly = Assembly::new("compiler::tmp", Version::default(), &heaps);
 			if let Err(err) =
-				CompilationUnit::compile_file(&heaps, &type_cache, &mut assembly, &file)
+				CompilationUnit::compile_file(&type_cache, &mut assembly, &file)
 			{
 				return println!("{:#}", err);
 			}

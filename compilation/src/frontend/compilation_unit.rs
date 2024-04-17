@@ -8,12 +8,12 @@ use leaf_parsing::ast::{CompilationUnit as Ast, Function as FunctionAst, Symbol}
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
 use leaf_reflection::{Assembly, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, error, info, Level, span, trace};
-use leaf_reflection::heaps::Heaps;
+use leaf_reflection::heaps::{Heaps, HeapScopes};
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
 pub struct CompilationUnit<'a, 'l> {
-	heaps: &'l Heaps<'l>,
+	heaps: HeapScopes<'l>,
 	type_cache: &'a TypeCache<'l>,
 	assembly: &'a mut Assembly<'l>,
 	types: HashMap<&'l str, &'l Type<'l>>,
@@ -22,7 +22,6 @@ pub struct CompilationUnit<'a, 'l> {
 
 impl<'a, 'l> CompilationUnit<'a, 'l> {
 	pub fn compile_file(
-		heaps: &'l Heaps<'l>,
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		path: &impl AsRef<Path>,
@@ -39,28 +38,26 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		span!(Level::DEBUG, "compile_file", file = absolute_path).in_scope(|| {
 			info!("Compiling file `{}`", absolute_path);
 			let code = std::fs::read_to_string(path)?;
-			Self::compile_internal(heaps, type_cache, assembly, &code)?;
+			Self::compile_internal(type_cache, assembly, &code)?;
 			info!("File `{}` compiled successfully", absolute_path);
 			Ok(())
 		})
 	}
 
 	pub fn compile_code(
-		heaps: &'l Heaps<'l>,
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 	) -> anyhow::Result<()> {
 		span!(Level::DEBUG, "compile_code").in_scope(|| {
 			info!("Compiling code");
-			Self::compile_internal(heaps, type_cache, assembly, code)?;
+			Self::compile_internal(type_cache, assembly, code)?;
 			info!("Code compiled successfully");
 			Ok(())
 		})
 	}
 
 	fn compile_internal(
-		heaps: &'l Heaps<'l>,
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
@@ -73,21 +70,20 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Err(err) => return Err(Error::msg(err.to_string())),
 		};
 
-		let mut unit = Self::new(heaps, type_cache, assembly);
+		let mut unit = Self::new(type_cache, assembly);
 		let funcs = unit.create_functions(&ast)?;
 		unit.compile_functions(funcs)?;
 		Ok(())
 	}
 
 	fn new(
-		heaps: &'l Heaps<'l>,
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 	) -> Self {
 		Self {
 			type_cache,
+			heaps: assembly.heaps(),
 			assembly,
-			heaps,
 			types: HashMap::new(),
 			functions: HashMap::new(),
 		}
@@ -152,10 +148,10 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			let _span = span.enter();
 			debug!("Compiling function `{}`", func.id());
 
-			let mut body = SSAContextBuilder::new();
+			let mut body = SSAContextBuilder::new(self.heaps.clone());
 			let mut block = Block {
 				func,
-				heaps: self.heaps,
+				heaps: self.heaps.clone(),
 				type_cache: self.type_cache,
 				values: HashMap::new(),
 				types: self.types(),
@@ -163,7 +159,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			};
 
 			for i in func.params() {
-				let idx = body.push_local(i.ty());
+				let idx = body.alloca(i.ty());
 				block.values.insert(i.name(), (idx, false));
 			}
 

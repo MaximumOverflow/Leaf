@@ -1,5 +1,7 @@
-use crate::{Function, Pointer, Type};
+pub use build::*;
 use leaf_derive::Write;
+
+use crate::{Function, Type};
 
 #[repr(u8)]
 #[derive(Debug, Default, Clone)]
@@ -50,34 +52,18 @@ pub enum Comparison {
 
 #[cfg_attr(feature = "write", derive(Write))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum ValueIdx {
-	Local(usize),
-	Const(usize),
-}
-
-#[repr(u8)]
-#[derive(Debug, PartialEq)]
-pub enum Const<'l> {
-	Bool(bool),
-	U8(u8),
-	U16(u16),
-	U32(u32),
-	U64(u64),
-	I8(i8),
-	I16(i16),
-	I32(i32),
-	I64(i64),
-	F32(f32),
-	F64(f64),
-	Str(&'l str),
-	Any(SSAContext<'l>),
-}
+pub struct ValueIdx(pub usize);
 
 #[derive(Debug, Default)]
 pub struct SSAContext<'l> {
+	values: Vec<Value<'l>>,
 	opcodes: Vec<Opcode<'l>>,
-	locals: Vec<&'l Type<'l>>,
-	constants: Vec<Const<'l>>,
+}
+
+#[derive(Debug)]
+pub struct Value<'l> {
+	pub ty: &'l Type<'l>,
+	pub const_data: Option<&'l [u8]>,
 }
 
 impl<'l> SSAContext<'l> {
@@ -85,16 +71,15 @@ impl<'l> SSAContext<'l> {
 		&self.opcodes
 	}
 
-	pub fn locals(&self) -> &[&'l Type<'l>] {
-		&self.locals
-	}
-
-	pub fn constants(&self) -> &[Const<'l>] {
-		&self.constants
+	pub fn values(&self) -> &[Value<'l>] {
+		&self.values
 	}
 
 	pub fn value_type(&self, value: ValueIdx) -> Option<&'l Type<'l>> {
-		value_type(&self.locals, &self.constants, value)
+		match self.values.get(value.0) {
+			None => None,
+			Some(v) => Some(v.ty),
+		}
 	}
 }
 
@@ -106,9 +91,16 @@ impl PartialEq for SSAContext<'_> {
 
 #[cfg(feature = "build")]
 mod build {
+	use std::collections::HashMap;
+
+	use bytemuck::{bytes_of, Pod};
+	use num_traits::{PrimInt, Signed, Unsigned};
+
 	use leaf_derive::Write;
-	use crate::{Opcode, Type, value_type};
-	use crate::metadata::ssa::{Const, SSAContext, ValueIdx};
+
+	use crate::{Opcode, Type, Value};
+	use crate::heaps::HeapScopes;
+	use crate::metadata::ssa::{SSAContext, ValueIdx};
 
 	macro_rules! assert_valid {
 		($cond: expr, $err: literal) => {
@@ -128,19 +120,21 @@ mod build {
 	}
 
 	pub struct SSAContextBuilder<'l> {
-		locals: Vec<&'l Type<'l>>,
-		constants: Vec<Const<'l>>,
+		values: Vec<Value<'l>>,
 		insert_block: BlockIndex,
 		blocks: Vec<Block<'l>>,
+		heaps: HeapScopes<'l>,
+		consts: HashMap<(&'l Type<'l>, usize), ValueIdx>,
 	}
 
 	impl<'l> SSAContextBuilder<'l> {
-		pub fn new() -> Self {
+		pub fn new(heaps: HeapScopes<'l>) -> Self {
 			Self {
-				locals: vec![],
-				constants: vec![],
+				heaps,
+				values: vec![],
 				insert_block: BlockIndex(0),
 				blocks: vec![Block { opcodes: vec![] }],
+				consts: Default::default(),
 			}
 		}
 
@@ -188,20 +182,71 @@ mod build {
 			Ok(self.push_opcode(Opcode::Br(value, true_case.0, false_case.0)))
 		}
 
-		pub fn push_local(&mut self, ty: &'l Type<'l>) -> ValueIdx {
-			let idx = ValueIdx::Local(self.locals.len());
-			self.locals.push(ty);
+		pub fn alloca(&mut self, ty: &'l Type<'l>) -> ValueIdx {
+			let idx = ValueIdx(self.values.len());
+			self.values.push(Value { ty, const_data: None });
 			idx
 		}
 
-		pub fn push_constant(&mut self, val: Const<'l>) -> ValueIdx {
-			let idx = ValueIdx::Const(self.constants.len());
-			self.constants.push(val);
-			idx
+		pub fn use_int<T: PrimInt + Signed + Pod>(&mut self, v: T) -> ValueIdx {
+			let ty = match std::mem::size_of::<T>() {
+				1 => &Type::Int8,
+				2 => &Type::Int16,
+				4 => &Type::Int32,
+				8 => &Type::Int64,
+				_ => unimplemented!(),
+			};
+
+			#[cfg(target_endian = "big")]
+			let v = v.swap_bytes();
+
+			let (data, id) = self.heaps.blob_heap().intern_blob(bytes_of(&v));
+			*self.consts.entry((ty, id)).or_insert_with(|| {
+				let idx = ValueIdx(self.values.len());
+				self.values.push(Value { ty, const_data: Some(data) });
+				idx
+			})
+		}
+
+		pub fn use_uint<T: PrimInt + Unsigned + Pod>(&mut self, v: T) -> ValueIdx {
+			let ty = match std::mem::size_of::<T>() {
+				1 => &Type::UInt8,
+				2 => &Type::UInt16,
+				4 => &Type::UInt32,
+				8 => &Type::UInt64,
+				_ => unimplemented!(),
+			};
+
+			#[cfg(target_endian = "big")]
+			let v = v.swap_bytes();
+
+			let (data, id) = self.heaps.blob_heap().intern_blob(bytes_of(&v));
+			*self.consts.entry((ty, id)).or_insert_with(|| {
+				let idx = ValueIdx(self.values.len());
+				self.values.push(Value { ty, const_data: Some(data) });
+				idx
+			})
+		}
+
+		pub fn use_bool(&mut self, v: bool) -> ValueIdx {
+			let ty = &Type::Bool;
+			let (data, id) = self.heaps.blob_heap().intern_blob(&[v as u8]);
+			*self.consts.entry((ty, id)).or_insert_with(|| {
+				let idx = ValueIdx(self.values.len());
+				self.values.push(Value { ty, const_data: Some(data) });
+				idx
+			})
+		}
+
+		pub fn values(&self) -> &[Value<'l>] {
+			&self.values
 		}
 
 		pub fn value_type(&self, value: ValueIdx) -> Option<&'l Type<'l>> {
-			value_type(&self.locals, &self.constants, value)
+			match self.values.get(value.0) {
+				None => None,
+				Some(v) => Some(v.ty),
+			}
 		}
 
 		pub fn build(self) -> SSAContext<'l> {
@@ -231,27 +276,24 @@ mod build {
 
 			SSAContext {
 				opcodes,
-				locals: self.locals,
-				constants: self.constants,
+				values: self.values,
 			}
 		}
 	}
 }
-
-pub use build::*;
 
 #[cfg(feature = "write")]
 mod write {
 	use std::io::Error;
 	use std::mem::{discriminant, transmute};
 
-	use crate::heaps::HeapScopeRefs;
-	use crate::metadata::ssa::{Const, SSAContext};
-	use crate::Opcode;
+	use crate::{Opcode, Value};
+	use crate::heaps::HeapScopes;
+	use crate::metadata::ssa::SSAContext;
 	use crate::write::Write;
 
 	impl<'l> Write<'l> for Opcode<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'_ self,
 			stream: &mut T,
@@ -320,85 +362,46 @@ mod write {
 	}
 
 	impl<'l> Write<'l> for &[Opcode<'l>] {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'l self,
 			stream: &mut T,
 			req: Self::Requirements,
 		) -> Result<(), Error> {
 			for opcode in self.iter() {
-				opcode.write(stream, req)?
+				opcode.write(stream, req.clone())?
 			}
 			Ok(())
 		}
 	}
 
-	impl<'l> Write<'l> for Const<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+	impl<'l> Write<'l> for Value<'l> {
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'l self,
 			stream: &mut T,
 			req: Self::Requirements,
 		) -> Result<(), Error> {
-			let discriminant: u8 = unsafe { transmute(discriminant(self)) };
-			stream.write(&[discriminant])?;
-
-			match self {
-				Const::Bool(v) => v.write(stream, ()),
-				Const::U8(v) => v.write(stream, ()),
-				Const::U16(v) => v.write(stream, ()),
-				Const::U32(v) => v.write(stream, ()),
-				Const::U64(v) => v.write(stream, ()),
-				Const::I8(v) => v.write(stream, ()),
-				Const::I16(v) => v.write(stream, ()),
-				Const::I32(v) => v.write(stream, ()),
-				Const::I64(v) => v.write(stream, ()),
-				Const::F32(v) => v.write(stream, ()),
-				Const::F64(v) => v.write(stream, ()),
-				Const::Str(v) => req.string_heap().intern_str(v).1.write(stream, ()),
-				Const::Any(body) => body.write(stream, req),
+			self.ty.write(stream, req.clone())?;
+			let discriminant: usize = unsafe { transmute(discriminant(&self.const_data)) };
+			discriminant.write(stream, ())?;
+			if let Some(data) = self.const_data {
+				let (_, blob_id) = req.blob_heap().intern_blob(data);
+				blob_id.write(stream, ())?;
 			}
+			Ok(())
 		}
 	}
 
 	impl<'l> Write<'l> for SSAContext<'l> {
-		type Requirements = HeapScopeRefs<'l>;
+		type Requirements = HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&'l self,
 			stream: &mut T,
 			req: Self::Requirements,
 		) -> Result<(), Error> {
-			self.locals.write(stream, req)?;
-			self.constants.write(stream, req)?;
+			self.values.write(stream, req.clone())?;
 			self.opcodes.write(stream, req)
 		}
-	}
-}
-
-pub fn value_type<'l>(
-	locals: &[&'l Type<'l>],
-	constants: &[Const<'l>],
-	value: ValueIdx,
-) -> Option<&'l Type<'l>> {
-	match value {
-		ValueIdx::Local(i) => Some(locals.get(i)?),
-		ValueIdx::Const(i) => Some(match constants.get(i)? {
-			Const::Bool(_) => &Type::Bool,
-			Const::U8(_) => &Type::UInt8,
-			Const::U16(_) => &Type::UInt16,
-			Const::U32(_) => &Type::UInt32,
-			Const::U64(_) => &Type::UInt64,
-			Const::I8(_) => &Type::Int8,
-			Const::I16(_) => &Type::Int16,
-			Const::I32(_) => &Type::Int32,
-			Const::I64(_) => &Type::Int64,
-			Const::F32(_) => &Type::Float32,
-			Const::F64(_) => &Type::Float64,
-			Const::Str(_) => &Type::Pointer(Pointer {
-				mutable: false,
-				ty: &Type::Int8,
-			}),
-			_ => unimplemented!(),
-		}),
 	}
 }

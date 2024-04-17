@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use bytemuck::{bytes_of, from_bytes, Pod};
 use paste::paste;
 
-use leaf_compilation::reflection::{Comparison, Const, Function, FunctionBody, Opcode, Type, ValueIdx};
+use leaf_compilation::reflection::{Comparison, Function, FunctionBody, Opcode, Type, ValueIdx};
 
 use crate::interpreter::memory::LayoutCache;
 use crate::interpreter::stubs::ExternFunctionStub;
@@ -286,32 +286,12 @@ fn value_bytes<'s, 'l: 's>(
 	body: &'l FunctionBody<'l>,
 	value: ValueIdx,
 ) -> &'s [u8] {
-	match value {
-		ValueIdx::Local(i) => {
-			let [start, size] = offsets[i];
+	match body.values()[value.0].const_data {
+		Some(data) => data,
+		None => {
+			let [start, size] = offsets[value.0];
 			let end = start + size;
 			&stack_frame[start..end]
-		},
-		ValueIdx::Const(i) => match &body.constants()[i] {
-			Const::Bool(v) => bytes_of(v),
-			Const::U8(v) => bytes_of(v),
-			Const::U16(v) => bytes_of(v),
-			Const::U32(v) => bytes_of(v),
-			Const::U64(v) => bytes_of(v),
-			Const::I8(v) => bytes_of(v),
-			Const::I16(v) => bytes_of(v),
-			Const::I32(v) => bytes_of(v),
-			Const::I64(v) => bytes_of(v),
-			Const::F32(v) => bytes_of(v),
-			Const::F64(v) => bytes_of(v),
-			Const::Str(v) => unsafe {
-				let data = &*(v as *const _ as *const [usize; 2]);
-				match data[1] == v.len() {
-					true => bytes_of(&data[0]),
-					false => bytes_of(&data[1]),
-				}
-			},
-			_ => unimplemented!(),
 		},
 	}
 }
@@ -321,15 +301,7 @@ fn value_bytes_mut<'s, 'l: 's>(
 	offsets: &[[usize; 2]],
 	value: ValueIdx,
 ) -> &'s mut [u8] {
-	match value {
-		ValueIdx::Local(i) => {
-			let [start, size] = offsets[i];
-			let end = start + size;
-
-			&mut stack_frame[start..end]
-		},
-		ValueIdx::Const(_) => {
-			panic!("Cannot borrow constants mutably");
-		},
-	}
+	let [start, size] = offsets[value.0];
+	let end = start + size;
+	&mut stack_frame[start..end]
 }
