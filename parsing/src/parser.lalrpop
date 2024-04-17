@@ -85,10 +85,11 @@ pub Expression: Expression<'input> = {
 };
 
 Factor: Expression<'input> = {
+    "!" <r:Term> => !r,
+    "&" <r:Term> => Expression::Unary(UnaryOperator::Addr, Box::new(r)),
     <l:Factor> "*" <r:Term> => l * r,
     <l:Factor> "/" <r:Term> => l / r,
     <l:Factor> "%" <r:Term> => l % r,
-    "!" <r:Term> => !r,
     Term,
 };
 

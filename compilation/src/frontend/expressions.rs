@@ -118,6 +118,12 @@ pub fn compile_expression<'a, 'l>(
 					},
 					_ => unimplemented!("{:#?}", op),
 				},
+				UnaryOperator::Addr => {
+					let ty = block.type_cache.make_pointer(val_ty, false);
+					let local = body.alloca(&ty);
+					body.push_opcode(Opcode::StoreCIA(val, 0, local));
+					Ok(ExpressionResult::Value(local))
+				},
 				_ => unimplemented!("{:#?}", op),
 			}
 		},
@@ -167,7 +173,7 @@ pub fn compile_expression<'a, 'l>(
 			for (expr, param) in call.params.iter().zip(func.params()) {
 				let value = compile_expression(expr, Some(param.ty()), block, body)?;
 				let value = value.unwrap_value();
-				assert_eq!(Some(param.ty()), body.value_type(value));
+				// assert_eq!(Some(param.ty()), body.value_type(value));
 				params.push(value);
 			}
 

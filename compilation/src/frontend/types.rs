@@ -21,6 +21,13 @@ impl<'l> TypeCache<'l> {
 			pointer_types: RefCell::default(),
 		}
 	}
+
+	pub fn make_pointer(&self, base: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
+		let mut pointers = self.pointer_types.borrow_mut();
+		pointers.entry((base, mutable)).or_insert_with(|| {
+			self.bump.alloc(Type::Pointer(Pointer { ty: base, mutable}))
+		})
+	}
 }
 
 pub trait TypeResolver<'l> {
@@ -51,17 +58,7 @@ pub trait TypeResolver<'l> {
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
 				let base = self.resolve_type(base)?;
-				let cache = self.type_cache();
-				let mut pointers = cache.pointer_types.borrow_mut();
-
-				let ty = pointers.entry((base, *mutable)).or_insert_with(|| {
-					cache.bump.alloc(Type::Pointer(Pointer {
-						ty: base,
-						mutable: *mutable,
-					}))
-				});
-
-				Ok(ty)
+				Ok(self.type_cache().make_pointer(base, *mutable))
 			},
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
 				Some(Expression::Literal(Literal::Integer(length))) => {

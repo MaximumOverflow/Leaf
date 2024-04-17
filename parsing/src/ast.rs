@@ -128,6 +128,7 @@ pub enum UnaryOperator {
 	Pos,
 	Neg,
 	Not,
+	Addr,
 	Deref,
 }
 

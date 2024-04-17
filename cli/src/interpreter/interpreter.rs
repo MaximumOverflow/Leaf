@@ -216,6 +216,7 @@ impl<'l> Interpreter<'l> {
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					dst[0] = result as u8;
 				},
+
 				Opcode::Store(src, dst) => unsafe {
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					let (dst_ptr, dst_size) = (dst.as_mut_ptr(), dst.len());
@@ -226,6 +227,15 @@ impl<'l> Interpreter<'l> {
 					assert_eq!(dst_size, src_size);
 					std::ptr::copy(src_ptr, dst_ptr, dst_size);
 				},
+				Opcode::StoreCIA(val, idx, dst) => unsafe {
+					let base_ptr = value_bytes(stack_frame, &offsets, body, *val).as_ptr();
+					let val_ty = body.value_type(*val).unwrap();
+					let size = self.layout_cache.get_type_layout(val_ty).size();
+					let val_ptr = base_ptr.add(size) as usize;
+					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
+					dst.copy_from_slice(bytes_of(&val_ptr));
+				},
+
 				Opcode::Ret(value) => match value {
 					Some(value) => {
 						assert_eq!(body.value_type(*value), Some(function.ret_ty()));
