@@ -3,19 +3,18 @@ use std::sync::Arc;
 
 use bumpalo::Bump;
 
-use crate::heaps::{BlobHeapScope, StringHeapScope};
+use crate::heaps::BlobHeapScope;
 use crate::metadata::functions::Function;
 use crate::Struct;
 
 pub struct Assembly<'l> {
 	name: &'l str,
 	assembly_version: Version,
-	structs: HashMap<String, &'l Struct<'l>>,
+	structs: HashMap<&'l str, &'l Struct<'l>>,
 	functions: HashMap<&'l str, &'l Function<'l>>,
 
 	bump: &'l Bump,
 	blob_heap: Arc<BlobHeapScope<'l>>,
-	string_heap: Arc<StringHeapScope<'l>>,
 }
 
 impl<'l> Assembly<'l> {
@@ -57,16 +56,11 @@ mod build {
 				name,
 				bump: heaps.bump(),
 				blob_heap: Arc::new(heaps.blob_heap().make_scope()),
-				string_heap: Arc::new(heaps.string_heap().make_scope()),
 				assembly_version: version,
 				structs: HashMap::new(),
 				functions: HashMap::new(),
 			};
 			assembly
-		}
-
-		pub fn intern_str(&mut self, str: &str) -> &'l str {
-			self.string_heap.intern_str(str).0
 		}
 
 		pub fn create_struct(
@@ -81,17 +75,19 @@ mod build {
 				return Err("Name shall not contain '/' characters");
 			}
 
-			let namespace = self.string_heap.intern_str(&namespace.replace("::", "/")).0;
-			let name = self.string_heap.intern_str(name).0;
+			let id = self.blob_heap.intern(format! {
+				"{}/{}",
+				namespace.replace("::", "/"),
+				name
+			}).0;
 
-			let id = format!("{}/{}", namespace, name);
-			let heap_id = self.string_heap.intern_str(&id).0;
+			let name = self.blob_heap.intern(name).0;
 
 			if self.structs.contains_key(&id) {
 				return Err("Type already exists");
 			}
 
-			let ty = self.bump.alloc(Struct::new(heap_id, namespace, name));
+			let ty = self.bump.alloc(Struct::new(id, name));
 			self.structs.insert(id, ty);
 			Ok(ty)
 		}
@@ -108,21 +104,25 @@ mod build {
 				return Err("Name shall not contain '/' characters");
 			}
 
-			let namespace = self.string_heap.intern_str(&namespace.replace("::", "/")).0;
-			let name = self.string_heap.intern_str(name).0;
+			let id = self.blob_heap.intern(format! {
+				"{}/{}",
+				namespace.replace("::", "/"),
+				name
+			}).0;
 
-			let id = self.string_heap.intern_str(&format!("{}/{}", namespace, name)).0;
+			let name = self.blob_heap.intern(name).0;
+
 			if self.functions.contains_key(id) {
 				return Err("Function already exists");
 			}
 
-			let func = self.bump.alloc(Function::new(id, namespace, name));
+			let func = self.bump.alloc(Function::new(id, name));
 			self.functions.insert(id, func);
 			Ok(func)
 		}
 
 		pub fn heaps(&self) -> HeapScopes<'l> {
-			HeapScopes::new(self.bump, self.blob_heap.clone(), self.string_heap.clone())
+			HeapScopes::new(self.bump, self.blob_heap.clone())
 		}
 	}
 }
@@ -137,9 +137,9 @@ mod write {
 	use crate::Version;
 	use crate::write::Write;
 
-	impl<'l> Write<'l> for Assembly<'l> {
+	impl<'l> Write<'l, '_> for Assembly<'l> {
 		type Requirements = ();
-		fn write<T: IoWrite>(&'l self, stream: &mut T, _: Self::Requirements) -> Result<(), Error> {
+		fn write<T: IoWrite>(&self, stream: &mut T, _: Self::Requirements) -> Result<(), Error> {
 			write!(stream, "LEAF")?;
 			Version::format_version().unwrap_or_default().write(stream, ())?;
 			self.assembly_version.write(stream, ())?;
@@ -152,17 +152,16 @@ mod write {
 			let mut tmp_stream = Cursor::new(&mut tmp);
 			let heaps = self.heaps();
 
-			self.structs.len().write(&mut tmp_stream, ())?;
-			for ty in self.structs.values() {
-				ty.write(&mut tmp_stream, heaps.clone())?;
-			}
+			// self.structs.len().write(&mut tmp_stream, ())?;
+			// for ty in self.structs.values() {
+			// 	ty.write(&mut tmp_stream, heaps.clone())?;
+			// }
 
-			self.functions.len().write(&mut tmp_stream, ())?;
-			for func in self.functions.values() {
-				func.write(&mut tmp_stream, heaps.clone())?;
-			}
+			// self.functions.len().write(&mut tmp_stream, ())?;
+			// for func in self.functions.values() {
+			// 	func.write(&mut tmp_stream, heaps.clone())?;
+			// }
 
-			self.string_heap.write(stream, ())?;
 			self.blob_heap.write(stream, ())?;
 			stream.write_all(&tmp)?;
 
@@ -170,9 +169,9 @@ mod write {
 		}
 	}
 
-	impl Write<'_> for Version {
+	impl Write<'_, '_> for Version {
 		type Requirements = ();
-		fn write<T: IoWrite>(&'_ self, stream: &mut T, _: ()) -> Result<(), Error> {
+		fn write<T: IoWrite>(&self, stream: &mut T, _: ()) -> Result<(), Error> {
 			stream.write_all(bytes_of(&self.major))?;
 			stream.write_all(bytes_of(&self.minor))?;
 			stream.write_all(bytes_of(&self.patch))?;

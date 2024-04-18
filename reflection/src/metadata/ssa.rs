@@ -219,7 +219,7 @@ mod build {
 					match &opcode {
 						Opcode::Jp(block) => {
 							opcodes.push(Opcode::Jp(block_offsets[*block]));
-						},
+						}
 						Opcode::Br(cond, true_case, false_case) => opcodes.push(Opcode::Br(
 							*cond,
 							block_offsets[*true_case],
@@ -247,7 +247,7 @@ mod build {
 				fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
 					let ty = &Type::$ty_enum;
 					let bytes = self.to_le_bytes();
-					let (data, id) = builder.heaps.blob_heap().intern_blob(bytes.as_ref());
+					let (data, id) = builder.heaps.blob_heap().intern(bytes.as_ref());
 					*builder.consts.entry((ty, id)).or_insert_with(|| {
 						let idx = ValueIdx(builder.values.len());
 						builder.values.push(Value { ty, const_data: Some(data) });
@@ -298,7 +298,7 @@ mod build {
 				mutable: false,
 				ty: &Type::UInt8,
 			});
-			let (data, id) = builder.heaps.blob_heap().intern_blob(&self);
+			let (data, id) = builder.heaps.blob_heap().intern(self);
 			*builder.consts.entry((ty, id)).or_insert_with(|| {
 				let idx = ValueIdx(builder.values.len());
 				builder.values.push(Value {
@@ -312,127 +312,4 @@ mod build {
 }
 
 #[cfg(feature = "write")]
-mod write {
-	use std::io::Error;
-	use std::mem::{discriminant, transmute};
-
-	use crate::{Opcode, Value};
-	use crate::heaps::HeapScopes;
-	use crate::metadata::ssa::SSAContext;
-	use crate::write::Write;
-
-	impl<'l> Write<'l> for Opcode<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'_ self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			let discriminant: u8 = unsafe { transmute(discriminant(self)) };
-			stream.write(&[discriminant])?;
-
-			match self {
-				Opcode::Nop => {},
-				Opcode::Jp(target) => {
-					target.write(stream, ())?;
-				},
-				Opcode::Br(cond, true_case, false_case) => {
-					cond.write(stream, ())?;
-					true_case.write(stream, ())?;
-					false_case.write(stream, ())?;
-				},
-				Opcode::Ret(val) => {
-					val.write(stream, ())?;
-				},
-				| Opcode::Load(src, dst) | Opcode::Store(src, dst) | Opcode::StoreA(src, dst) => {
-					src.write(stream, ())?;
-					dst.write(stream, ())?;
-				},
-				Opcode::Aggregate(values, dst) => {
-					values.write(stream, ())?;
-					dst.write(stream, ())?;
-				}
-				Opcode::Call(func, args, res) => {
-					let id = format!("{}/{}", func.namespace(), func.name());
-					req.string_heap().intern_str(&id).1.write(stream, ())?;
-					args.write(stream, ())?;
-					res.write(stream, ())?;
-				},
-				| Opcode::SAdd(lhs, rhs, dst)
-				| Opcode::SSub(lhs, rhs, dst)
-				| Opcode::SMul(lhs, rhs, dst)
-				| Opcode::SDiv(lhs, rhs, dst)
-				| Opcode::SMod(lhs, rhs, dst)
-				| Opcode::UAdd(lhs, rhs, dst)
-				| Opcode::USub(lhs, rhs, dst)
-				| Opcode::UMul(lhs, rhs, dst)
-				| Opcode::UDiv(lhs, rhs, dst)
-				| Opcode::UMod(lhs, rhs, dst) => {
-					lhs.write(stream, ())?;
-					rhs.write(stream, ())?;
-					dst.write(stream, ())?;
-				},
-				| Opcode::SCmp(lhs, rhs, dst, cmp) | Opcode::UCmp(lhs, rhs, dst, cmp) => {
-					lhs.write(stream, ())?;
-					rhs.write(stream, ())?;
-					dst.write(stream, ())?;
-					cmp.write(stream, ())?;
-				},
-				| Opcode::SConv(val, dst, bytes) | Opcode::UConv(val, dst, bytes) => {
-					val.write(stream, ())?;
-					dst.write(stream, ())?;
-					bytes.write(stream, ())?;
-				},
-				Opcode::LNot(val, dst) => {
-					val.write(stream, ())?;
-					dst.write(stream, ())?;
-				},
-			}
-			Ok(())
-		}
-	}
-
-	impl<'l> Write<'l> for &[Opcode<'l>] {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'l self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			for opcode in self.iter() {
-				opcode.write(stream, req.clone())?
-			}
-			Ok(())
-		}
-	}
-
-	impl<'l> Write<'l> for Value<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'l self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			self.ty.write(stream, req.clone())?;
-			let discriminant: usize = unsafe { transmute(discriminant(&self.const_data)) };
-			discriminant.write(stream, ())?;
-			if let Some(data) = self.const_data {
-				let (_, blob_id) = req.blob_heap().intern_blob(data);
-				blob_id.write(stream, ())?;
-			}
-			Ok(())
-		}
-	}
-
-	impl<'l> Write<'l> for SSAContext<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'l self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			self.values.write(stream, req.clone())?;
-			self.opcodes.write(stream, req)
-		}
-	}
-}
+mod write {}

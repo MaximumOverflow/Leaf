@@ -3,7 +3,7 @@ pub mod write {
 	use std::io::Error;
 
 	// TODO add support for lifetimes in requirements
-	pub trait Write<'l> {
+	pub trait Write<'l, 'r> {
 		type Requirements;
 		fn write<T: std::io::Write>(
 			&'l self,
@@ -15,7 +15,7 @@ pub mod write {
 	macro_rules! impl_write {
 		(raw: $($ty: ty),*) => {
 			$(
-				impl Write<'_> for $ty {
+				impl Write<'_, '_> for $ty {
 					type Requirements = ();
 					fn write<T: std::io::Write>(
 						&self, stream: &mut T, _: Self::Requirements,
@@ -27,7 +27,7 @@ pub mod write {
 		};
 		($($ty: ty),*) => {
 			$(
-				impl Write<'_> for $ty {
+				impl Write<'_, '_> for $ty {
 					type Requirements = ();
 					fn write<T: std::io::Write>(
 						&self, stream: &mut T, _: Self::Requirements,
@@ -44,10 +44,10 @@ pub mod write {
 		};
 	}
 
-	impl Write<'_> for bool {
+	impl Write<'_, '_> for bool {
 		type Requirements = ();
 		fn write<T: std::io::Write>(
-			&'_ self,
+			&self,
 			stream: &mut T,
 			req: Self::Requirements,
 		) -> Result<(), Error> {
@@ -57,58 +57,4 @@ pub mod write {
 
 	impl_write!(raw: i8, u8, f32, f64);
 	impl_write!(isize, usize, i16, u16, i32, u32, i64, u64);
-
-	impl<'l, R, T: Write<'l, Requirements=R> + 'l> Write<'l> for &T {
-		type Requirements = R;
-		fn write<S: std::io::Write>(
-			&'l self,
-			stream: &mut S,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			Write::write(*self, stream, req)
-		}
-	}
-
-	impl<'l, R, T: Write<'l, Requirements=R> + 'l> Write<'l> for &mut T {
-		type Requirements = R;
-		fn write<S: std::io::Write>(
-			&'l self,
-			stream: &mut S,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			Write::write(*self, stream, req)
-		}
-	}
-
-	impl<'l, R: Copy, T: Write<'l, Requirements=R> + 'l> Write<'l> for Option<T> {
-		type Requirements = R;
-		fn write<S: std::io::Write>(
-			&'l self,
-			stream: &mut S,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			match self {
-				None => false.write(stream, ()),
-				Some(value) => {
-					true.write(stream, ())?;
-					value.write(stream, req)
-				}
-			}
-		}
-	}
-
-	impl<'l, R: Clone, T: Write<'l, Requirements=R> + 'l> Write<'l> for Vec<T> {
-		type Requirements = R;
-		fn write<S: std::io::Write>(
-			&'l self,
-			stream: &mut S,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			self.len().write(stream, ())?;
-			for i in self {
-				Write::write(i, stream, req.clone())?;
-			}
-			Ok(())
-		}
-	}
 }

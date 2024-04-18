@@ -72,7 +72,7 @@ impl Display for Type<'_> {
 				false => write!(f, "*{}", ty),
 				true => write!(f, "*mut {}", ty),
 			},
-			Type::Struct(base) => write!(f, "{}::{}", base.namespace, base.name),
+			Type::Struct(base) => write!(f, "{}::{}", base.namespace(), base.name()),
 		}
 	}
 }
@@ -116,7 +116,6 @@ impl<'l> Into<Type<'l>> for Pointer<'l> {
 pub struct Struct<'l> {
 	id: &'l str,
 	name: &'l str,
-	namespace: &'l str,
 	fields: OnceLock<Vec<Field<'l>>>,
 }
 
@@ -130,7 +129,10 @@ impl<'l> Struct<'l> {
 	}
 
 	pub fn namespace(&self) -> &'l str {
-		&self.namespace
+		match self.id.rsplit_once('/') {
+			None => "",
+			Some((ns, _)) => ns,
+		}
 	}
 
 	pub fn fields(&self) -> &[Field<'l>] {
@@ -149,8 +151,7 @@ impl<'l> Into<Type<'l>> for &'l Struct<'l> {
 
 impl Hash for Struct<'_> {
 	fn hash<H: Hasher>(&self, state: &mut H) {
-		state.write(self.namespace.as_bytes());
-		state.write(self.name.as_bytes());
+		state.write(self.id.as_bytes());
 	}
 }
 
@@ -193,11 +194,10 @@ mod build {
 	}
 
 	impl<'l> Struct<'l> {
-		pub(crate) fn new(id: &'l str, namespace: &'l str, name: &'l str) -> Self {
+		pub(crate) fn new(id: &'l str, name: &'l str) -> Self {
 			Self {
 				id,
 				name,
-				namespace,
 				fields: OnceLock::new(),
 			}
 		}
@@ -212,7 +212,6 @@ mod build {
 mod write {
 	use std::io::{Cursor, Error, Write as IoWrite};
 
-	use crate::{Field, Struct};
 	use crate::heaps::HeapScopes;
 	use crate::metadata::types::Type;
 	use crate::write::Write;
@@ -223,7 +222,6 @@ mod write {
 			stream: &mut T,
 			req: HeapScopes<'l>,
 		) -> Result<(), Error> {
-			let string_heap = req.string_heap();
 			let blob_heap = req.blob_heap();
 
 			let mut signature = vec![];
@@ -258,18 +256,19 @@ mod write {
 				}
 
 				Type::Struct(data) => {
-					string_heap.intern_str(&data.namespace).1.write(&mut cursor, ())?;
-					string_heap.intern_str(&data.name).1.write(&mut cursor, ())?;
+					unimplemented!();
+					// string_heap.intern_str(&data.namespace).1.write(&mut cursor, ())?;
+					// string_heap.intern_str(&data.name).1.write(&mut cursor, ())?;
 				}
 			}
 
-			let (_, id) = blob_heap.intern_blob(&signature);
+			let (_, id) = blob_heap.intern(signature);
 			id.write(stream, ())
 		}
 	}
 
-	impl<'l> Write<'l> for Type<'l> {
-		type Requirements = HeapScopes<'l>;
+	impl<'l, 'r> Write<'l, 'r> for Type<'l> where 'l: 'r {
+		type Requirements = &'r HeapScopes<'l>;
 		fn write<T: std::io::Write>(
 			&self,
 			stream: &mut T,
@@ -282,37 +281,7 @@ mod write {
 
 			self.write_recursive(&mut buffer_stream, req.clone())?;
 
-			blob_heap.intern_blob(&buffer).1.write(stream, ())
-		}
-	}
-
-	impl<'l> Write<'l> for Struct<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'l self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			let string_heap = req.string_heap();
-			string_heap.intern_str(self.namespace).1.write(stream, ())?;
-			string_heap.intern_str(self.name).1.write(stream, ())?;
-			for field in self.fields() {
-				field.write(stream, req.clone())?;
-			}
-			Ok(())
-		}
-	}
-
-	impl<'l> Write<'l> for Field<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<'a, T: std::io::Write>(
-			&self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			let string_heap = req.string_heap();
-			string_heap.intern_str(self.name).1.write(stream, ())?;
-			self.ty.write(stream, req)
+			blob_heap.intern(buffer).1.write(stream, ())
 		}
 	}
 }

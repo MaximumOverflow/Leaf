@@ -22,7 +22,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 		false => {
 			generics.drain(generics.len() - 2..);
 			format!("{}<{}>", name, generics).parse().unwrap()
-		},
+		}
 	};
 
 	match &ast.data {
@@ -34,17 +34,17 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 					Some(ident) => {
 						writes
 							.push(quote!(crate::write::Write::write(&self.#ident, stream, req)?;));
-					},
+					}
 					None => {
 						let ident: proc_macro2::TokenStream = format!("{}", i).parse().unwrap();
 						writes
 							.push(quote!(crate::write::Write::write(&self.#ident, stream, req)?;));
-					},
+					}
 				}
 			}
 
 			let implementation = quote! {
-				impl crate::write::Write<'_> for #ty {
+				impl crate::write::Write<'_, '_> for #ty {
 					type Requirements = ();
 					fn write<T: std::io::Write>(&self, stream: &mut T, req: Self::Requirements) -> std::result::Result<(), std::io::Error> {
 						#(#writes)*
@@ -54,7 +54,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 			};
 
 			implementation.into()
-		},
+		}
 		Data::Enum(data) => {
 			let mut cases = vec![];
 			let mut writes = vec![];
@@ -95,7 +95,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 			};
 
 			let implementation = quote! {
-				impl crate::write::Write<'_> for #ty {
+				impl crate::write::Write<'_, '_> for #ty {
 					type Requirements = ();
 					#[allow(unused_parens)]
 					fn write<T: std::io::Write>(&self, stream: &mut T, req: Self::Requirements) -> std::result::Result<(), std::io::Error> {
@@ -112,7 +112,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 			};
 
 			implementation.into()
-		},
+		}
 		Data::Union(_) => panic!("Cannot #[derive(Write)] on a union"),
 	}
 }

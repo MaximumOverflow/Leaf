@@ -108,8 +108,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 					let ty = self.heaps.bump().alloc(Type::Struct(r#struct));
 					self.types.insert(r#struct.name(), ty);
 					symbols.structs.push((r#struct, decl));
-				},
-				_ => {},
+				}
+				_ => {}
 			}
 		}
 
@@ -132,7 +132,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			trace!("Resolving parameter types");
 			let mut params = Vec::with_capacity(decl.params.len());
 			for p in &decl.params {
-				let name = self.assembly.intern_str(p.name);
+				let name = self.heaps.blob_heap().intern(p.name).0;
 				params.push(Parameter::new(name, self.resolve_type(&p.ty)?));
 			}
 			func.set_params(params).unwrap();
@@ -170,7 +170,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			let mut members = vec![];
 			for member in &decl.members {
 				let ty = self.resolve_type(&member.ty)?;
-				let name = self.heaps.string_heap().intern_str(member.name).0;
+				let name = self.heaps.blob_heap().intern(member.name).0;
 				members.push(Field::new(name, ty));
 			}
 

@@ -7,7 +7,6 @@ use crate::Type;
 #[derive(Debug)]
 pub struct Function<'l> {
 	id: &'l str,
-	namespace: &'l str,
 	name: &'l str,
 	ret_ty: OnceLock<&'l Type<'l>>,
 	params: OnceLock<Vec<Parameter<'l>>>,
@@ -20,7 +19,10 @@ impl<'l> Function<'l> {
 	}
 
 	pub fn namespace(&self) -> &str {
-		self.namespace
+		match self.id.rsplit_once('/') {
+			None => "",
+			Some((ns, _)) => ns,
+		}
 	}
 
 	pub fn name(&self) -> &str {
@@ -64,11 +66,10 @@ mod build {
 	use crate::{FunctionBody, Type};
 
 	impl<'l> Function<'l> {
-		pub(crate) fn new(id: &'l str, namespace: &'l str, name: &'l str) -> Self {
+		pub(crate) fn new(id: &'l str, name: &'l str) -> Self {
 			Self {
 				id,
 				name,
-				namespace,
 				body: OnceLock::new(),
 				ret_ty: OnceLock::new(),
 				params: OnceLock::new(),
@@ -104,71 +105,4 @@ mod build {
 }
 
 #[cfg(feature = "write")]
-mod write {
-	use std::io::{Error, ErrorKind};
-	use crate::FunctionFlags;
-
-	use crate::heaps::HeapScopes;
-	use crate::metadata::functions::{Function, Parameter};
-	use crate::write::Write;
-
-	impl<'l> Write<'l> for Function<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'l self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			let Some(ret_ty) = self.ret_ty.get() else {
-				return Err(Error::new(
-					ErrorKind::AddrNotAvailable,
-					"Return type has not been set",
-				));
-			};
-			let Some(params) = self.params.get() else {
-				return Err(Error::new(
-					ErrorKind::AddrNotAvailable,
-					"Params vec has not been set",
-				));
-			};
-
-			let body = self.body.get();
-
-			let mut flags = FunctionFlags::empty();
-			flags.set(FunctionFlags::HAS_BODY, body.is_some());
-			// flags.set(FunctionFlags::EXTERNAL, )
-
-			stream.write_all(&flags.bits().to_le_bytes())?;
-
-			let string_heap = req.string_heap();
-			string_heap.intern_str(self.namespace).1.write(stream, ())?;
-			string_heap.intern_str(self.name).1.write(stream, ())?;
-
-			params.len().write(stream, ())?;
-			for param in params {
-				param.write(stream, req.clone())?;
-			}
-
-			ret_ty.write(stream, req.clone())?;
-
-			if let Some(body) = body {
-				body.write(stream, req)?;
-			}
-
-			Ok(())
-		}
-	}
-
-	impl<'l> Write<'l> for Parameter<'l> {
-		type Requirements = HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&'l self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			let string_heap = req.string_heap();
-			string_heap.intern_str(self.name).1.write(stream, ())?;
-			self.ty.write(stream, req)
-		}
-	}
-}
+mod write {}
