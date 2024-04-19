@@ -41,14 +41,8 @@ pub struct HeapScopes<'l> {
 }
 
 impl<'l> HeapScopes<'l> {
-	pub fn new(
-		bump: &'l Bump,
-		blob_heap: Arc<BlobHeapScope<'l>>,
-	) -> Self {
-		Self {
-			bump,
-			blob_heap,
-		}
+	pub fn new(bump: &'l Bump, blob_heap: Arc<BlobHeapScope<'l>>) -> Self {
+		Self { bump, blob_heap }
 	}
 
 	pub fn bump(&self) -> &'l Bump {

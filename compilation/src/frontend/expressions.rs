@@ -77,7 +77,7 @@ pub fn compile_expression<'a, 'l>(
 									Type::$int,
 								})?;
 								Ok(ExpressionResult::Value(body.use_const(v)))
-							},
+							}
 						)*
 						_ => unimplemented!("{:#?}", expr),
 					}
@@ -166,12 +166,12 @@ pub fn compile_expression<'a, 'l>(
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
 					},
-					(Type::Pointer(_), Type::Int64) => {
+					(Type::Pointer { .. }, Type::Int64) => {
 						let local = body.alloca(lhs_ty);
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
 					},
-					(Type::Pointer(_), Type::UInt64) => {
+					(Type::Pointer { .. }, Type::UInt64) => {
 						let local = body.alloca(lhs_ty);
 						body.push_opcode(Opcode::UAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
@@ -251,6 +251,7 @@ fn unescape(str: &str) -> String {
 				i += 1;
 				match bytes[i] {
 					b'n' => string.push('\n'),
+					b'0' => string.push('\0'),
 					_ => unimplemented!(),
 				}
 			},

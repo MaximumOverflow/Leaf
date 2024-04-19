@@ -18,7 +18,7 @@ pub struct Assembly<'l> {
 }
 
 impl<'l> Assembly<'l> {
-	pub fn functions(&'l self) -> impl Iterator<Item=&'l Function<'l>> {
+	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}
 }
@@ -75,11 +75,14 @@ mod build {
 				return Err("Name shall not contain '/' characters");
 			}
 
-			let id = self.blob_heap.intern(format! {
-				"{}/{}",
-				namespace.replace("::", "/"),
-				name
-			}).0;
+			let id = self
+				.blob_heap
+				.intern(format! {
+					"{}/{}",
+					namespace.replace("::", "/"),
+					name
+				})
+				.0;
 
 			let name = self.blob_heap.intern(name).0;
 
@@ -104,11 +107,14 @@ mod build {
 				return Err("Name shall not contain '/' characters");
 			}
 
-			let id = self.blob_heap.intern(format! {
-				"{}/{}",
-				namespace.replace("::", "/"),
-				name
-			}).0;
+			let id = self
+				.blob_heap
+				.intern(format! {
+					"{}/{}",
+					namespace.replace("::", "/"),
+					name
+				})
+				.0;
 
 			let name = self.blob_heap.intern(name).0;
 
@@ -127,55 +133,39 @@ mod build {
 	}
 }
 
-#[cfg(feature = "write")]
-mod write {
-	use std::io::{Cursor, Error, Write as IoWrite};
-
-	use bytemuck::bytes_of;
-
-	use crate::metadata::assembly::Assembly;
-	use crate::Version;
-	use crate::write::Write;
-
-	impl<'l> Write<'l, '_> for Assembly<'l> {
-		type Requirements = ();
-		fn write<T: IoWrite>(&self, stream: &mut T, _: Self::Requirements) -> Result<(), Error> {
-			write!(stream, "LEAF")?;
-			Version::format_version().unwrap_or_default().write(stream, ())?;
-			self.assembly_version.write(stream, ())?;
-
-			(self.name.len() + 1).write(stream, ())?;
-			stream.write_all(self.name.as_bytes())?;
-			stream.write_all(&[0])?;
-
-			let mut tmp = vec![];
-			let mut tmp_stream = Cursor::new(&mut tmp);
-			let heaps = self.heaps();
-
-			// self.structs.len().write(&mut tmp_stream, ())?;
-			// for ty in self.structs.values() {
-			// 	ty.write(&mut tmp_stream, heaps.clone())?;
-			// }
-
-			// self.functions.len().write(&mut tmp_stream, ())?;
-			// for func in self.functions.values() {
-			// 	func.write(&mut tmp_stream, heaps.clone())?;
-			// }
-
-			self.blob_heap.write(stream, ())?;
-			stream.write_all(&tmp)?;
-
-			Ok(())
-		}
+#[cfg(feature = "read")]
+impl crate::serialization::MetadataRead<'_, '_> for Version {
+	type Requirements = ();
+	fn read<S: std::io::Read>(
+		stream: &mut S,
+		_: impl Into<Self::Requirements>,
+	) -> Result<Self, std::io::Error> {
+		let mut bytes = [0; 2];
+		stream.read_exact(&mut bytes)?;
+		let major = u16::from_le_bytes(bytes);
+		stream.read_exact(&mut bytes)?;
+		let minor = u16::from_le_bytes(bytes);
+		stream.read_exact(&mut bytes)?;
+		let patch = u16::from_le_bytes(bytes);
+		Ok(Self {
+			major,
+			minor,
+			patch,
+		})
 	}
+}
 
-	impl Write<'_, '_> for Version {
-		type Requirements = ();
-		fn write<T: IoWrite>(&self, stream: &mut T, _: ()) -> Result<(), Error> {
-			stream.write_all(bytes_of(&self.major))?;
-			stream.write_all(bytes_of(&self.minor))?;
-			stream.write_all(bytes_of(&self.patch))?;
-			Ok(())
-		}
+#[cfg(feature = "write")]
+impl crate::serialization::MetadataWrite<'_, '_> for Version {
+	type Requirements = ();
+	fn write<S: std::io::Write>(
+		&self,
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<(), std::io::Error> {
+		stream.write_all(bytemuck::bytes_of(&self.major))?;
+		stream.write_all(bytemuck::bytes_of(&self.minor))?;
+		stream.write_all(bytemuck::bytes_of(&self.patch))?;
+		Ok(())
 	}
 }

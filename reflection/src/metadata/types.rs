@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
 use derivative::Derivative;
+use leaf_derive::Metadata;
+use crate::Function;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Hash)]
@@ -24,8 +26,8 @@ pub enum Type<'l> {
 	Float32 = 0x21,
 	Float64 = 0x23,
 
-	Array(Array<'l>) = 0x30,
-	Pointer(Pointer<'l>) = 0x31,
+	Array { count: usize, ty: &'l Type<'l> } = 0x30,
+	Pointer { mutable: bool, ty: &'l Type<'l> } = 0x31,
 	Struct(&'l Struct<'l>) = 0x32,
 }
 
@@ -42,8 +44,19 @@ impl PartialEq<Self> for Type<'_> {
 		}
 
 		match (self, other) {
-			(Type::Array(a), Type::Array(b)) => a == b,
-			(Type::Pointer(a), Type::Pointer(b)) => a == b,
+			(Type::Array { count: ca, ty: ta }, Type::Array { count: cb, ty: tb }) => {
+				ca == cb && ta == tb
+			},
+			(
+				Type::Pointer {
+					mutable: ma,
+					ty: ta,
+				},
+				Type::Pointer {
+					mutable: mb,
+					ty: tb,
+				},
+			) => ma == mb && ta == tb,
 			(Type::Struct(a), Type::Struct(b)) => a == b,
 			_ => std::mem::discriminant(self) == std::mem::discriminant(other),
 		}
@@ -67,8 +80,8 @@ impl Display for Type<'_> {
 			Type::Float16 => f.write_str("f16"),
 			Type::Float32 => f.write_str("f32"),
 			Type::Float64 => f.write_str("f64"),
-			Type::Array(data) => write!(f, "[{}; {}]", data.ty, data.count),
-			Type::Pointer(Pointer { mutable, ty }) => match *mutable {
+			Type::Array { count, ty } => write!(f, "[{}; {}]", ty, count),
+			Type::Pointer { mutable, ty } => match *mutable {
 				false => write!(f, "*{}", ty),
 				true => write!(f, "*mut {}", ty),
 			},
@@ -77,42 +90,9 @@ impl Display for Type<'_> {
 	}
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct Array<'l> {
-	pub count: usize,
-	pub ty: &'l Type<'l>,
-}
-
-impl<'l> Array<'l> {
-	pub fn count(&self) -> usize {
-		self.count
-	}
-
-	pub fn ty(&self) -> &'l Type<'l> {
-		self.ty
-	}
-}
-
-impl<'l> Into<Type<'l>> for Array<'l> {
-	fn into(self) -> Type<'l> {
-		Type::Array(self)
-	}
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct Pointer<'l> {
-	pub mutable: bool,
-	pub ty: &'l Type<'l>,
-}
-
-impl<'l> Into<Type<'l>> for Pointer<'l> {
-	fn into(self) -> Type<'l> {
-		Type::Pointer(self)
-	}
-}
-
-#[derive(Derivative)]
+#[derive(Derivative, Metadata)]
 #[derivative(Debug, Eq, PartialEq)]
+#[metadata(lifetimes(val = "l"))]
 pub struct Struct<'l> {
 	id: &'l str,
 	name: &'l str,
@@ -155,7 +135,8 @@ impl Hash for Struct<'_> {
 	}
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Metadata)]
+#[metadata(lifetimes(val = "l"))]
 pub struct Field<'l> {
 	name: &'l str,
 	ty: &'l Type<'l>,
@@ -174,18 +155,6 @@ impl<'l> Field<'l> {
 #[cfg(feature = "build")]
 mod build {
 	use crate::metadata::types::*;
-
-	impl<'l> Array<'l> {
-		pub fn new(ty: &'l Type<'l>, count: usize) -> Self {
-			Self { ty, count }
-		}
-	}
-
-	impl<'l> Pointer<'l> {
-		pub fn new(ty: &'l Type<'l>, mutable: bool) -> Self {
-			Self { ty, mutable }
-		}
-	}
 
 	impl<'l> Field<'l> {
 		pub fn new(name: &'l str, ty: &'l Type<'l>) -> Self {
@@ -208,80 +177,25 @@ mod build {
 	}
 }
 
-#[cfg(feature = "write")]
-mod write {
-	use std::io::{Cursor, Error, Write as IoWrite};
-
-	use crate::heaps::HeapScopes;
-	use crate::metadata::types::Type;
-	use crate::write::Write;
-
-	impl<'l> Type<'l> {
-		fn write_recursive<T: std::io::Write>(
-			&self,
-			stream: &mut T,
-			req: HeapScopes<'l>,
-		) -> Result<(), Error> {
-			let blob_heap = req.blob_heap();
-
-			let mut signature = vec![];
-			let mut cursor = Cursor::new(&mut signature);
-			let discriminant: u8 = unsafe { std::mem::transmute(std::mem::discriminant(self)) };
-			cursor.write_all(&[discriminant])?;
-
-			match self {
-				| Type::Void
-				| Type::Char
-				| Type::Bool
-				| Type::Int8
-				| Type::Int16
-				| Type::Int32
-				| Type::Int64
-				| Type::UInt8
-				| Type::UInt16
-				| Type::UInt32
-				| Type::UInt64
-				| Type::Float16
-				| Type::Float32
-				| Type::Float64 => {}
-
-				Type::Array(data) => {
-					data.ty.write_recursive(&mut cursor, req.clone())?;
-					data.count.write(&mut cursor, ())?;
-				}
-
-				Type::Pointer(data) => {
-					data.ty.write_recursive(&mut cursor, req.clone())?;
-					data.mutable.write(&mut cursor, ())?;
-				}
-
-				Type::Struct(data) => {
-					unimplemented!();
-					// string_heap.intern_str(&data.namespace).1.write(&mut cursor, ())?;
-					// string_heap.intern_str(&data.name).1.write(&mut cursor, ())?;
-				}
-			}
-
-			let (_, id) = blob_heap.intern(signature);
-			id.write(stream, ())
-		}
+#[cfg(feature = "read")]
+impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Type<'val> {
+	type Requirements = &'req crate::serialization::ReadDependencies<'val>;
+	fn read<S: std::io::Read>(
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<Self, std::io::Error> {
+		todo!()
 	}
+}
 
-	impl<'l, 'r> Write<'l, 'r> for Type<'l> where 'l: 'r {
-		type Requirements = &'r HeapScopes<'l>;
-		fn write<T: std::io::Write>(
-			&self,
-			stream: &mut T,
-			req: Self::Requirements,
-		) -> Result<(), Error> {
-			let blob_heap = req.blob_heap();
-
-			let mut buffer = vec![];
-			let mut buffer_stream = Cursor::new(&mut buffer);
-
-			self.write_recursive(&mut buffer_stream, req.clone())?;
-
-			blob_heap.intern(buffer).1.write(stream, ())
-		}
+#[cfg(feature = "write")]
+impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val Type<'val> {
+	type Requirements = &'req crate::serialization::WriteDependencies<'val>;
+	fn write<S: std::io::Write>(
+		&self,
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<(), std::io::Error> {
+		todo!()
 	}
 }

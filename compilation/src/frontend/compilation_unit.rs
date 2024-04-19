@@ -108,8 +108,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 					let ty = self.heaps.bump().alloc(Type::Struct(r#struct));
 					self.types.insert(r#struct.name(), ty);
 					symbols.structs.push((r#struct, decl));
-				}
-				_ => {}
+				},
+				_ => {},
 			}
 		}
 
@@ -158,10 +158,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(symbols)
 	}
 
-	fn compile_types(
-		&mut self,
-		structs: Vec<(&'l Struct<'l>, &StructAst)>,
-	) -> anyhow::Result<()> {
+	fn compile_types(&mut self, structs: Vec<(&'l Struct<'l>, &StructAst)>) -> anyhow::Result<()> {
 		for (r#struct, decl) in structs {
 			let span = span!(Level::DEBUG, "compile_struct", id = r#struct.id());
 			let _span = span.enter();

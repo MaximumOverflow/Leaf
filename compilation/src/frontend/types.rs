@@ -5,7 +5,7 @@ use tracing::trace;
 
 use leaf_parsing::ast::{Expression, Integer, Literal, Type as TypeNode};
 use leaf_reflection::heaps::Bump;
-use leaf_reflection::{Array, Pointer, Type};
+use leaf_reflection::Type;
 
 pub struct TypeCache<'l> {
 	bump: &'l Bump,
@@ -26,7 +26,7 @@ impl<'l> TypeCache<'l> {
 		let mut pointers = self.pointer_types.borrow_mut();
 		pointers
 			.entry((base, mutable))
-			.or_insert_with(|| self.bump.alloc(Type::Pointer(Pointer { ty: base, mutable })))
+			.or_insert_with(|| self.bump.alloc(Type::Pointer { ty: base, mutable }))
 	}
 }
 
@@ -83,10 +83,10 @@ pub trait TypeResolver<'l> {
 					let mut arrays = cache.array_types.borrow_mut();
 
 					let ty = arrays.entry((base, length)).or_insert_with(|| {
-						cache.bump.alloc(Type::Array(Array {
+						cache.bump.alloc(Type::Array {
 							ty: base,
 							count: length,
-						}))
+						})
 					});
 
 					Ok(ty)

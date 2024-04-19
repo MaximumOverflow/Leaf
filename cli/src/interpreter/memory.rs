@@ -65,10 +65,10 @@ impl<'l> LayoutCache<'l> {
 			Type::Float16 => Layout::new::<f16>(),
 			Type::Float32 => Layout::new::<f32>(),
 			Type::Float64 => Layout::new::<f64>(),
-			Type::Pointer(_) => Layout::new::<*const u8>(),
-			Type::Array(data) => {
-				let layout = self.get_type_layout(data.ty());
-				Layout::from_size_align(layout.size() * data.count(), layout.align()).unwrap()
+			Type::Pointer { .. } => Layout::new::<*const u8>(),
+			Type::Array { ty, count } => {
+				let layout = self.get_type_layout(ty);
+				Layout::from_size_align(layout.size() * count, layout.align()).unwrap()
 			},
 			Type::Struct(data) => {
 				let key = ty as *const _ as usize;

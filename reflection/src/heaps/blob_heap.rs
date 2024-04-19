@@ -39,6 +39,10 @@ impl<'l> BlobHeapScope<'l> {
 	pub fn intern<T: Intern<'l>>(&self, data: T) -> (T::Interned, usize) {
 		data.intern_in_scope(self)
 	}
+
+	pub fn get_blob_index(&self, blob: &[u8]) -> Option<usize> {
+		self.map.borrow().get(blob).cloned()
+	}
 }
 
 mod intern {
@@ -99,7 +103,10 @@ mod intern {
 				self.push('\0');
 			}
 			let (blob, added) = self.as_bytes().intern(heap);
-			(unsafe { std::str::from_utf8_unchecked(&blob[..blob.len() - 1]) }, added)
+			(
+				unsafe { std::str::from_utf8_unchecked(&blob[..blob.len() - 1]) },
+				added,
+			)
 		}
 
 		fn intern_in_scope(mut self, heap: &BlobHeapScope<'l>) -> (Self::Interned, usize) {
@@ -107,7 +114,10 @@ mod intern {
 				self.push('\0');
 			}
 			let (blob, idx) = self.as_bytes().intern_in_scope(heap);
-			(unsafe { std::str::from_utf8_unchecked(&blob[..blob.len() - 1]) }, idx)
+			(
+				unsafe { std::str::from_utf8_unchecked(&blob[..blob.len() - 1]) },
+				idx,
+			)
 		}
 	}
 
@@ -119,28 +129,6 @@ mod intern {
 
 		fn intern_in_scope(self, heap: &BlobHeapScope<'l>) -> (Self::Interned, usize) {
 			self.as_slice().intern_in_scope(heap)
-		}
-	}
-}
-
-#[cfg(feature = "write")]
-mod write {
-	use std::io::Error;
-	use crate::write::Write;
-	use crate::heaps::blob_heap::BlobHeapScope;
-
-	impl Write<'_, '_> for BlobHeapScope<'_> {
-		type Requirements = ();
-		fn write<T: std::io::Write>(&'_ self, stream: &mut T, _: ()) -> Result<(), Error> {
-			let blobs = self.vec.borrow();
-			blobs.len().write(stream, ())?;
-
-			for blob in blobs.iter() {
-				blob.len().write(stream, ())?;
-				stream.write_all(blob)?;
-			}
-
-			Ok(())
 		}
 	}
 }

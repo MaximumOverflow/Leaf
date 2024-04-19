@@ -104,5 +104,25 @@ mod build {
 	}
 }
 
+#[cfg(feature = "read")]
+impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Function<'val> {
+	type Requirements = &'req crate::serialization::ReadDependencies<'val>;
+	fn read<S: std::io::Read>(
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<Self, std::io::Error> {
+		todo!()
+	}
+}
+
 #[cfg(feature = "write")]
-mod write {}
+impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val Function<'val> {
+	type Requirements = &'req crate::serialization::WriteDependencies<'val>;
+	fn write<S: std::io::Write>(
+		&self,
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<(), std::io::Error> {
+		todo!()
+	}
+}

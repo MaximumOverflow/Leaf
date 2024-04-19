@@ -1,10 +1,11 @@
 pub use build::*;
-use leaf_derive::Write;
+use leaf_derive::Metadata;
 
 use crate::{Function, Type};
 
 #[repr(u8)]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Metadata)]
+#[metadata(lifetimes(val = "l"))]
 pub enum Opcode<'l> {
 	#[default]
 	Nop = 0x00,
@@ -39,8 +40,7 @@ pub enum Opcode<'l> {
 }
 
 #[repr(u8)]
-#[derive(Debug, Default, Clone)]
-#[cfg_attr(feature = "write", derive(Write))]
+#[derive(Debug, Default, Clone, Metadata)]
 pub enum Comparison {
 	#[default]
 	Eq = 0x0,
@@ -51,17 +51,18 @@ pub enum Comparison {
 	Ge = 0x5,
 }
 
-#[cfg_attr(feature = "write", derive(Write))]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Metadata)]
 pub struct ValueIdx(pub usize);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Metadata)]
+#[metadata(lifetimes(val = "l"))]
 pub struct SSAContext<'l> {
 	values: Vec<Value<'l>>,
 	opcodes: Vec<Opcode<'l>>,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Metadata)]
+#[metadata(lifetimes(val = "l"))]
 pub struct Value<'l> {
 	pub ty: &'l Type<'l>,
 	pub const_data: Option<&'l [u8]>,
@@ -94,9 +95,7 @@ impl PartialEq for SSAContext<'_> {
 mod build {
 	use std::collections::HashMap;
 
-	use leaf_derive::Write;
-
-	use crate::{Opcode, Pointer, Type, Value};
+	use crate::{Opcode, Type, Value};
 	use crate::heaps::HeapScopes;
 	use crate::metadata::ssa::{SSAContext, ValueIdx};
 
@@ -109,7 +108,6 @@ mod build {
 	}
 
 	#[repr(transparent)]
-	#[cfg_attr(feature = "write", derive(Write))]
 	#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 	pub struct BlockIndex(usize);
 
@@ -219,7 +217,7 @@ mod build {
 					match &opcode {
 						Opcode::Jp(block) => {
 							opcodes.push(Opcode::Jp(block_offsets[*block]));
-						}
+						},
 						Opcode::Br(cond, true_case, false_case) => opcodes.push(Opcode::Br(
 							*cond,
 							block_offsets[*true_case],
@@ -294,10 +292,10 @@ mod build {
 
 	impl UseConst for Vec<u8> {
 		fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
-			let ty = &Type::Pointer(Pointer {
+			let ty = &Type::Pointer {
 				mutable: false,
 				ty: &Type::UInt8,
-			});
+			};
 			let (data, id) = builder.heaps.blob_heap().intern(self);
 			*builder.consts.entry((ty, id)).or_insert_with(|| {
 				let idx = ValueIdx(builder.values.len());
