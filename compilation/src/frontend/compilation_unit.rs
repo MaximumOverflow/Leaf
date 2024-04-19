@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::Error;
+use fxhash::FxHashMap;
 
 use leaf_parsing::ast::{
 	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst, Enum as EnumAst,
@@ -19,8 +20,8 @@ pub struct CompilationUnit<'a, 'l> {
 	heaps: HeapScopes<'l>,
 	type_cache: &'a TypeCache<'l>,
 	assembly: &'a mut Assembly<'l>,
-	types: HashMap<&'l str, &'l Type<'l>>,
-	functions: HashMap<&'l str, &'l Function<'l>>,
+	types: FxHashMap<&'l str, &'l Type<'l>>,
+	functions: FxHashMap<&'l str, &'l Function<'l>>,
 }
 
 impl<'a, 'l> CompilationUnit<'a, 'l> {
@@ -42,7 +43,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			info!("Compiling file `{}`", absolute_path);
 			let code = std::fs::read_to_string(path)?;
 			Self::compile_internal(type_cache, assembly, &code)?;
-			info!("File `{}` compiled successfully", absolute_path);
+			debug!("File `{}` compiled successfully", absolute_path);
 			Ok(())
 		})
 	}
@@ -55,7 +56,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		span!(Level::DEBUG, "compile_code").in_scope(|| {
 			info!("Compiling code");
 			Self::compile_internal(type_cache, assembly, code)?;
-			info!("Code compiled successfully");
+			debug!("Code compiled successfully");
 			Ok(())
 		})
 	}
@@ -65,10 +66,13 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 	) -> anyhow::Result<()> {
-		static PARSER: OnceLock<AstParser> = OnceLock::new();
-		let parser = PARSER.get_or_init(AstParser::new);
+		let ast = span!(Level::DEBUG, "parse_code").in_scope(|| {
+			static PARSER: OnceLock<AstParser> = OnceLock::new();
+			let parser = PARSER.get_or_init(AstParser::new);
+			parser.parse(code)
+		});
 
-		let ast = match parser.parse(code) {
+		let ast = match ast {
 			Ok(root) => root,
 			Err(err) => return Err(Error::msg(err.to_string())),
 		};
@@ -85,8 +89,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			type_cache,
 			heaps: assembly.heaps(),
 			assembly,
-			types: HashMap::new(),
-			functions: HashMap::new(),
+			types: HashMap::default(),
+			functions: HashMap::default(),
 		}
 	}
 
@@ -108,8 +112,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 					let ty = self.heaps.bump().alloc(Type::Struct(r#struct));
 					self.types.insert(r#struct.name(), ty);
 					symbols.structs.push((r#struct, decl));
-				},
-				_ => {},
+				}
+				_ => {}
 			}
 		}
 
@@ -151,7 +155,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				symbols.functions.push((func, decl));
 				debug!("Function `{}` declared successfully", func.id());
 			} else {
-				info!("External function `{}` declared successfully", func.id());
+				debug!("External function `{}` declared successfully", func.id());
 			}
 		}
 
@@ -172,7 +176,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			}
 
 			r#struct.set_fields(members).unwrap();
-			info!("Type `{}` compiled successfully", r#struct.id());
+			debug!("Type `{}` compiled successfully", r#struct.id());
 		}
 		Ok(())
 	}
@@ -191,7 +195,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				func,
 				heaps: self.heaps.clone(),
 				type_cache: self.type_cache,
-				values: HashMap::new(),
+				values: HashMap::default(),
 				types: self.types(),
 				functions: &self.functions,
 			};
@@ -204,7 +208,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			block.compile(decl.block.as_ref().unwrap(), &mut body)?;
 
 			func.set_body(body.build()).unwrap();
-			info!("Function `{}` compiled successfully", func.id());
+			debug!("Function `{}` compiled successfully", func.id());
 		}
 		Ok(())
 	}
@@ -214,7 +218,7 @@ impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
 	fn type_cache(&self) -> &TypeCache<'l> {
 		self.type_cache
 	}
-	fn types(&self) -> &HashMap<&'l str, &'l Type<'l>> {
+	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>> {
 		&self.types
 	}
 }

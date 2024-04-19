@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use anyhow::anyhow;
+use fxhash::FxHashMap;
 use tracing::trace;
 
 use leaf_parsing::ast::{Expression, Integer, Literal, Type as TypeNode};
@@ -32,7 +33,9 @@ impl<'l> TypeCache<'l> {
 
 pub trait TypeResolver<'l> {
 	fn type_cache(&self) -> &TypeCache<'l>;
-	fn types(&self) -> &HashMap<&'l str, &'l Type<'l>>;
+	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>>;
+
+	#[tracing::instrument(skip_all)]
 	fn resolve_type(&self, ast: &TypeNode) -> anyhow::Result<&'l Type<'l>> {
 		match ast {
 			TypeNode::Id(id) => {
@@ -57,12 +60,12 @@ pub trait TypeResolver<'l> {
 						None => Err(anyhow!("Type `{id}` is not available in the current scope")),
 					},
 				}
-			},
+			}
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
 				let base = self.resolve_type(base)?;
 				Ok(self.type_cache().make_pointer(base, *mutable))
-			},
+			}
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
 				Some(Expression::Literal(Literal::Integer(length))) => {
 					trace!("Resolving array type");
@@ -90,7 +93,7 @@ pub trait TypeResolver<'l> {
 					});
 
 					Ok(ty)
-				},
+				}
 				_ => unimplemented!(),
 			},
 			_ => unimplemented!(),

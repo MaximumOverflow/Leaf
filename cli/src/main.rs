@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use clap::Parser;
-use tracing::{debug, info, Level, trace};
+use tracing::{debug, info, trace, Level};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -34,6 +34,8 @@ struct CompileArgs {
 	out: Option<PathBuf>,
 	#[arg(long = "trace")]
 	trace: bool,
+	#[arg(short = 'v', long = "verbose")]
+	verbose: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -41,22 +43,27 @@ struct InterpretArgs {
 	file: PathBuf,
 	#[arg(long = "trace")]
 	trace: bool,
+	#[arg(short = 'v', long = "verbose")]
+	verbose: bool,
 }
 
 fn main() {
 	let args = Args::parse();
 
-	let trace = match &args {
-		Args::Compile(CompileArgs { trace, .. }) => *trace,
-		Args::Interpret(InterpretArgs { trace, .. }) => *trace,
+	let (trace, verbose) = match &args {
+		Args::Compile(CompileArgs { trace, verbose, .. }) => (*trace, *verbose),
+		Args::Interpret(InterpretArgs { trace, verbose, .. }) => (*trace, *verbose),
 	};
+
+	let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stderr());
 
 	let fmt_layer = tracing_subscriber::fmt::layer()
 		.compact()
+		.with_writer(non_blocking)
 		.with_file(false)
 		.with_target(false)
 		.with_level(true)
-		.with_writer(std::io::stderr.with_max_level(match trace {
+		.with_writer(std::io::stderr.with_max_level(match verbose {
 			true => Level::TRACE,
 			false => Level::INFO,
 		}));
@@ -66,20 +73,20 @@ fn main() {
 		true => File::create("./trace.folded").ok(),
 	};
 
-	let _flame = match trace {
+	let _guard = match trace {
 		None => {
 			let registry = Registry::default().with(fmt_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			None
-		},
+		}
 
 		Some(file) => {
-			let flame_layer = FlameLayer::new(BufWriter::new(file));
+			let flame_layer = FlameLayer::new(BufWriter::new(file)).with_file_and_line(false);
 			let guard = flame_layer.flush_on_drop();
 			let registry = Registry::default().with(fmt_layer).with(flame_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			Some(guard)
-		},
+		}
 	};
 
 	match args {
@@ -148,13 +155,13 @@ fn main() {
 					info!("Result: {:#?}", value);
 
 					debug!("Interpretation time: {:?}", interp_time);
-				},
+				}
 				Err(err) => {
 					// println!("Stack dump: {:#?}", interpreter.stack());
 					println!("Error: {}", err);
-				},
+				}
 			};
-		},
+		}
 		Args::Compile(CompileArgs { file, .. }) => {
 			let time = SystemTime::now();
 
@@ -169,6 +176,6 @@ fn main() {
 			let comp_time = time.elapsed().unwrap();
 
 			println!("Compilation time: {:?}", comp_time);
-		},
+		}
 	}
 }

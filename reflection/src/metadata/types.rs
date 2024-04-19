@@ -4,7 +4,6 @@ use std::sync::OnceLock;
 
 use derivative::Derivative;
 use leaf_derive::Metadata;
-use crate::Function;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Hash)]
@@ -26,9 +25,9 @@ pub enum Type<'l> {
 	Float32 = 0x21,
 	Float64 = 0x23,
 
+	Struct(&'l Struct<'l>) = 0x32,
 	Array { count: usize, ty: &'l Type<'l> } = 0x30,
 	Pointer { mutable: bool, ty: &'l Type<'l> } = 0x31,
-	Struct(&'l Struct<'l>) = 0x32,
 }
 
 impl Eq for Type<'_> {}
@@ -46,7 +45,7 @@ impl PartialEq<Self> for Type<'_> {
 		match (self, other) {
 			(Type::Array { count: ca, ty: ta }, Type::Array { count: cb, ty: tb }) => {
 				ca == cb && ta == tb
-			},
+			}
 			(
 				Type::Pointer {
 					mutable: ma,
