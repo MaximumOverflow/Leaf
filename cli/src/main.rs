@@ -14,7 +14,7 @@ use tracing_subscriber::Registry;
 
 use leaf_compilation::frontend::{CompilationUnit, TypeCache};
 use leaf_compilation::reflection::{Assembly, Version};
-use leaf_compilation::reflection::heaps::{Bump, Heaps};
+use leaf_compilation::reflection::heaps::{ArenaAllocator, Heaps};
 
 use crate::interpreter::Interpreter;
 
@@ -47,6 +47,7 @@ struct InterpretArgs {
 	verbose: bool,
 }
 
+#[cfg(not(feature = "miri"))]
 fn main() {
 	let args = Args::parse();
 
@@ -93,7 +94,7 @@ fn main() {
 		Args::Interpret(InterpretArgs { file, .. }) => {
 			let mut time = SystemTime::now();
 
-			let bump = Bump::new();
+			let bump = ArenaAllocator::default();
 			let heaps = Heaps::new(&bump);
 			let type_cache = TypeCache::new(&bump);
 
@@ -138,8 +139,8 @@ fn main() {
 					trace!("Allocated buffer at {ptr:#?} with {layout:?}");
 					ptr as usize
 				});
-				interpreter.register_extern_fn("core/test/dealloc", |info: [usize; 3]| {
-					let [ptr, size, align] = info;
+				interpreter.register_extern_fn("core/test/dealloc", |info: (*const u8, usize, usize)| {
+					let (ptr, size, align) = info;
 					let layout = Layout::from_size_align_unchecked(size, align);
 					let ptr = ptr as *mut u8;
 					std::alloc::dealloc(ptr, layout);
@@ -163,9 +164,9 @@ fn main() {
 			};
 		}
 		Args::Compile(CompileArgs { file, .. }) => {
-			let time = SystemTime::now();
+			let mut time = SystemTime::now();
 
-			let bump = Bump::new();
+			let bump = ArenaAllocator::default();
 			let heaps = Heaps::new(&bump);
 			let type_cache = TypeCache::new(&bump);
 
@@ -173,9 +174,79 @@ fn main() {
 			if let Err(err) = CompilationUnit::compile_file(&type_cache, &mut assembly, &file) {
 				return println!("{:#}", err);
 			}
-			let comp_time = time.elapsed().unwrap();
+			let mut delta = time.elapsed().unwrap();
+			info!("Compilation time: {:?}", delta);
 
-			println!("Compilation time: {:?}", comp_time);
+			time = SystemTime::now();
+			let mut bytes = vec![];
+			delta = time.elapsed().unwrap();
+			info!("Serialization time: {:?}", delta);
 		}
 	}
+}
+
+#[cfg(feature = "miri")]
+fn main() {
+	let fmt_layer = tracing_subscriber::fmt::layer()
+		.compact()
+		.with_file(false)
+		.with_target(false)
+		.with_level(true)
+		.with_writer(std::io::stderr.with_max_level(Level::TRACE));
+
+	let registry = Registry::default().with(fmt_layer);
+	tracing::subscriber::set_global_default(registry).unwrap();
+
+	let bump = ArenaAllocator::default();
+	let heaps = Heaps::new(&bump);
+	let type_cache = TypeCache::new(&bump);
+
+	let file = include_str!("../../test.leaf");
+	let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
+	if let Err(err) = CompilationUnit::compile_code(&type_cache, &mut assembly, file) {
+		return println!("{:#}", err);
+	}
+
+	let Some(main) = assembly.functions().find(|f| f.name() == "main") else {
+		eprintln!("Could not find entry point 'main'");
+		return;
+	};
+
+	let mut interpreter = Interpreter::new();
+	unsafe {
+		interpreter.register_extern_fn("core/test/print", |fmt: *const c_char| {
+			let mut len = 0;
+			let mut ptr = fmt;
+			while *ptr != 0 {
+				len += 1;
+				ptr = ptr.add(1);
+			}
+			let slice = std::slice::from_raw_parts(fmt as *const u8, len);
+			let str = std::str::from_utf8(slice).unwrap();
+			print!("{}", str);
+		});
+		interpreter.register_extern_fn("core/test/alloc", |info: [usize; 2]| {
+			let [size, align] = info;
+			let layout = Layout::from_size_align_unchecked(size, align);
+			let ptr = std::alloc::alloc(layout);
+			trace!("Allocated buffer at {ptr:#?} with {layout:?}");
+			ptr as usize
+		});
+		interpreter.register_extern_fn("core/test/dealloc", |info: (*const u8, usize, usize)| {
+			let (ptr, size, align) = info;
+			let layout = Layout::from_size_align_unchecked(size, align);
+			let ptr = ptr as *mut u8;
+			std::alloc::dealloc(ptr, layout);
+			trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
+		});
+	}
+
+	match interpreter.call_as_main(main) {
+		Ok(value) => {
+			info!("Result: {:#?}", value);
+		}
+		Err(err) => {
+			println!("Error: {}", err);
+		}
+	};
 }

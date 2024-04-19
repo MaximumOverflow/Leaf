@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bumpalo::Bump;
-
-use crate::heaps::BlobHeapScope;
+use crate::heaps::{BlobHeapScope, ArenaAllocator};
 use crate::metadata::functions::Function;
 use crate::Struct;
 
@@ -13,12 +11,12 @@ pub struct Assembly<'l> {
 	structs: HashMap<&'l str, &'l Struct<'l>>,
 	functions: HashMap<&'l str, &'l Function<'l>>,
 
-	bump: &'l Bump,
+	bump: &'l ArenaAllocator,
 	blob_heap: Arc<BlobHeapScope<'l>>,
 }
 
 impl<'l> Assembly<'l> {
-	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
+	pub fn functions(&'l self) -> impl Iterator<Item=&'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}
 }
@@ -54,7 +52,7 @@ mod build {
 		pub fn new(name: &'l str, version: Version, heaps: &'l Heaps<'l>) -> Self {
 			let assembly = Assembly {
 				name,
-				bump: heaps.bump(),
+				bump: heaps.general_purpose_heap(),
 				blob_heap: Arc::new(heaps.blob_heap().make_scope()),
 				assembly_version: version,
 				structs: HashMap::new(),

@@ -1,10 +1,10 @@
+use crate::heaps::general_purpose_heap::ArenaAllocator;
 use std::collections::{HashMap, HashSet};
 use crate::{Struct, Type};
 use std::cell::RefCell;
-use bumpalo::Bump;
 
 pub struct TypeHeap<'l> {
-	bump: &'l Bump,
+	bump: &'l ArenaAllocator,
 	set: RefCell<HashSet<usize>>,
 	drops: RefCell<Vec<DropHelper>>,
 	pointers: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
@@ -13,7 +13,7 @@ pub struct TypeHeap<'l> {
 
 #[rustfmt::skip]
 impl<'l> TypeHeap<'l> {
-	pub fn new(bump: &'l Bump) -> Self {
+	pub fn new(bump: &'l ArenaAllocator) -> Self {
 		Self {
 			structs: Default::default(),
 			pointers: Default::default(),
@@ -61,7 +61,7 @@ impl<'l> TypeHeap<'l> {
 		ty
 	}
 
-	fn alloc<T: 'l>(&self, value: T) -> &'l T {
+	fn alloc<T: 'l + Send>(&self, value: T) -> &'l T {
 		let value = self.bump.alloc(value);
 		if let Some(helper) = DropHelper::new(value as _) {
 			self.drops.borrow_mut().push(helper);

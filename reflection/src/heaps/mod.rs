@@ -1,28 +1,25 @@
 mod blob_heap;
 mod type_heap;
+mod general_purpose_heap;
 
 use std::sync::Arc;
 pub use type_heap::*;
 pub use blob_heap::*;
-pub use bumpalo::Bump;
+pub use general_purpose_heap::*;
 
 pub struct Heaps<'l> {
-	bump: &'l Bump,
 	type_heap: TypeHeap<'l>,
 	blob_heap: BlobHeap<'l>,
+	bump: &'l ArenaAllocator,
 }
 
 impl<'l> Heaps<'l> {
-	pub fn new(bump: &'l Bump) -> Self {
+	pub fn new(bump: &'l ArenaAllocator) -> Self {
 		Self {
 			bump,
 			type_heap: TypeHeap::new(bump),
 			blob_heap: BlobHeap::new(bump),
 		}
-	}
-
-	pub fn bump(&self) -> &'l Bump {
-		self.bump
 	}
 
 	pub fn type_heap(&self) -> &TypeHeap<'l> {
@@ -32,20 +29,24 @@ impl<'l> Heaps<'l> {
 	pub fn blob_heap(&self) -> &BlobHeap<'l> {
 		&self.blob_heap
 	}
+
+	pub fn general_purpose_heap(&self) -> &'l ArenaAllocator {
+		self.bump
+	}
 }
 
 #[derive(Clone)]
 pub struct HeapScopes<'l> {
-	bump: &'l Bump,
+	bump: &'l ArenaAllocator,
 	blob_heap: Arc<BlobHeapScope<'l>>,
 }
 
 impl<'l> HeapScopes<'l> {
-	pub fn new(bump: &'l Bump, blob_heap: Arc<BlobHeapScope<'l>>) -> Self {
+	pub fn new(bump: &'l ArenaAllocator, blob_heap: Arc<BlobHeapScope<'l>>) -> Self {
 		Self { bump, blob_heap }
 	}
 
-	pub fn bump(&self) -> &'l Bump {
+	pub fn bump(&self) -> &'l ArenaAllocator {
 		self.bump
 	}
 

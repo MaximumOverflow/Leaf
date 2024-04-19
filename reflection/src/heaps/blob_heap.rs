@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use bumpalo::Bump;
 use fxhash::FxHashMap;
 use nohash_hasher::BuildNoHashHasher;
 
+use crate::heaps::ArenaAllocator;
 use crate::heaps::blob_heap::intern::Intern;
 
 pub struct BlobHeap<'l> {
-	buf: &'l Bump,
+	buf: &'l ArenaAllocator,
 	map: RwLock<FxHashMap<&'l [u8], &'l [u8]>>,
 }
 
@@ -20,7 +20,7 @@ pub struct BlobHeapScope<'l> {
 }
 
 impl<'l> BlobHeap<'l> {
-	pub fn new(bump: &'l Bump) -> Self {
+	pub fn new(bump: &'l ArenaAllocator) -> Self {
 		Self {
 			buf: bump,
 			map: RwLock::default(),

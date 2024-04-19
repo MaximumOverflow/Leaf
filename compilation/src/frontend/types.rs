@@ -5,17 +5,17 @@ use fxhash::FxHashMap;
 use tracing::trace;
 
 use leaf_parsing::ast::{Expression, Integer, Literal, Type as TypeNode};
-use leaf_reflection::heaps::Bump;
+use leaf_reflection::heaps::ArenaAllocator;
 use leaf_reflection::Type;
 
 pub struct TypeCache<'l> {
-	bump: &'l Bump,
+	bump: &'l ArenaAllocator,
 	array_types: RefCell<HashMap<(&'l Type<'l>, usize), &'l Type<'l>>>,
 	pointer_types: RefCell<HashMap<(&'l Type<'l>, bool), &'l Type<'l>>>,
 }
 
 impl<'l> TypeCache<'l> {
-	pub fn new(bump: &'l Bump) -> Self {
+	pub fn new(bump: &'l ArenaAllocator) -> Self {
 		Self {
 			bump,
 			array_types: RefCell::default(),

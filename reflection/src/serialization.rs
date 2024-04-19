@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "read")]
 pub trait MetadataRead<'val, 'req>
-where
-	Self: Sized,
+	where
+		Self: Sized,
 {
 	type Requirements;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error>;
@@ -28,8 +28,8 @@ where
 
 #[cfg(feature = "write")]
 pub trait MetadataWrite<'val, 'req>
-where
-	Self: Sized,
+	where
+		Self: Sized,
 {
 	type Requirements;
 	fn write<S: Write>(
@@ -45,7 +45,7 @@ macro_rules! impl_metadata {
 			#[cfg(feature = "read")]
 			impl MetadataRead<'_, '_> for $ty {
 				type Requirements = ();
-				fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
+				fn read<S: Read>(stream: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
 					let mut bytes = [0; std::mem::size_of::<Self>()];
 					stream.read_exact(&mut bytes)?;
 					Ok(Self::from_le_bytes(bytes))
@@ -55,7 +55,7 @@ macro_rules! impl_metadata {
 			#[cfg(feature = "write")]
 			impl MetadataWrite<'_, '_> for $ty {
 				type Requirements = ();
-				fn write<S: Write>(&self, stream: &mut S, req: impl Into<Self::Requirements>) -> Result<(), Error> {
+				fn write<S: Write>(&self, stream: &mut S, _: impl Into<Self::Requirements>) -> Result<(), Error> {
 					stream.write_all(&self.to_le_bytes())
 				}
 			}
@@ -66,7 +66,7 @@ macro_rules! impl_metadata {
 			#[cfg(feature = "read")]
 			impl MetadataRead<'_, '_> for $ty {
 				type Requirements = ();
-				fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
+				fn read<S: Read>(stream: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
 					let mut result = <$ty>::default();
 					let mut shift = 0;
 
@@ -90,7 +90,7 @@ macro_rules! impl_metadata {
 			#[cfg(feature = "write")]
 			impl MetadataWrite<'_, '_> for $ty {
 				type Requirements = ();
-				fn write<S: Write>(&self, stream: &mut S, req: impl Into<Self::Requirements>) -> Result<(), Error> {
+				fn write<S: Write>(&self, stream: &mut S, _: impl Into<Self::Requirements>) -> Result<(), Error> {
 					let mut n = *self;
 					while n >= 0x80 {
 						stream.write_all(&[0x80 | (n as u8)])?;
@@ -154,7 +154,7 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Opt
 			Some(value) => {
 				<u8 as MetadataWrite>::write(&1u8, stream, ())?;
 				<T as MetadataWrite>::write(value, stream, req)
-			},
+			}
 		}
 	}
 }
@@ -192,8 +192,8 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Onc
 
 #[cfg(feature = "read")]
 impl<'val, 'req, T: MetadataRead<'val, 'req>> MetadataRead<'val, 'req> for Vec<T>
-where
-	T::Requirements: Clone,
+	where
+		T::Requirements: Clone,
 {
 	type Requirements = T::Requirements;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
@@ -209,8 +209,8 @@ where
 
 #[cfg(feature = "write")]
 impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Vec<T>
-where
-	T::Requirements: Clone,
+	where
+		T::Requirements: Clone,
 {
 	type Requirements = T::Requirements;
 	fn write<S: Write>(

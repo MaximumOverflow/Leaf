@@ -68,7 +68,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 	) -> anyhow::Result<()> {
 		let ast = span!(Level::DEBUG, "parse_code").in_scope(|| {
 			static PARSER: OnceLock<AstParser> = OnceLock::new();
-			let parser = PARSER.get_or_init(AstParser::new);
+			let parser = PARSER.get_or_init(|| {
+				debug!("Initializing parser");
+				AstParser::new()
+			});
+			debug!("Parsing code");
 			parser.parse(code)
 		});
 
