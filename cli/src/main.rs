@@ -1,7 +1,7 @@
 use std::alloc::Layout;
 use std::ffi::c_char;
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Cursor};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -15,6 +15,7 @@ use tracing_subscriber::Registry;
 use leaf_compilation::frontend::{CompilationUnit, TypeCache};
 use leaf_compilation::reflection::{Assembly, Version};
 use leaf_compilation::reflection::heaps::{ArenaAllocator, Heaps};
+use leaf_compilation::reflection::serialization::{MetadataRead, MetadataWrite};
 
 use crate::interpreter::Interpreter;
 
@@ -47,7 +48,7 @@ struct InterpretArgs {
 	verbose: bool,
 }
 
-#[cfg(not(feature = "miri"))]
+#[cfg(not(any(feature = "miri_interpret", feature = "miri_compile")))]
 fn main() {
 	let args = Args::parse();
 
@@ -178,14 +179,26 @@ fn main() {
 			info!("Compilation time: {:?}", delta);
 
 			time = SystemTime::now();
-			let mut bytes = vec![];
+			let mut bytes: Vec<u8> = vec![];
+			assembly.write(&mut bytes, ()).unwrap();
 			delta = time.elapsed().unwrap();
 			info!("Serialization time: {:?}", delta);
+			// std::fs::write("out.llib", &bytes).unwrap();
+
+			time = SystemTime::now();
+			let bump = ArenaAllocator::default();
+			let heaps = Heaps::new(&bump);
+			let mut cursor = Cursor::new(bytes.as_slice());
+			let read_assembly = Assembly::read(&mut cursor, heaps).unwrap();
+			delta = time.elapsed().unwrap();
+			info!("Deserialization time: {:?}", delta);
+
+			dbg!(read_assembly);
 		}
 	}
 }
 
-#[cfg(feature = "miri")]
+#[cfg(feature = "miri_interpret")]
 fn main() {
 	let fmt_layer = tracing_subscriber::fmt::layer()
 		.compact()
@@ -249,4 +262,40 @@ fn main() {
 			println!("Error: {}", err);
 		}
 	};
+}
+
+#[cfg(feature = "miri_compile")]
+fn main() {
+	let fmt_layer = tracing_subscriber::fmt::layer()
+		.compact()
+		.with_file(false)
+		.with_target(false)
+		.with_level(true)
+		.with_writer(std::io::stderr.with_max_level(Level::TRACE));
+
+	let registry = Registry::default().with(fmt_layer);
+	tracing::subscriber::set_global_default(registry).unwrap();
+
+	let bump = ArenaAllocator::default();
+	let heaps = Heaps::new(&bump);
+	let type_cache = TypeCache::new(&bump);
+
+	let file = include_str!("../../test.leaf");
+	let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
+	if let Err(err) = CompilationUnit::compile_code(&type_cache, &mut assembly, file) {
+		return println!("{:#}", err);
+	}
+
+	let mut bytes: Vec<u8> = vec![];
+	assembly.write(&mut bytes, ()).unwrap();
+	info!("Serialization completed");
+
+	let bump = ArenaAllocator::default();
+	let heaps = Heaps::new(&bump);
+	let type_cache = TypeCache::new(&bump);
+	let mut cursor = Cursor::new(bytes.as_slice());
+	let read_assembly = Assembly::read(&mut cursor, heaps).unwrap();
+	info!("Deserialization completed");
+
+	dbg!(read_assembly);
 }

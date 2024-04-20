@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use anyhow::anyhow;
 use fxhash::FxHashMap;
 use tracing::instrument;
 
 use leaf_parsing::ast::{Block as BlockAst, Expression, Literal, Statement};
 use leaf_reflection::{Function, Opcode, SSAContextBuilder, Type, ValueIdx};
-use leaf_reflection::heaps::HeapScopes;
+use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 
 use crate::frontend::expressions::compile_expression;
 use crate::frontend::types::{TypeCache, TypeResolver};
@@ -159,6 +160,11 @@ impl<'l> TypeResolver<'l> for Block<'_, 'l> {
 	fn type_cache(&self) -> &TypeCache<'l> {
 		self.type_cache
 	}
+
+	fn blob_heap(&self) -> &Arc<BlobHeapScope<'l>> {
+		self.heaps.blob_heap()
+	}
+
 	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>> {
 		self.types
 	}

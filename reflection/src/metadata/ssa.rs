@@ -1,18 +1,26 @@
+use std::fmt::{Debug, Formatter};
+use derivative::Derivative;
 pub use build::*;
 use leaf_derive::Metadata;
 
 use crate::{Function, Type};
 
 #[repr(u8)]
-#[derive(Debug, Default, Clone, Metadata)]
+#[derive(Default, Clone, Metadata, Derivative)]
 #[metadata(lifetimes(val = "l"))]
+#[derivative(Debug)]
 pub enum Opcode<'l> {
 	#[default]
 	Nop = 0x00,
 	Jp(usize) = 0x01,
 	Br(ValueIdx, usize, usize) = 0x02,
 	Ret(Option<ValueIdx>) = 0x03,
-	Call(&'l Function<'l>, Vec<ValueIdx>, Option<ValueIdx>) = 0x04,
+	Call(
+		#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
+		&'l Function<'l>,
+		Vec<ValueIdx>,
+		Option<ValueIdx>,
+	) = 0x04,
 
 	Load(ValueIdx, ValueIdx) = 0x10,
 	Store(ValueIdx, ValueIdx) = 0x11,
@@ -54,16 +62,21 @@ pub enum Comparison {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Metadata)]
 pub struct ValueIdx(pub usize);
 
-#[derive(Debug, Default, Metadata)]
+#[derive(Default, Metadata, Derivative)]
 #[metadata(lifetimes(val = "l"))]
+#[derivative(Debug)]
 pub struct SSAContext<'l> {
+	#[derivative(Debug(format_with = "debug_values"))]
 	values: Vec<Value<'l>>,
+	#[derivative(Debug(format_with = "debug_opcodes"))]
 	opcodes: Vec<Opcode<'l>>,
 }
 
-#[derive(Debug, Copy, Clone, Metadata)]
+#[derive(Copy, Clone, Metadata, Derivative)]
 #[metadata(lifetimes(val = "l"))]
+#[derivative(Debug)]
 pub struct Value<'l> {
+	#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
 	pub ty: &'l Type<'l>,
 	pub const_data: Option<&'l [u8]>,
 }
@@ -217,7 +230,7 @@ mod build {
 					match &opcode {
 						Opcode::Jp(block) => {
 							opcodes.push(Opcode::Jp(block_offsets[*block]));
-						},
+						}
 						Opcode::Br(cond, true_case, false_case) => opcodes.push(Opcode::Br(
 							*cond,
 							block_offsets[*true_case],
@@ -309,5 +322,21 @@ mod build {
 	}
 }
 
-#[cfg(feature = "write")]
-mod write {}
+fn debug_values(v: &Vec<Value>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	let mut list = fmt.debug_list();
+	for (i, value) in v.iter().enumerate() {
+		match value.const_data {
+			None => list.entry(&format_args!("{i}: {}", value.ty)),
+			Some(v) => list.entry(&format_args!("{i}: const {} {:?}", value.ty, v)),
+		};
+	}
+	list.finish()
+}
+
+fn debug_opcodes(v: &Vec<Opcode>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	let mut list = fmt.debug_list();
+	for (i, opcode) in v.iter().enumerate() {
+		list.entry(&format_args!("{i}: {:?}", opcode));
+	}
+	list.finish()
+}

@@ -20,7 +20,7 @@ impl ArenaAllocator {
 		}
 	}
 
-	pub fn alloc_str<T: Copy + Sized + Send>(&self, str: &str) -> &mut str {
+	pub fn alloc_str(&self, str: &str) -> &mut str {
 		unsafe {
 			let bump = self.bump.lock().unwrap();
 			let str = bump.alloc_str(str);
@@ -60,11 +60,9 @@ impl ArenaAllocator {
 
 impl Drop for ArenaAllocator {
 	fn drop(&mut self) {
-		unsafe {
-			let drops = self.drops.lock().unwrap();
-			for (ptr, len, drop) in drops.iter() {
-				drop(*ptr, *len)
-			}
+		let drops = self.drops.lock().unwrap();
+		for (ptr, len, drop) in drops.iter() {
+			drop(*ptr, *len)
 		}
 	}
 }

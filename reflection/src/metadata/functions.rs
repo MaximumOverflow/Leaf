@@ -1,31 +1,41 @@
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::OnceLock;
 use bitflags::bitflags;
 
 use crate::metadata::ssa::SSAContext;
-use crate::Type;
+use crate::{Type, UniqueIdentifier};
 
-#[derive(Debug)]
+#[allow(unused_imports)]
+use std::io::{Read, Write, Error, ErrorKind};
+use derivative::Derivative;
+use leaf_derive::Metadata;
+
+#[derive(Derivative, Metadata)]
+#[metadata(lifetimes(val = "l"))]
+#[derivative(Debug)]
 pub struct Function<'l> {
-	id: &'l str,
+	// Should always be the first field
+	#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
+	id: UniqueIdentifier<'l>,
 	name: &'l str,
+	#[derivative(Debug(format_with = "debug_ret_ty"))]
 	ret_ty: OnceLock<&'l Type<'l>>,
+	#[derivative(Debug(format_with = "debug_params"))]
 	params: OnceLock<Vec<Parameter<'l>>>,
-	body: OnceLock<FunctionBody<'l>>,
+	#[derivative(Debug(format_with = "debug_body"))]
+	body: OnceLock<Option<FunctionBody<'l>>>,
 }
 
 impl<'l> Function<'l> {
-	pub fn id(&self) -> &str {
+	pub fn id(&self) -> UniqueIdentifier<'l> {
 		self.id
 	}
 
-	pub fn namespace(&self) -> &str {
-		match self.id.rsplit_once('/') {
-			None => "",
-			Some((ns, _)) => ns,
-		}
+	pub fn namespace(&self) -> &'l str {
+		self.id.namespace
 	}
 
-	pub fn name(&self) -> &str {
+	pub fn name(&self) -> &'l str {
 		self.name
 	}
 
@@ -38,13 +48,22 @@ impl<'l> Function<'l> {
 	}
 
 	pub fn body(&self) -> Option<&FunctionBody<'l>> {
-		self.body.get()
+		self.body.get()?.as_ref()
 	}
 }
 
-#[derive(Debug)]
+impl Display for Function<'_> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "`{}`", self.id)
+	}
+}
+
+#[derive(Metadata, Derivative)]
+#[metadata(lifetimes(val = "l"))]
+#[derivative(Debug)]
 pub struct Parameter<'l> {
 	name: &'l str,
+	#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
 	ty: &'l Type<'l>,
 }
 
@@ -63,10 +82,10 @@ mod build {
 	use std::sync::OnceLock;
 
 	use crate::metadata::functions::{Function, Parameter};
-	use crate::{FunctionBody, Type};
+	use crate::{FunctionBody, Type, UniqueIdentifier};
 
 	impl<'l> Function<'l> {
-		pub(crate) fn new(id: &'l str, name: &'l str) -> Self {
+		pub(crate) fn new(id: UniqueIdentifier<'l>, name: &'l str) -> Self {
 			Self {
 				id,
 				name,
@@ -84,7 +103,7 @@ mod build {
 			self.params.set(params)
 		}
 
-		pub fn set_body(&self, body: FunctionBody<'l>) -> Result<(), FunctionBody<'l>> {
+		pub fn set_body(&self, body: Option<FunctionBody<'l>>) -> Result<(), Option<FunctionBody<'l>>> {
 			self.body.set(body)
 		}
 	}
@@ -106,23 +125,60 @@ mod build {
 
 #[cfg(feature = "read")]
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Function<'val> {
-	type Requirements = &'req crate::serialization::ReadDependencies<'val>;
-	fn read<S: std::io::Read>(
+	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
+	fn read<S: Read>(
 		stream: &mut S,
 		req: impl Into<Self::Requirements>,
-	) -> Result<Self, std::io::Error> {
-		todo!()
+	) -> Result<Self, Error> {
+		let req = req.into();
+		unsafe {
+			assert!(!req.functions.is_null());
+			let structs = &*req.functions;
+			let id = UniqueIdentifier::read(stream, req)?;
+			match structs.get(&id) {
+				Some(cell) => Ok(&*cell.get()),
+				None => Err(Error::new(ErrorKind::NotFound, format!("Could not retrieve function `{id}`"))),
+			}
+		}
 	}
 }
 
 #[cfg(feature = "write")]
 impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val Function<'val> {
-	type Requirements = &'req crate::serialization::WriteDependencies<'val>;
-	fn write<S: std::io::Write>(
+	type Requirements = &'req crate::serialization::WriteRequirements<'val>;
+	fn write<S: Write>(
 		&self,
 		stream: &mut S,
 		req: impl Into<Self::Requirements>,
-	) -> Result<(), std::io::Error> {
-		todo!()
+	) -> Result<(), Error> {
+		self.id.write(stream, req)
+	}
+}
+
+fn debug_ret_ty(v: &OnceLock<&Type>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	match v.get() {
+		None => fmt.write_str("?"),
+		Some(ty) => write!(fmt, "{}", ty),
+	}
+}
+
+fn debug_body(v: &OnceLock<Option<SSAContext>>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	match v.get() {
+		None => fmt.write_str("?"),
+		Some(None) => fmt.write_str("None"),
+		Some(Some(body)) => Debug::fmt(body, fmt),
+	}
+}
+
+fn debug_params(v: &OnceLock<Vec<Parameter>>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	match v.get() {
+		None => fmt.write_str("?"),
+		Some(params) => {
+			let mut list = fmt.debug_set();
+			for param in params {
+				list.entry(&format_args!("{}: {}", param.name, param.ty));
+			}
+			list.finish()
+		}
 	}
 }

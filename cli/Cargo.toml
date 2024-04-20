@@ -20,4 +20,5 @@ tracing-appender = "0.2.3"
 tracing-subscriber = "0.3.18"
 
 [features]
-miri = []
+miri_compile = []
+miri_interpret = []

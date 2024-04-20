@@ -1,9 +1,13 @@
 #![allow(unused_imports)]
 
+use std::cell::UnsafeCell;
+use std::collections::{HashMap, HashSet};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::io::{Seek, SeekFrom};
 use std::marker::PhantomData;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+use crate::{Function, Struct, UniqueIdentifier};
+use crate::heaps::{BlobHeapScope, TypeHeap};
 
 #[cfg(feature = "read")]
 pub trait MetadataRead<'val, 'req>
@@ -127,6 +131,34 @@ impl MetadataWrite<'_, '_> for bool {
 }
 
 #[cfg(feature = "read")]
+impl MetadataRead<'_, '_> for String {
+	type Requirements = ();
+	fn read<S: Read>(stream: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
+		let len = usize::read(stream, ())?;
+		let mut buffer = Vec::with_capacity(len);
+		unsafe { buffer.set_len(len) };
+		stream.read_exact(&mut buffer)?;
+		match String::from_utf8(buffer) {
+			Ok(str) => Ok(str),
+			Err(err) => Err(Error::new(ErrorKind::InvalidData, err)),
+		}
+	}
+}
+
+#[cfg(feature = "write")]
+impl MetadataWrite<'_, '_> for String {
+	type Requirements = ();
+	fn write<S: Write>(
+		&self,
+		stream: &mut S,
+		_: impl Into<Self::Requirements>,
+	) -> Result<(), Error> {
+		self.len().write(stream, ())?;
+		stream.write_all(self.as_bytes())
+	}
+}
+
+#[cfg(feature = "read")]
 impl<'val, 'req, T: MetadataRead<'val, 'req>> MetadataRead<'val, 'req> for Option<T> {
 	type Requirements = T::Requirements;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
@@ -184,7 +216,7 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Onc
 			Some(value) => <T as MetadataWrite>::write(value, stream, req),
 			None => Err(Error::new(
 				ErrorKind::NotFound,
-				"OnceLock was not initialized",
+				format!("{} was not initialized", std::any::type_name::<OnceLock<T>>()),
 			)),
 		}
 	}
@@ -228,59 +260,78 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Vec
 }
 
 #[cfg(feature = "read")]
-impl<'val: 'req, 'req> MetadataRead<'val, 'req> for &[u8] {
-	type Requirements = &'req ReadDependencies<'val>;
+impl<'val: 'req, 'req> MetadataRead<'val, 'req> for &'val [u8] {
+	type Requirements = &'req ReadRequirements<'val>;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
-		unimplemented!()
+		let req = req.into();
+		let idx = usize::read(stream, ())?;
+		req.blobs.get_blob_at_index(idx).ok_or_else(move || {
+			Error::new(ErrorKind::InvalidData, format!("Invalid blob index {idx}"))
+		})
 	}
 }
 
 #[cfg(feature = "write")]
-impl<'val: 'req, 'req> MetadataWrite<'val, 'req> for &[u8] {
-	type Requirements = &'req WriteDependencies<'val>;
+impl<'val: 'req, 'req> MetadataWrite<'val, 'req> for &'val [u8] {
+	type Requirements = &'req WriteRequirements<'val>;
 	fn write<S: Write>(
 		&self,
 		stream: &mut S,
 		req: impl Into<Self::Requirements>,
 	) -> Result<(), Error> {
-		unimplemented!()
+		let req = req.into();
+		let Some(idx) = req.blobs.get_blob_index(self) else {
+			return Err(Error::new(ErrorKind::NotFound, "Blob was not previously interned"));
+		};
+		idx.write(stream, ())
 	}
 }
 
 #[cfg(feature = "read")]
-impl<'val: 'req, 'req> MetadataRead<'val, 'req> for &str {
-	type Requirements = &'req ReadDependencies<'val>;
+impl<'val: 'req, 'req> MetadataRead<'val, 'req> for &'val str {
+	type Requirements = &'req ReadRequirements<'val>;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
-		unimplemented!()
+		let req = req.into();
+		let idx = usize::read(stream, ())?;
+		req.blobs.get_str_at_index(idx).ok_or_else(move || {
+			Error::new(ErrorKind::InvalidData, format!("Invalid str index {idx}"))
+		})
 	}
 }
 
 #[cfg(feature = "write")]
-impl<'val: 'req, 'req> MetadataWrite<'val, 'req> for &str {
-	type Requirements = &'req WriteDependencies<'val>;
+impl<'val: 'req, 'req> MetadataWrite<'val, 'req> for &'val str {
+	type Requirements = &'req WriteRequirements<'val>;
 	fn write<S: Write>(
 		&self,
 		stream: &mut S,
 		req: impl Into<Self::Requirements>,
 	) -> Result<(), Error> {
-		unimplemented!()
+		let req = req.into();
+		let Some(idx) = req.blobs.get_blob_index(self.as_bytes()) else {
+			return Err(Error::new(ErrorKind::NotFound, format!("String {self:?} was not previously interned")));
+		};
+		idx.write(stream, ())
 	}
 }
 
 #[cfg(feature = "read")]
-pub struct ReadDependencies<'l> {
-	ph: PhantomData<&'l ()>,
+pub struct ReadRequirements<'l> {
+	pub type_heap: Arc<TypeHeap<'l>>,
+	pub blobs: Arc<BlobHeapScope<'l>>,
+	pub structs: *const HashMap<UniqueIdentifier<'l>, &'l UnsafeCell<Struct<'l>>>,
+	pub functions: *const HashMap<UniqueIdentifier<'l>, &'l UnsafeCell<Function<'l>>>,
 }
 
-impl Into<()> for &ReadDependencies<'_> {
+impl Into<()> for &ReadRequirements<'_> {
 	fn into(self) {}
 }
 
 #[cfg(feature = "write")]
-pub struct WriteDependencies<'l> {
-	ph: PhantomData<&'l ()>,
+pub struct WriteRequirements<'l> {
+	pub blobs: Arc<BlobHeapScope<'l>>,
 }
 
-impl Into<()> for &WriteDependencies<'_> {
+impl Into<()> for &WriteRequirements<'_> {
 	fn into(self) {}
 }

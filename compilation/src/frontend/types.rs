@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 use anyhow::anyhow;
 use fxhash::FxHashMap;
 use tracing::trace;
 
 use leaf_parsing::ast::{Expression, Integer, Literal, Type as TypeNode};
-use leaf_reflection::heaps::ArenaAllocator;
+use leaf_reflection::heaps::{ArenaAllocator, BlobHeapScope};
+use leaf_reflection::serialization::{MetadataWrite, WriteRequirements};
 use leaf_reflection::Type;
 
 pub struct TypeCache<'l> {
@@ -33,38 +35,39 @@ impl<'l> TypeCache<'l> {
 
 pub trait TypeResolver<'l> {
 	fn type_cache(&self) -> &TypeCache<'l>;
+	fn blob_heap(&self) -> &Arc<BlobHeapScope<'l>>;
 	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>>;
 
 	#[tracing::instrument(skip_all)]
 	fn resolve_type(&self, ast: &TypeNode) -> anyhow::Result<&'l Type<'l>> {
-		match ast {
+		let ty: &Type = match ast {
 			TypeNode::Id(id) => {
 				trace!("Resolving type {id:?}");
 				match *id {
-					"void" => Ok(&Type::Void),
-					"char" => Ok(&Type::Char),
-					"bool" => Ok(&Type::Bool),
-					"i8" => Ok(&Type::Int8),
-					"i16" => Ok(&Type::Int16),
-					"i32" => Ok(&Type::Int32),
-					"i64" => Ok(&Type::Int64),
-					"u8" => Ok(&Type::UInt8),
-					"u16" => Ok(&Type::UInt16),
-					"u32" => Ok(&Type::UInt32),
-					"u64" => Ok(&Type::UInt64),
-					"f16" => Ok(&Type::Float16),
-					"f32" => Ok(&Type::Float32),
-					"f64" => Ok(&Type::Float64),
+					"void" => &Type::Void,
+					"char" => &Type::Char,
+					"bool" => &Type::Bool,
+					"i8" => &Type::Int8,
+					"i16" => &Type::Int16,
+					"i32" => &Type::Int32,
+					"i64" => &Type::Int64,
+					"u8" => &Type::UInt8,
+					"u16" => &Type::UInt16,
+					"u32" => &Type::UInt32,
+					"u64" => &Type::UInt64,
+					"f16" => &Type::Float16,
+					"f32" => &Type::Float32,
+					"f64" => &Type::Float64,
 					_ => match self.types().get(id) {
-						Some(ty) => Ok(ty),
-						None => Err(anyhow!("Type `{id}` is not available in the current scope")),
+						Some(ty) => *ty,
+						None => return Err(anyhow!("Type `{id}` is not available in the current scope")),
 					},
 				}
 			}
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
 				let base = self.resolve_type(base)?;
-				Ok(self.type_cache().make_pointer(base, *mutable))
+				self.type_cache().make_pointer(base, *mutable)
 			}
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
 				Some(Expression::Literal(Literal::Integer(length))) => {
@@ -92,12 +95,19 @@ pub trait TypeResolver<'l> {
 						})
 					});
 
-					Ok(ty)
+					ty
 				}
 				_ => unimplemented!(),
 			},
 			_ => unimplemented!(),
-		}
+		};
+
+		let mut buf = vec![];
+		Type::write(ty, &mut buf, &WriteRequirements {
+			blobs: self.blob_heap().clone(),
+		})?;
+		self.blob_heap().intern(buf);
+		Ok(ty)
 	}
 }
 

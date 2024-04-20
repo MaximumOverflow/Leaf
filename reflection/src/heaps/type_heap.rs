@@ -1,7 +1,7 @@
 use crate::heaps::general_purpose_heap::ArenaAllocator;
 use std::collections::{HashMap, HashSet};
 use crate::{Struct, Type};
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 
 pub struct TypeHeap<'l> {
 	bump: &'l ArenaAllocator,
@@ -26,6 +26,17 @@ impl<'l> TypeHeap<'l> {
 
 #[rustfmt::skip]
 impl<'l> TypeHeap<'l> {
+	pub fn r#struct(&self, ty: Struct<'l>) -> &'l Type<'l> {
+		let ty = self.bump.alloc(ty);
+		self.struct_ref(ty)
+	}
+
+	pub fn struct_cell(&self, ty: Struct<'l>) -> &'l UnsafeCell<Struct<'l>> {
+		let ty = self.bump.alloc(UnsafeCell::new(ty));
+		self.struct_ref(unsafe { &*ty.get() });
+		ty
+	}
+
 	pub fn struct_ref(&self, ty: &'l Struct<'l>) -> &'l Type<'l> {
 		let mut structs = self.structs.borrow_mut();
 		let mut set = self.set.borrow_mut();
@@ -54,7 +65,26 @@ impl<'l> TypeHeap<'l> {
 			return *ty;
 		}
 
-		assert!(set.contains(&key.0), "Type does not belong to this TypeHeap");
+		if !set.contains(&key.0) {
+			match ty {
+				| Type::Void
+				| Type::Char
+				| Type::Bool
+				| Type::Int8
+				| Type::Int16
+				| Type::Int32
+				| Type::Int64
+				| Type::UInt8
+				| Type::UInt16
+				| Type::UInt32
+				| Type::UInt64
+				| Type::Float16
+				| Type::Float32
+				| Type::Float64 => {}
+				_ => panic!("Type `{ty}` does not belong to this TypeHeap"),
+			}
+		}
+
 		let ty = self.alloc(Type::Pointer { ty, mutable });
 		set.insert(as_key(ty));
 		pointers.insert(key, ty);

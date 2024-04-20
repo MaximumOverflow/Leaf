@@ -219,7 +219,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 	return quote! {
 		#[cfg(feature = "read")]
 		impl<'__val: '__req, '__req> crate::serialization::MetadataRead<'__val, '__req> for #name #generics {
-			type Requirements = &'__req crate::serialization::ReadDependencies<'__val>;
+			type Requirements = &'__req crate::serialization::ReadRequirements<'__val>;
 			fn read<__S: std::io::Read>(__stream: &mut __S, __req: impl std::convert::Into<Self::Requirements>) -> Result<Self, std::io::Error> {
 				#read_impl
 			}
@@ -227,7 +227,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 
 		#[cfg(feature = "write")]
 		impl<'__val: '__req, '__req> crate::serialization::MetadataWrite<'__val, '__req> for #name #generics {
-			type Requirements = &'__req crate::serialization::WriteDependencies<'__val>;
+			type Requirements = &'__req crate::serialization::WriteRequirements<'__val>;
 			fn write<__S: std::io::Write>(&self, __stream: &mut __S, __req: impl std::convert::Into<Self::Requirements>) -> Result<(), std::io::Error> {
 				#write_impl
 			}

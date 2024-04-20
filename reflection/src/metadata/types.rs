@@ -1,12 +1,19 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
 use derivative::Derivative;
 use leaf_derive::Metadata;
+use crate::UniqueIdentifier;
+
+#[allow(unused_imports)]
+use std::io::{Read, Write, Error, ErrorKind};
+use std::io::Cursor;
+
 
 #[repr(u8)]
-#[derive(Debug, Clone, Hash)]
+#[derive(Clone, Hash, Metadata)]
+#[metadata(lifetimes(val = "l"))]
 pub enum Type<'l> {
 	Void = 0x00,
 	Char = 0x01,
@@ -56,7 +63,7 @@ impl PartialEq<Self> for Type<'_> {
 					ty: tb,
 				},
 			) => ma == mb && ta == tb,
-			(Type::Struct(a), Type::Struct(b)) => a == b,
+			(Type::Struct(a), Type::Struct(b)) => std::ptr::eq(*a, *b),
 			_ => std::mem::discriminant(self) == std::mem::discriminant(other),
 		}
 	}
@@ -65,41 +72,81 @@ impl PartialEq<Self> for Type<'_> {
 impl Display for Type<'_> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Type::Void => f.write_str("void"),
-			Type::Char => f.write_str("char"),
-			Type::Bool => f.write_str("bool"),
-			Type::Int8 => f.write_str("i8"),
-			Type::Int16 => f.write_str("i16"),
-			Type::Int32 => f.write_str("i32"),
-			Type::Int64 => f.write_str("i64"),
-			Type::UInt8 => f.write_str("u8"),
-			Type::UInt16 => f.write_str("u16"),
-			Type::UInt32 => f.write_str("u32"),
-			Type::UInt64 => f.write_str("u64"),
-			Type::Float16 => f.write_str("f16"),
-			Type::Float32 => f.write_str("f32"),
-			Type::Float64 => f.write_str("f64"),
+			Type::Void => write!(f, "void"),
+			Type::Char => write!(f, "char"),
+			Type::Bool => write!(f, "bool"),
+			Type::Int8 => write!(f, "i8"),
+			Type::Int16 => write!(f, "i16"),
+			Type::Int32 => write!(f, "i32"),
+			Type::Int64 => write!(f, "i64"),
+			Type::UInt8 => write!(f, "u8"),
+			Type::UInt16 => write!(f, "u16"),
+			Type::UInt32 => write!(f, "u32"),
+			Type::UInt64 => write!(f, "u64"),
+			Type::Float16 => write!(f, "f16"),
+			Type::Float32 => write!(f, "f32"),
+			Type::Float64 => write!(f, "f64"),
 			Type::Array { count, ty } => write!(f, "[{}; {}]", ty, count),
 			Type::Pointer { mutable, ty } => match *mutable {
 				false => write!(f, "*{}", ty),
 				true => write!(f, "*mut {}", ty),
 			},
-			Type::Struct(base) => write!(f, "{}::{}", base.namespace(), base.name()),
+			Type::Struct(base) => Display::fmt(&base.id, f),
+		}
+	}
+}
+
+impl Debug for Type<'_> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Type::Struct(s) => Debug::fmt(s, f),
+			_ => Display::fmt(self, f),
+		}
+	}
+}
+
+impl Type<'_> {
+	pub(crate) fn discriminant(&self) -> u8 {
+		unsafe { std::mem::transmute(std::mem::discriminant(self)) }
+	}
+
+	pub fn id(&self) -> UniqueIdentifier {
+		match self {
+			Type::Void => UniqueIdentifier { namespace: "core::intrinsics::types", name: "void" },
+			Type::Char => UniqueIdentifier { namespace: "core::intrinsics::types", name: "char" },
+			Type::Bool => UniqueIdentifier { namespace: "core::intrinsics::types", name: "bool" },
+			Type::Int8 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i8" },
+			Type::Int16 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i16" },
+			Type::Int32 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i32" },
+			Type::Int64 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i64" },
+			Type::UInt8 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u8" },
+			Type::UInt16 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u16" },
+			Type::UInt32 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u32" },
+			Type::UInt64 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u64" },
+			Type::Float16 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "f16" },
+			Type::Float32 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "f32" },
+			Type::Float64 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "f64" },
+			Type::Struct(data) => { data.id }
+			Type::Array { .. } => unreachable!(),
+			Type::Pointer { .. } => unreachable!(),
 		}
 	}
 }
 
 #[derive(Derivative, Metadata)]
-#[derivative(Debug, Eq, PartialEq)]
+#[derivative(Debug)]
 #[metadata(lifetimes(val = "l"))]
 pub struct Struct<'l> {
-	id: &'l str,
+	// Should always be the first field
+	#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
+	id: UniqueIdentifier<'l>,
 	name: &'l str,
+	#[derivative(Debug(format_with = "debug_fields"))]
 	fields: OnceLock<Vec<Field<'l>>>,
 }
 
 impl<'l> Struct<'l> {
-	pub fn id(&self) -> &'l str {
+	pub fn id(&self) -> UniqueIdentifier<'l> {
 		self.id
 	}
 
@@ -108,10 +155,7 @@ impl<'l> Struct<'l> {
 	}
 
 	pub fn namespace(&self) -> &'l str {
-		match self.id.rsplit_once('/') {
-			None => "",
-			Some((ns, _)) => ns,
-		}
+		self.id.namespace
 	}
 
 	pub fn fields(&self) -> &[Field<'l>] {
@@ -130,7 +174,7 @@ impl<'l> Into<Type<'l>> for &'l Struct<'l> {
 
 impl Hash for Struct<'_> {
 	fn hash<H: Hasher>(&self, state: &mut H) {
-		state.write(self.id.as_bytes());
+		self.id.hash(state)
 	}
 }
 
@@ -162,7 +206,7 @@ mod build {
 	}
 
 	impl<'l> Struct<'l> {
-		pub(crate) fn new(id: &'l str, name: &'l str) -> Self {
+		pub(crate) fn new(id: UniqueIdentifier<'l>, name: &'l str) -> Self {
 			Self {
 				id,
 				name,
@@ -177,24 +221,96 @@ mod build {
 }
 
 #[cfg(feature = "read")]
-impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Type<'val> {
-	type Requirements = &'req crate::serialization::ReadDependencies<'val>;
-	fn read<S: std::io::Read>(
+impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Struct<'val> {
+	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
+	fn read<S: Read>(
 		stream: &mut S,
 		req: impl Into<Self::Requirements>,
-	) -> Result<Self, std::io::Error> {
-		todo!()
+	) -> Result<Self, Error> {
+		let req = req.into();
+		unsafe {
+			assert!(!req.structs.is_null());
+			let structs = &*req.structs;
+			let id = UniqueIdentifier::read(stream, req)?;
+			match structs.get(&id) {
+				Some(cell) => Ok(&*cell.get()),
+				None => Err(Error::new(ErrorKind::NotFound, format!("Could not retrieve type `{id}`"))),
+			}
+		}
+	}
+}
+
+#[cfg(feature = "write")]
+impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val Struct<'val> {
+	type Requirements = &'req crate::serialization::WriteRequirements<'val>;
+	fn write<S: Write>(
+		&self,
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<(), Error> {
+		self.id.write(stream, req)
+	}
+}
+
+#[cfg(feature = "read")]
+impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Type<'val> {
+	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
+	fn read<S: Read>(
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<Self, Error> {
+		let req = req.into();
+		let blob: &'val [u8] = crate::serialization::MetadataRead::read(stream, req)?;
+		let ty: Type<'val> = Type::read(&mut Cursor::new(blob), req)?;
+		match ty {
+			Type::Void => Ok(&Type::Void),
+			Type::Char => Ok(&Type::Char),
+			Type::Bool => Ok(&Type::Bool),
+			Type::Int8 => Ok(&Type::Int8),
+			Type::Int16 => Ok(&Type::Int16),
+			Type::Int32 => Ok(&Type::Int32),
+			Type::Int64 => Ok(&Type::Int64),
+			Type::UInt8 => Ok(&Type::UInt8),
+			Type::UInt16 => Ok(&Type::UInt16),
+			Type::UInt32 => Ok(&Type::UInt32),
+			Type::UInt64 => Ok(&Type::UInt64),
+			Type::Float16 => Ok(&Type::Float16),
+			Type::Float32 => Ok(&Type::Float32),
+			Type::Float64 => Ok(&Type::Float64),
+			Type::Struct(data) => Ok(req.type_heap.struct_ref(data)),
+			Type::Array { .. } => unimplemented!(),
+			Type::Pointer { mutable, ty } => Ok(req.type_heap.pointer(ty, mutable))
+		}
 	}
 }
 
 #[cfg(feature = "write")]
 impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val Type<'val> {
-	type Requirements = &'req crate::serialization::WriteDependencies<'val>;
-	fn write<S: std::io::Write>(
+	type Requirements = &'req crate::serialization::WriteRequirements<'val>;
+	fn write<S: Write>(
 		&self,
 		stream: &mut S,
 		req: impl Into<Self::Requirements>,
-	) -> Result<(), std::io::Error> {
-		todo!()
+	) -> Result<(), Error> {
+		let req = req.into();
+		let mut buffer = vec![];
+		Type::write(self, &mut buffer, req)?;
+		let Some(idx) = req.blobs.get_blob_index(&buffer) else {
+			return Err(Error::new(ErrorKind::NotFound, format!("Type `{self}` was not previously interned")));
+		};
+		idx.write(stream, ())
+	}
+}
+
+fn debug_fields(v: &OnceLock<Vec<Field>>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	match v.get() {
+		None => fmt.write_str("?"),
+		Some(fields) => {
+			let mut list = fmt.debug_set();
+			for field in fields {
+				list.entry(&format_args!("{}: {}", field.name, field.ty));
+			}
+			list.finish()
+		}
 	}
 }

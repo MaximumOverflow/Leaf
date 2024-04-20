@@ -1,18 +1,17 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::Error;
 use fxhash::FxHashMap;
 
 use leaf_parsing::ast::{
-	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst, Enum as EnumAst,
-	SymbolDeclaration,
+	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst,
 };
 use leaf_parsing::parser::CompilationUnitParser as AstParser;
-use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Struct, Type};
+use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, error, info, instrument, Level, span, trace};
-use leaf_reflection::heaps::HeapScopes;
+use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
@@ -69,8 +68,10 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		let ast = span!(Level::DEBUG, "parse_code").in_scope(|| {
 			static PARSER: OnceLock<AstParser> = OnceLock::new();
 			let parser = PARSER.get_or_init(|| {
-				debug!("Initializing parser");
-				AstParser::new()
+				span!(Level::DEBUG, "initialize_parser").in_scope(|| {
+					debug!("Initializing parser");
+					AstParser::new()
+				})
 			});
 			debug!("Parsing code");
 			parser.parse(code)
@@ -112,10 +113,10 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 					let _span = span.enter();
 					debug!("Creating struct");
 
-					let r#struct = self.assembly.create_struct(ast.namespace, name).unwrap();
-					let ty = self.heaps.bump().alloc(Type::Struct(r#struct));
-					self.types.insert(r#struct.name(), ty);
-					symbols.structs.push((r#struct, decl));
+					let ty = self.assembly.create_struct(ast.namespace, name).unwrap();
+					let Type::Struct(s) = ty else { unreachable!() };
+					self.types.insert(s.name(), ty);
+					symbols.structs.push((ty, decl));
 				}
 				_ => {}
 			}
@@ -129,7 +130,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 			let func = self.assembly.create_function(ast.namespace, name).unwrap();
 
-			let span = span!(Level::DEBUG, "create_function", id = func.id());
+			let span = span!(Level::DEBUG, "create_function", id = func.name());
 			let _span = span.enter();
 			debug!("Creating function");
 
@@ -159,6 +160,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				symbols.functions.push((func, decl));
 				debug!("Function `{}` declared successfully", func.id());
 			} else {
+				let Ok(_) = func.set_body(None) else { unreachable!() };
 				debug!("External function `{}` declared successfully", func.id());
 			}
 		}
@@ -166,21 +168,25 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(symbols)
 	}
 
-	fn compile_types(&mut self, structs: Vec<(&'l Struct<'l>, &StructAst)>) -> anyhow::Result<()> {
-		for (r#struct, decl) in structs {
-			let span = span!(Level::DEBUG, "compile_struct", id = r#struct.id());
+	fn compile_types(&mut self, types: Vec<(&'l Type<'l>, &StructAst)>) -> anyhow::Result<()> {
+		for (ty, decl) in types {
+			let span = span!(Level::DEBUG, "compile_type", name = ty.id().name());
 			let _span = span.enter();
-			debug!("Compiling function `{}`", r#struct.id());
+			debug!("Compiling type `{}`", ty.id());
 
-			let mut members = vec![];
-			for member in &decl.members {
-				let ty = self.resolve_type(&member.ty)?;
-				let name = self.heaps.blob_heap().intern(member.name).0;
-				members.push(Field::new(name, ty));
+			match *ty {
+				Type::Struct(ty) => {
+					let mut members = vec![];
+					for member in &decl.members {
+						let ty = self.resolve_type(&member.ty)?;
+						let name = self.heaps.blob_heap().intern(member.name).0;
+						members.push(Field::new(name, ty));
+					}
+					ty.set_fields(members).unwrap();
+				}
+				_ => unreachable!(),
 			}
-
-			r#struct.set_fields(members).unwrap();
-			debug!("Type `{}` compiled successfully", r#struct.id());
+			debug!("Type `{}` compiled successfully", ty.id());
 		}
 		Ok(())
 	}
@@ -190,7 +196,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		funcs: Vec<(&'l Function<'l>, &FunctionAst)>,
 	) -> anyhow::Result<()> {
 		for (func, decl) in funcs {
-			let span = span!(Level::DEBUG, "compile_function", id = func.id());
+			let span = span!(Level::DEBUG, "compile_function", id = func.name());
 			let _span = span.enter();
 			debug!("Compiling function `{}`", func.id());
 
@@ -211,7 +217,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 			block.compile(decl.block.as_ref().unwrap(), &mut body)?;
 
-			func.set_body(body.build()).unwrap();
+			let Ok(_) = func.set_body(Some(body.build())) else { unreachable!() };
 			debug!("Function `{}` compiled successfully", func.id());
 		}
 		Ok(())
@@ -222,6 +228,11 @@ impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
 	fn type_cache(&self) -> &TypeCache<'l> {
 		self.type_cache
 	}
+
+	fn blob_heap(&self) -> &Arc<BlobHeapScope<'l>> {
+		self.heaps.blob_heap()
+	}
+
 	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>> {
 		&self.types
 	}
@@ -229,6 +240,6 @@ impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
 
 #[derive(Default)]
 struct SymbolDeclarations<'l, 'a> {
-	structs: Vec<(&'l Struct<'l>, &'a StructAst<'a>)>,
+	structs: Vec<(&'l Type<'l>, &'a StructAst<'a>)>,
 	functions: Vec<(&'l Function<'l>, &'a FunctionAst<'a>)>,
 }

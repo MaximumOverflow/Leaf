@@ -8,7 +8,7 @@ use bytemuck::{bytes_of, from_bytes};
 use paste::paste;
 use tracing::{trace, trace_span};
 
-use leaf_compilation::reflection::{Comparison, Function, FunctionBody, Opcode, Type, Value, ValueIdx};
+use leaf_compilation::reflection::{Comparison, Function, FunctionBody, Opcode, Type, UniqueIdentifier, Value, ValueIdx};
 
 use crate::interpreter::memory::LayoutCache;
 use crate::interpreter::stubs::ExternFunctionStub;
@@ -16,7 +16,7 @@ use crate::interpreter::stubs::ExternFunctionStub;
 pub struct Interpreter<'l> {
 	stack: Box<[u8]>,
 	layout_cache: Rc<LayoutCache<'l>>,
-	extern_functions: HashMap<&'l str, Box<dyn Fn(&[u8]) -> Vec<u8>>>,
+	extern_functions: HashMap<UniqueIdentifier<'l>, Box<dyn Fn(&[u8]) -> Vec<u8>>>,
 }
 
 impl<'l> Interpreter<'l> {
@@ -46,7 +46,13 @@ impl<'l> Interpreter<'l> {
 			let ptr = &result as *const R as *const u8;
 			Vec::from(std::slice::from_raw_parts(ptr, size_of::<R>()))
 		};
-		self.extern_functions.insert(path, Box::new(stub));
+
+		let (namespace, name) = path
+			.rsplit_once('/')
+			.unwrap_or(("", path));
+
+		let id = UniqueIdentifier::new(name, namespace);
+		self.extern_functions.insert(id, Box::new(stub));
 	}
 
 	#[inline(never)]
@@ -71,7 +77,7 @@ impl<'l> Interpreter<'l> {
 		where
 			'l: 's,
 	{
-		let scope = trace_span!("call", func = function.id());
+		let scope = trace_span!("call", namespace = function.namespace(), name = function.name());
 		let _scope = scope.enter();
 
 		let body = function.body().unwrap();
@@ -266,12 +272,12 @@ impl<'l> Interpreter<'l> {
 					);
 
 					if func.body().is_none() {
-						let Some(stub) = self.extern_functions.get(func.id()) else {
+						let Some(stub) = self.extern_functions.get(&func.id()) else {
 							panic!("Unregistered external function {:?}", func.id());
 						};
 
 						let result_bytes =
-							trace_span!("call_native", func = func.id()).in_scope(|| {
+							trace_span!("call_native", namespace = func.namespace(), name = func.name()).in_scope(|| {
 								trace!("{}", function.id());
 								stub(call_frame)
 							});
