@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
-use anyhow::anyhow;
 use fxhash::FxHashMap;
 use tracing::trace;
 
-use leaf_parsing::ast::{Expression, Integer, Literal, Type as TypeNode};
+use leaf_parsing::ast::{Expression, Ident, Integer, Literal, Node, Type as TypeNode};
 use leaf_reflection::heaps::{ArenaAllocator, BlobHeapScope};
 use leaf_reflection::serialization::{MetadataWrite, WriteRequirements};
 use leaf_reflection::Type;
+use crate::frontend::reports::{FrontEndError, ReportData, TYPE_NOT_FOUND};
 
 pub struct TypeCache<'l> {
 	bump: &'l ArenaAllocator,
@@ -39,9 +39,9 @@ pub trait TypeResolver<'l> {
 	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>>;
 
 	#[tracing::instrument(skip_all)]
-	fn resolve_type(&self, ast: &TypeNode) -> anyhow::Result<&'l Type<'l>> {
+	fn resolve_type(&self, ast: &TypeNode, reports: &mut ReportData) -> Result<&'l Type<'l>, FrontEndError> {
 		let ty: &Type = match ast {
-			TypeNode::Id(id) => {
+			TypeNode::Id(Ident { value: id, .. }) => {
 				trace!("Resolving type {id:?}");
 				match *id {
 					"void" => &Type::Void,
@@ -61,20 +61,19 @@ pub trait TypeResolver<'l> {
 					_ => match self.types().get(id) {
 						Some(ty) => *ty,
 						None => {
-							return Err(anyhow!(
-								"Type `{id}` is not available in the current scope"
-							))
-						},
+							reports.add_error_label(ast.range(), format!("Type `{id}` is not available in the current scope"));
+							return Err(TYPE_NOT_FOUND);
+						}
 					},
 				}
-			},
+			}
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
-				let base = self.resolve_type(base)?;
+				let base = self.resolve_type(base, reports)?;
 				self.type_cache().make_pointer(base, *mutable)
-			},
+			}
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
-				Some(Expression::Literal(Literal::Integer(length))) => {
+				Some(Expression::Literal(Literal::Integer { value: length, .. })) => {
 					trace!("Resolving array type");
 					let length: usize = match length {
 						Integer::Any(i) => (*i).try_into().unwrap(),
@@ -88,7 +87,7 @@ pub trait TypeResolver<'l> {
 						Integer::UInt64(i) => (*i).try_into().unwrap(),
 					};
 
-					let base = self.resolve_type(base)?;
+					let base = self.resolve_type(base, reports)?;
 					let cache = self.type_cache();
 					let mut arrays = cache.array_types.borrow_mut();
 
@@ -100,7 +99,7 @@ pub trait TypeResolver<'l> {
 					});
 
 					ty
-				},
+				}
 				_ => unimplemented!(),
 			},
 			_ => unimplemented!(),
@@ -113,16 +112,17 @@ pub trait TypeResolver<'l> {
 			&WriteRequirements {
 				blobs: self.blob_heap().clone(),
 			},
-		)?;
+		).unwrap();
 		self.blob_heap().intern(buf);
 		Ok(ty)
 	}
 }
 
-#[allow(unused)]
-pub fn invalid_type_err(expected: &Type, got: Option<&Type>) -> anyhow::Error {
-	match got {
-		None => anyhow!("Expected type '{}', got '?'", expected),
-		Some(ty) => anyhow!("Expected type '{}', got '{}'", expected, ty),
-	}
-}
+// #[allow(unused)]
+// pub fn invalid_type_err(expected: &Type, got: Option<&Type>) -> anyhow::Error {
+// 	use anyhow::anyhow;
+// 	match got {
+// 		None => anyhow!("Expected type '{}', got '?'", expected),
+// 		Some(ty) => anyhow!("Expected type '{}', got '{}'", expected, ty),
+// 	}
+// }

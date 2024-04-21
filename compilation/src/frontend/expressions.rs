@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use anyhow::anyhow;
 
-use leaf_parsing::ast::{BinaryOperator, Expression, Integer, Literal, UnaryOperator};
+use leaf_parsing::ast::{BinaryOperator, Expression, Ident, Integer, Literal, NewStruct, Node, UnaryOperator};
 use leaf_reflection::{Comparison, Function, Opcode, SSAContextBuilder, Type, ValueIdx};
 
 use crate::frontend::block::Block;
+use crate::frontend::reports::*;
 use crate::frontend::types::TypeResolver;
 
 pub enum ExpressionResult<'l> {
@@ -35,49 +35,59 @@ pub fn compile_expression<'a, 'l>(
 	expected: Option<&'l Type<'l>>,
 	block: &'a Block<'a, 'l>,
 	body: &mut SSAContextBuilder<'l>,
-) -> anyhow::Result<ExpressionResult<'l>> {
+	reports: &mut ReportData,
+) -> Result<ExpressionResult<'l>, FrontEndError> {
 	match expr {
-		Expression::Literal(Literal::Bool(v)) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::String(str)) => {
+		Expression::Literal(Literal::Bool { value: v, .. }) => {
+			Ok(ExpressionResult::Value(body.use_const(*v)))
+		}
+		Expression::Literal(Literal::String { value: str, .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(unescape(str))))
-		},
-		Expression::Literal(Literal::Integer(Integer::Int8(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::Int8(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::Int16(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::Int16(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::Int32(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::Int32(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::Int64(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::Int64(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::UInt8(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::UInt8(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::UInt16(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::UInt16(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::UInt32(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::UInt32(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::Integer(Integer::UInt64(v))) => {
+		}
+		Expression::Literal(Literal::Integer { value: Integer::UInt64(v), .. }) => {
 			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
+		}
 		#[rustfmt::skip]
-		Expression::Literal(Literal::Integer(Integer::Any(v))) => {
+		Expression::Literal(Literal::Integer { value: Integer::Any(v), range }) => {
 			macro_rules! impl_int {
 				($v: expr, $([$ty: ty; $int: ident]),+) => {
 					match expected {
 						$(
 							Some(Type::$int) => {
-								let v: $ty = (*$v).try_into().map_err(|_| anyhow! {
-									"Integer {v} cannot fit into range {:?} of type {}",
-									<$ty>::MIN..<$ty>::MAX,
-									Type::$int,
-								})?;
-								Ok(ExpressionResult::Value(body.use_const(v)))
+								match (*$v).try_into() {
+									Ok(v) => {
+										Ok(ExpressionResult::Value(body.use_const::<$ty>(v)))
+									}
+									Err(_) => {
+										reports.add_error_label(range.clone(), format! {
+											"Integer {v} cannot fit into range {:?} of type {}",
+											<$ty>::MIN..<$ty>::MAX,
+											Type::$int,
+										});
+										Err(INVALID_INTEGER)
+									}
+								}
 							}
 						)*
 						_ => unimplemented!("{:#?}", expr),
@@ -96,96 +106,122 @@ pub fn compile_expression<'a, 'l>(
 				[u32; UInt32],
 				[u64; UInt64]
 			}
-		},
-		Expression::Literal(Literal::Id(ident)) => {
+		}
+		Expression::Literal(Literal::Id(Ident { value: ident, range })) => {
 			if let Some(value) = block.values.get(ident) {
 				return Ok(ExpressionResult::Value(value.0));
 			}
 			if let Some(func) = block.functions.get(ident) {
 				return Ok(ExpressionResult::Function(func));
 			}
-			Err(anyhow!(
-				"Identifier {:?} is not present in the current scope",
-				ident
-			))
-		},
-		Expression::NewStruct(new) => {
-			let ty = block.resolve_type(&new.ty)?;
+			reports.add_error_label(range.clone(), format! {
+				"Identifier `{ident}` is not present in the current scope"
+			});
+			Err(VARIABLE_NOT_FOUND)
+		}
+		Expression::NewStruct(NewStruct { ty: ty_ast, values, range }) => {
+			let ty = block.resolve_type(ty_ast, reports)?;
 			let Type::Struct(r#struct) = ty else {
-				return Err(anyhow!("Type `{ty}` is not a struct"));
+				reports.add_error_label(ty_ast.range(), format! {
+					"Type `{ty}` is not a struct"
+				});
+				return Err(NOT_A_STRUCT);
 			};
 
 			let mut exprs = BTreeMap::new();
-			for (name, (i, expr)) in &new.values {
-				let Some(pos) = r#struct.fields().iter().position(|f| f.name() == *name) else {
-					return Err(anyhow!("Field `{name}` not found in type `{ty}`"));
+			for (ident, expr) in values {
+				let Some(pos) = r#struct.fields().iter().position(|f| f.name() == ident.value) else {
+					reports.add_error_label(ident.range.clone(), format! {
+						"Field `{ident}` not found in type `{ty}`"
+					});
+					return Err(FIELD_NOT_FOUND);
 				};
-				exprs.insert(*i, (pos, expr, r#struct.fields()[pos].ty()));
+				exprs.insert(pos, (pos, ident, expr, r#struct.fields()[pos].ty()));
+			}
+
+			if exprs.len() != r#struct.fields().len() {
+				let mut msg = "Struct expression missing fields: ".to_string();
+				let mut separator = "";
+				for field in r#struct.fields() {
+					if exprs.values().find(|v| v.1.value == field.name()).is_none() {
+						msg.push_str(separator);
+						msg.push_str(field.name());
+						separator = ", ";
+					}
+				}
+				reports.add_error_label(range.clone(), msg);
+				return Err(MISSING_FIELD);
 			}
 
 			let mut values = vec![ValueIdx(0); exprs.len()];
-			for (i, expr, ty) in exprs.values().cloned() {
-				values[i] = compile_expression(expr, Some(ty), block, body)?.unwrap_value();
-				assert_eq!(Some(ty), body.value_type(values[i]));
+			for (i, _, expr, ty) in exprs.values().cloned() {
+				values[i] = compile_expression(expr, Some(ty), block, body, reports)?.unwrap_value();
+				let val_ty = body.value_type(values[i]).unwrap();
+				if ty != val_ty {
+					reports.add_error_label(expr.range(), format! {
+						"Expected type `{ty}`, found `{val_ty}`"
+					});
+					return Err(INVALID_FIELD_TYPE);
+				}
 			}
 
 			let local = body.alloca(ty);
 			body.push_opcode(Opcode::Aggregate(values, local));
 			Ok(ExpressionResult::Value(local))
-		},
-		Expression::Unary(op, val) => {
-			let val = compile_expression(val, expected, block, body)?.unwrap_value();
+		}
+		Expression::Unary { operator, expr, .. } => {
+			let val = compile_expression(expr, expected, block, body, reports)?.unwrap_value();
 			let val_ty = body.value_type(val).unwrap();
-			match op {
+			match operator {
 				UnaryOperator::Neg => match val_ty {
 					Type::Bool => {
 						let local = body.alloca(&Type::Bool);
 						body.push_opcode(Opcode::LNot(val, local));
 						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:#?}", op),
+					}
+					_ => unimplemented!("{:#?}", operator),
 				},
 				UnaryOperator::Addr => {
 					let ty = block.type_cache.make_pointer(val_ty, false);
 					let local = body.alloca(&ty);
 					body.push_opcode(Opcode::StoreA(val, local));
 					Ok(ExpressionResult::Value(local))
-				},
-				_ => unimplemented!("{:#?}", op),
+				}
+				_ => unimplemented!("{:#?}", operator),
 			}
-		},
-		Expression::Binary(lhs, op, rhs) => {
-			let lhs = compile_expression(lhs, expected, block, body)?.unwrap_value();
-			let rhs = compile_expression(rhs, expected, block, body)?.unwrap_value();
+		}
+		Expression::Binary { lhs, operator, rhs, .. } => {
+			let lhs = compile_expression(lhs, expected, block, body, reports)?.unwrap_value();
+			let rhs = compile_expression(rhs, expected, block, body, reports)?.unwrap_value();
 			let lhs_ty = body.value_type(lhs).unwrap();
 			let rhs_ty = body.value_type(rhs).unwrap();
 
-			match op {
+			match operator {
 				BinaryOperator::Add => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
 						let local = body.alloca(&Type::Int32);
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
-					},
+					}
 					(Type::Pointer { .. }, Type::Int64) => {
 						let local = body.alloca(lhs_ty);
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
-					},
+					}
 					(Type::Pointer { .. }, Type::UInt64) => {
 						let local = body.alloca(lhs_ty);
 						body.push_opcode(Opcode::UAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:?} {} {}", op, lhs_ty, rhs_ty),
+					}
+					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
 				},
 				BinaryOperator::Mod => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
 						let local = body.alloca(&Type::Int32);
 						body.push_opcode(Opcode::SMod(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:?} {} {}", op, lhs_ty, rhs_ty),
+					}
+					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
 				},
 				| BinaryOperator::Eq
 				| BinaryOperator::Ne
@@ -195,20 +231,20 @@ pub fn compile_expression<'a, 'l>(
 				| BinaryOperator::Ge => match (lhs_ty, rhs_ty) {
 					(Type::Int32, Type::Int32) => {
 						let local = body.alloca(&Type::Bool);
-						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*op)));
+						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*operator)));
 						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:?} {} {}", op, lhs_ty, rhs_ty),
+					}
+					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
 				},
-				_ => unimplemented!("{:#?}", op),
+				_ => unimplemented!("{:#?}", operator),
 			}
-		},
+		}
 		Expression::FunctionCall(call) => {
-			let func = compile_expression(&call.func, None, block, body)?.unwrap_function();
+			let func = compile_expression(&call.func, None, block, body, reports)?.unwrap_function();
 			let mut params = vec![];
 			assert_eq!(call.params.len(), func.params().len());
 			for (expr, param) in call.params.iter().zip(func.params()) {
-				let value = compile_expression(expr, Some(param.ty()), block, body)?;
+				let value = compile_expression(expr, Some(param.ty()), block, body, reports)?;
 				let value = value.unwrap_value();
 				assert_eq!(Some(param.ty()), body.value_type(value));
 				params.push(value);
@@ -218,14 +254,14 @@ pub fn compile_expression<'a, 'l>(
 				Type::Void => {
 					body.push_opcode(Opcode::Call(func, params, None));
 					Ok(ExpressionResult::Void)
-				},
+				}
 				_ => {
 					let result = body.alloca(func.ret_ty());
 					body.push_opcode(Opcode::Call(func, params, Some(result)));
 					Ok(ExpressionResult::Value(result))
-				},
+				}
 			}
-		},
+		}
 		_ => unimplemented!("{:#?}", expr),
 	}
 }
@@ -255,7 +291,7 @@ fn unescape(str: &str) -> String {
 					b'0' => string.push('\0'),
 					_ => unimplemented!(),
 				}
-			},
+			}
 			_ => string.push(*ch as char),
 		}
 		i += 1;

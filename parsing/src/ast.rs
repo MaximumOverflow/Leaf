@@ -1,16 +1,64 @@
-use std::collections::HashMap;
-use std::ops::{Add, Div, Mul, Not, Rem, Sub};
+use std::fmt::{Display, Formatter};
+use std::ops::{Add, Div, Mul, Range, Rem, Sub};
+
+pub trait Node {
+	fn range(&self) -> Range<usize>;
+}
 
 //region Expressions
+
+#[derive(Debug, PartialEq)]
+pub struct Ident<'l> {
+	pub value: &'l str,
+	pub range: Range<usize>,
+}
+
+impl Display for Ident<'_> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		f.write_str(self.value)
+	}
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Literal<'l> {
-	Uninit,
-	Char(char),
-	Id(&'l str),
-	Float(f64),
-	Bool(bool),
-	String(&'l str),
-	Integer(Integer),
+	Id(Ident<'l>),
+	Uninit {
+		range: Range<usize>,
+	},
+	Char {
+		value: char,
+		range: Range<usize>,
+	},
+	Float {
+		value: f64,
+		range: Range<usize>,
+	},
+	Bool {
+		value: bool,
+		range: Range<usize>,
+	},
+	String {
+		value: &'l str,
+		range: Range<usize>,
+	},
+	Integer {
+		value: Integer,
+		range: Range<usize>,
+	},
+}
+
+impl Node for Literal<'_> {
+	fn range(&self) -> Range<usize> {
+		match self {
+			| Literal::Id(id) => id.range.clone(),
+			| Literal::Uninit { range, .. }
+			| Literal::Char { range, .. }
+			| Literal::Float { range, .. }
+			| Literal::Bool { range, .. }
+			| Literal::String { range, .. }
+			| Literal::Integer { range, .. } => range.clone(),
+		}
+	}
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -112,10 +160,62 @@ pub enum Expression<'l> {
 	Block(Block<'l>),
 	Literal(Literal<'l>),
 	NewStruct(NewStruct<'l>),
-	Cast(Box<Expression<'l>>, Type<'l>),
+	Cast {
+		expr: Box<Expression<'l>>,
+		to_ty: Type<'l>,
+		range: Range<usize>,
+	},
 	FunctionCall(Box<FunctionCall<'l>>),
-	Unary(UnaryOperator, Box<Expression<'l>>),
-	Binary(Box<Expression<'l>>, BinaryOperator, Box<Expression<'l>>),
+	Unary {
+		operator: UnaryOperator,
+		expr: Box<Expression<'l>>,
+		range: Range<usize>,
+	},
+	Binary {
+		operator: BinaryOperator,
+		lhs: Box<Expression<'l>>,
+		rhs: Box<Expression<'l>>,
+		range: Range<usize>,
+	},
+}
+
+impl<'l> Node for Expression<'l> {
+	fn range(&self) -> Range<usize> {
+		match self {
+			Expression::Block(Block { range, .. }) => range.clone(),
+			Expression::Literal(n) => n.range(),
+			Expression::NewStruct(n) => n.range(),
+			Expression::Cast { range, .. } => range.clone(),
+			Expression::FunctionCall(n) => n.range(),
+			Expression::Unary { range, .. } => range.clone(),
+			Expression::Binary { range, .. } => range.clone(),
+		}
+	}
+}
+
+macro_rules! impl_binary_expr_variants {
+    ($lhs: expr, $rhs: expr, $func: ident, $operator: ident, $operation_i: ident, $($id: ident),*) => {
+		match(&$lhs, &$rhs) {
+			$(
+				(
+					Expression::Literal(Literal::Integer { value: Integer::$id(lhs), range: lhs_r }),
+					Expression::Literal(Literal::Integer { value: Integer::$id(rhs), range: rhs_r }),
+				) => Expression::Literal(Literal::Integer { value: Integer::$id(lhs.$operation_i(*rhs)), range: lhs_r.start..rhs_r.start }),
+			)*
+			(
+				Expression::Literal(Literal::Float { value: lhs, range: lhs_r }),
+				Expression::Literal(Literal::Float { value: rhs, range: rhs_r }),
+			) => Expression::Literal(Literal::Float { value: lhs.$func(rhs), range: lhs_r.start..rhs_r.start }),
+			_ => {
+				Expression::Binary {
+					operator: BinaryOperator::$operator,
+					range: $lhs.range().start..$rhs.range().end,
+					lhs: Box::new($lhs),
+					rhs: Box::new($rhs),
+				}
+			}
+		}
+	};
 }
 
 macro_rules! impl_binary_expr {
@@ -123,74 +223,29 @@ macro_rules! impl_binary_expr {
 		impl<'l> $trait for Expression<'l> {
 			type Output = Expression<'l>;
 			fn $func(self, rhs: Self) -> Self::Output {
-				match (&self, &rhs) {
-					(
-						Expression::Literal(Literal::Integer(Integer::Any(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Any(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::Any(lhs.$operation_i(*rhs)))),
-
-					(
-						Expression::Literal(Literal::Integer(Integer::Int8(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Int8(rhs))),
-					) => {
-						Expression::Literal(Literal::Integer(Integer::Int8(lhs.$operation_i(*rhs))))
-					},
-
-					(
-						Expression::Literal(Literal::Integer(Integer::Int16(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Int16(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::Int16(
-						lhs.$operation_i(*rhs),
-					))),
-
-					(
-						Expression::Literal(Literal::Integer(Integer::Int32(lhs))),
-						Expression::Literal(Literal::Integer(Integer::Int32(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::Int32(
-						lhs.$operation_i(*rhs),
-					))),
-
-					(
-						Expression::Literal(Literal::Integer(Integer::UInt8(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt8(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::UInt8(
-						lhs.$operation_i(*rhs),
-					))),
-
-					(
-						Expression::Literal(Literal::Integer(Integer::UInt16(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt16(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::UInt16(
-						lhs.$operation_i(*rhs),
-					))),
-
-					(
-						Expression::Literal(Literal::Integer(Integer::UInt32(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt32(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::UInt32(
-						lhs.$operation_i(*rhs),
-					))),
-
-					(
-						Expression::Literal(Literal::Integer(Integer::UInt64(lhs))),
-						Expression::Literal(Literal::Integer(Integer::UInt64(rhs))),
-					) => Expression::Literal(Literal::Integer(Integer::UInt64(
-						lhs.$operation_i(*rhs),
-					))),
-
-					(
-						Expression::Literal(Literal::Float(lhs)),
-						Expression::Literal(Literal::Float(rhs)),
-					) => Expression::Literal(Literal::Float(lhs.$func(rhs))),
-
-					_ => {
-						Expression::Binary(Box::new(self), BinaryOperator::$operator, Box::new(rhs))
-					},
+				impl_binary_expr_variants! {
+					self, rhs,
+					$func, $operator, $operation_i,
+					Any,
+					Int8, Int16, Int32, Int64,
+					UInt8, UInt16, UInt32, UInt64
 				}
 			}
 		}
 	};
 }
+
+// impl<'l> Add for Expression<'l> {
+// 	type Output = Expression < 'l >;
+// 	fn add(self, rhs: Self) -> Self::Output {
+// 		match (&self, &rhs) {
+// 			(
+// 				Expression::Literal(Literal::Integer { value: Integer::Any(lhs), range: lhs_r }),
+// 				Expression::Literal(Literal::Integer { value: Integer::Any(rhs), range: rhs_r }),
+// 			) => Expression::Literal(Literal::Integer { value: Integer::Any(lhs.add(rhs)), range: lhs_r.start..rhs_r.start }),
+// 		}
+// 	}
+// }
 
 impl_binary_expr!(Add, add, Add, wrapping_add);
 impl_binary_expr!(Sub, sub, Sub, wrapping_sub);
@@ -198,39 +253,30 @@ impl_binary_expr!(Mul, mul, Mul, wrapping_mul);
 impl_binary_expr!(Div, div, Div, wrapping_div);
 impl_binary_expr!(Rem, rem, Mod, wrapping_rem);
 
-impl<'l> Not for Expression<'l> {
-	type Output = Expression<'l>;
-	fn not(self) -> Self::Output {
-		match self {
-			Expression::Literal(Literal::Bool(v)) => Expression::Literal(Literal::Bool(!v)),
-			_ => Expression::Unary(UnaryOperator::Neg, Box::new(self)),
-		}
-	}
-}
-
 #[derive(Debug, PartialEq)]
 pub struct NewStruct<'l> {
 	pub ty: Type<'l>,
-	pub values: HashMap<&'l str, (usize, Expression<'l>)>,
+	pub range: Range<usize>,
+	pub values: Vec<(Ident<'l>, Expression<'l>)>,
 }
 
-impl<'l> NewStruct<'l> {
-	pub(crate) fn new(
-		ty: Type<'l>,
-		fields: impl IntoIterator<Item = (&'l str, Expression<'l>)>,
-	) -> Self {
-		let mut values = HashMap::new();
-		for (i, (key, value)) in fields.into_iter().enumerate() {
-			values.insert(key, (i, value));
-		}
-		Self { ty, values }
+impl Node for NewStruct<'_> {
+	fn range(&self) -> Range<usize> {
+		self.range.clone()
 	}
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FunctionCall<'l> {
+	pub range: Range<usize>,
 	pub func: Expression<'l>,
 	pub params: Vec<Expression<'l>>,
+}
+
+impl Node for FunctionCall<'_> {
+	fn range(&self) -> Range<usize> {
+		self.range.clone()
+	}
 }
 
 //endregion
@@ -239,9 +285,10 @@ pub struct FunctionCall<'l> {
 #[derive(Debug)]
 pub struct SymbolDeclaration<'l> {
 	pub public: bool,
-	pub name: &'l str,
+	pub name: Ident<'l>,
 	pub symbol: Symbol<'l>,
 	pub attributes: Vec<Attribute<'l>>,
+	pub range: Range<usize>,
 }
 
 #[derive(Debug)]
@@ -275,7 +322,7 @@ pub struct Struct<'l> {
 
 #[derive(Debug)]
 pub struct StructMember<'l> {
-	pub name: &'l str,
+	pub name: Ident<'l>,
 	pub ty: Type<'l>,
 }
 
@@ -288,7 +335,7 @@ pub struct Function<'l> {
 
 #[derive(Debug)]
 pub struct FunctionParameter<'l> {
-	pub name: &'l str,
+	pub name: Ident<'l>,
 	pub ty: Type<'l>,
 }
 
@@ -297,6 +344,7 @@ pub struct FunctionParameter<'l> {
 //region Statements
 #[derive(Debug, PartialEq)]
 pub struct Block<'l> {
+	pub range: Range<usize>,
 	pub statements: Vec<Statement<'l>>,
 }
 
@@ -307,13 +355,16 @@ pub enum Statement<'l> {
 	VarDecl(VarDecl<'l>),
 	Expression(Expression<'l>),
 	Yield(Option<Expression<'l>>),
-	Return(Option<Expression<'l>>),
+	Return {
+		range: Range<usize>,
+		expr: Option<Expression<'l>>,
+	},
 	Assignment(Expression<'l>, Expression<'l>),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct VarDecl<'l> {
-	pub name: &'l str,
+	pub name: Ident<'l>,
 	pub mutable: bool,
 	pub ty: Option<Type<'l>>,
 	pub value: Expression<'l>,
@@ -368,13 +419,22 @@ pub struct While<'l> {
 
 #[derive(Debug, PartialEq)]
 pub enum Type<'l> {
-	Id(&'l str),
+	Id(Ident<'l>),
 	Pointer(Box<Type<'l>>, bool),
 	Reference(Box<Type<'l>>, bool),
 	Array {
 		base: Box<Type<'l>>,
 		length: Option<Box<Expression<'l>>>,
 	},
+}
+
+impl Node for Type<'_> {
+	fn range(&self) -> Range<usize> {
+		match self {
+			Type::Id(id) => id.range.clone(),
+			_ => unimplemented!(),
+		}
+	}
 }
 
 #[derive(Debug, PartialEq)]

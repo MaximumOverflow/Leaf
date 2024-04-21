@@ -315,7 +315,6 @@ dependencies = [
 name = "leaf_compilation"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ariadne",
  "fxhash",
  "half",

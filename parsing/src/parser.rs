@@ -364,7 +364,7 @@ impl<'l> TokenStream<'l> {
 		if let Some(token) = self.tokens.get(self.range.start) {
 			token.range.start
 		} else {
-			0
+			self.tokens.last().map(|t| t.range.end).unwrap_or_default()
 		}
 	}
 }
@@ -547,27 +547,46 @@ pub trait Parse<'l>
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>>;
 }
 
+impl<'l> Parse<'l> for Ident<'l> {
+	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
+		match input.next_token() {
+			Some(TokenData { token: Token::Ident(ident), range, .. }) => {
+				Ok(Ident { value: ident, range: range.clone() })
+			}
+			None => return Err(unexpected_eof(input, None, false)),
+			Some(data) => Err(ErrMode::Backtrack(ParserError {
+				code: ParserError::UNEXPECTED_TOKEN,
+				range: data.range.clone(),
+				message: None,
+				err_tokens: from_ref(data),
+				labels: vec![],
+			})),
+		}
+	}
+}
+
 impl<'l> Parse<'l> for Literal<'l> {
+	#[rustfmt::skip]
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Literal<'l>, ParserError<'l>> {
 		let literal = match input.next_token() {
 			Some(data) => match data.token {
-				Token::Ident(v) => Literal::Id(v),
-				Token::Int(v) => Literal::Integer(Integer::Any(v)),
-				Token::Int8(v) => Literal::Integer(Integer::Int8(v)),
-				Token::Int16(v) => Literal::Integer(Integer::Int16(v)),
-				Token::Int32(v) => Literal::Integer(Integer::Int32(v)),
-				Token::Int64(v) => Literal::Integer(Integer::Int64(v)),
-				Token::UInt8(v) => Literal::Integer(Integer::UInt8(v)),
-				Token::UInt16(v) => Literal::Integer(Integer::UInt16(v)),
-				Token::UInt32(v) => Literal::Integer(Integer::UInt32(v)),
-				Token::UInt64(v) => Literal::Integer(Integer::UInt64(v)),
-				Token::Float(v) => Literal::Float(v),
+				Token::Ident(v) => Literal::Id(Ident { value: v, range: data.range.clone() }),
+				Token::Int(v) => Literal::Integer { value: Integer::Any(v), range: data.range.clone() },
+				Token::Int8(v) => Literal::Integer { value: Integer::Int8(v), range: data.range.clone() },
+				Token::Int16(v) => Literal::Integer { value: Integer::Int16(v), range: data.range.clone() },
+				Token::Int32(v) => Literal::Integer { value: Integer::Int32(v), range: data.range.clone() },
+				Token::Int64(v) => Literal::Integer { value: Integer::Int64(v), range: data.range.clone() },
+				Token::UInt8(v) => Literal::Integer { value: Integer::UInt8(v), range: data.range.clone() },
+				Token::UInt16(v) => Literal::Integer { value: Integer::UInt16(v), range: data.range.clone() },
+				Token::UInt32(v) => Literal::Integer { value: Integer::UInt32(v), range: data.range.clone() },
+				Token::UInt64(v) => Literal::Integer { value: Integer::UInt64(v), range: data.range.clone() },
+				Token::Float(v) => Literal::Float { value: v, range: data.range.clone() },
 				Token::Float16(_v) => unimplemented!(),
 				Token::Float32(_v) => unimplemented!(),
 				Token::Float64(_v) => unimplemented!(),
-				Token::CharLiteral(v) => Literal::Char(v),
-				Token::BoolLiteral(v) => Literal::Bool(v),
-				Token::StringLiteral(v) => Literal::String(v),
+				Token::CharLiteral(v) => Literal::Char { value: v, range: data.range.clone() },
+				Token::BoolLiteral(v) => Literal::Bool { value: v, range: data.range.clone() },
+				Token::StringLiteral(v) => Literal::String { value: v, range: data.range.clone() },
 				_ => {
 					return Err(ErrMode::Backtrack(ParserError {
 						code: ParserError::UNEXPECTED_TOKEN,
@@ -612,19 +631,44 @@ impl<'l> Parse<'l> for Expression<'l> {
 						Token::Add => expr + term,
 						Token::Sub => expr - term,
 						Token::Eq => {
-							Expression::Binary(expr.into(), BinaryOperator::Eq, term.into())
+							Expression::Binary {
+								range: expr.range().start..term.range().end,
+								operator: BinaryOperator::Eq,
+								lhs: expr.into(),
+								rhs: term.into(),
+							}
 						}
 						Token::Lt => {
-							Expression::Binary(expr.into(), BinaryOperator::Lt, term.into())
+							Expression::Binary {
+								range: expr.range().start..term.range().end,
+								operator: BinaryOperator::Lt,
+								lhs: expr.into(),
+								rhs: term.into(),
+							}
 						}
 						Token::Gt => {
-							Expression::Binary(expr.into(), BinaryOperator::Gt, term.into())
+							Expression::Binary {
+								range: expr.range().start..term.range().end,
+								operator: BinaryOperator::Gt,
+								lhs: expr.into(),
+								rhs: term.into(),
+							}
 						}
 						Token::Le => {
-							Expression::Binary(expr.into(), BinaryOperator::Le, term.into())
+							Expression::Binary {
+								range: expr.range().start..term.range().end,
+								operator: BinaryOperator::Le,
+								lhs: expr.into(),
+								rhs: term.into(),
+							}
 						}
 						Token::Ge => {
-							Expression::Binary(expr.into(), BinaryOperator::Ge, term.into())
+							Expression::Binary {
+								range: expr.range().start..term.range().end,
+								operator: BinaryOperator::Ge,
+								lhs: expr.into(),
+								rhs: term.into(),
+							}
 						}
 						_ => unreachable!(),
 					}
@@ -686,37 +730,42 @@ impl<'l> Expression<'l> {
 
 impl<'l> Parse<'l> for NewStruct<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
-		let id = ident(false).parse_next(input)?;
+		let start = input.start_char();
+		let id = Ident::parse(input)?;
 
 		let members = delimited(
 			Token::OpenCurly,
 			list(
 				Token::Comma,
 				(
-					ident(false),
+					Ident::parse,
 					required(Token::Colon),
 					required(Expression::parse),
-				)
-					.map(|(id, _, expr)| (id, expr)),
+				).map(|(id, _, expr)| (id, expr)),
 			),
 			required(Token::CloseCurly),
-		)
-			.parse_next(input)?;
+		).parse_next(input)?;
 
-		Ok(Self::new(Type::Id(id), members))
+		let end = input.start_char();
+		Ok(Self {
+			ty: Type::Id(id),
+			range: start..end,
+			values: members,
+		})
 	}
 }
 
 impl<'l> Parse<'l> for FunctionCall<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
+		let start = input.start_char();
 		let func = Expression::parse(input)?;
 		let params = delimited(
 			Token::OpenRound,
 			list(Token::Comma, Expression::parse),
 			required(Token::CloseRound),
-		)
-			.parse_next(input)?;
-		Ok(Self { func, params })
+		).parse_next(input)?;
+		let end = input.start_char();
+		Ok(Self { func, params, range: start..end })
 	}
 }
 
@@ -740,7 +789,7 @@ impl<'l> Parse<'l> for Type<'l> {
 					base: ty.into(),
 					length: Some(exp.into()),
 				}),
-			ident(true).map(|id| Type::Id(id)),
+			required(Ident::parse).map(|id| Type::Id(id)),
 		))
 			.parse_next(input);
 
@@ -763,13 +812,14 @@ impl<'l> Parse<'l> for Type<'l> {
 
 impl<'l> Parse<'l> for Block<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
+		let start = input.start_char();
 		let statements = delimited(
 			Token::OpenCurly,
 			repeat(0.., Statement::parse),
 			Token::CloseCurly,
-		)
-			.parse_next(input)?;
-		Ok(Self { statements })
+		).parse_next(input)?;
+		let end = input.start_char();
+		Ok(Self { statements, range: start..end })
 	}
 }
 
@@ -790,8 +840,10 @@ impl<'l> Parse<'l> for Statement<'l> {
 				Token::Return,
 				opt(Expression::parse),
 				required(Token::SemiColon),
-			)
-				.map(|(_, expr, _)| Statement::Return(expr)),
+			).map(|(ret, expr, _)| match &expr {
+				None => Statement::Return { expr, range: ret.range.clone() },
+				Some(e) => Statement::Return { range: ret.range.start..e.range().end, expr }
+			}),
 			(FunctionCall::parse, required(Token::SemiColon))
 				.map(|(c, _)| Statement::Expression(Expression::FunctionCall(c.into()))),
 		))
@@ -803,7 +855,7 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		Token::Let.parse_next(input)?;
 		let mutable = opt(Token::Mut).parse_next(input)?.is_some();
-		let name = ident(true).parse_next(input)?;
+		let name = required(Ident::parse).parse_next(input)?;
 
 		let (ty, value) = alt((
 			(Token::Colon, Type::parse, Token::Equal, Expression::parse)
@@ -815,7 +867,7 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 				Token::Equal,
 				Token::QuestionMark,
 			)
-				.map(|(_, ty, _, _)| (Some(ty), Expression::Literal(Literal::Uninit))),
+				.map(|(_, ty, _, val)| (Some(ty), Expression::Literal(Literal::Uninit { range: val.range.clone() }))),
 		))
 			.parse_next(input)?;
 
@@ -862,14 +914,13 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		let start = input.start_char();
 		let public = (opt(Token::Pub), Token::Def).parse_next(input)?.0.is_some();
-		let (name, _) = (ident(true), Token::Colon).parse_next(input)?;
-		let end = input.start_char();
+		let (name, _) = (required(Ident::parse), Token::Colon).parse_next(input)?;
 
 		let mut symbol = alt((
 			Struct::parse.map(|s| Symbol::Struct(s)),
 			Function::parse.map(|f| Symbol::Function(f)),
-		))
-			.parse_next(input);
+		)).parse_next(input);
+		let end = input.start_char();
 
 		if symbol.is_ok() {
 			return Ok(Self {
@@ -877,13 +928,14 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 				name,
 				symbol: symbol.unwrap(),
 				attributes: vec![],
+				range: start..end,
 			});
 		}
 
 		match &mut symbol {
 			Err(ErrMode::Backtrack(err) | ErrMode::Cut(err)) => {
 				err.labels.push(
-					Label::new((input.file_name, start..end))
+					Label::new((input.file_name, name.range.clone()))
 						.with_message(format!("In symbol declaration `{name}`"))
 						.with_color(Color::Cyan),
 				);
@@ -911,7 +963,7 @@ impl<'l> Parse<'l> for Struct<'l> {
 
 impl<'l> Parse<'l> for StructMember<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
-		match (ident(false), required(Token::Colon), required(Type::parse)).parse_next(input) {
+		match (Ident::parse, required(Token::Colon), required(Type::parse)).parse_next(input) {
 			Ok((name, _, ty)) => Ok(Self { name, ty }),
 			Err(err) => Err(err),
 		}
@@ -946,7 +998,7 @@ impl<'l> Parse<'l> for Function<'l> {
 
 impl<'l> Parse<'l> for FunctionParameter<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
-		match (ident(false), required(Token::Colon), required(Type::parse)).parse_next(input) {
+		match (Ident::parse, required(Token::Colon), required(Type::parse)).parse_next(input) {
 			Ok((name, _, ty)) => Ok(Self { name, ty }),
 			Err(err) => Err(err),
 		}
@@ -981,32 +1033,6 @@ impl<'l> Parse<'l> for CompilationUnit<'l> {
 			imports: vec![],
 		})
 	}
-}
-
-fn ident<'l>(required: bool) -> impl Parser<TokenStream<'l>, &'l str, ParserError<'l>> {
-	return move |input: &mut TokenStream<'l>| match input.next_token() {
-		Some(TokenData {
-				 token: Token::Ident(ident),
-				 ..
-			 }) => Ok(*ident),
-		None => return Err(unexpected_eof(input, None, required)),
-		Some(data) => match required {
-			false => Err(ErrMode::Backtrack(ParserError {
-				code: ParserError::UNEXPECTED_TOKEN,
-				range: data.range.clone(),
-				message: None,
-				err_tokens: from_ref(data),
-				labels: vec![],
-			})),
-			true => Err(ErrMode::Cut(ParserError {
-				code: ParserError::UNEXPECTED_TOKEN,
-				range: data.range.clone(),
-				message: None,
-				err_tokens: from_ref(data),
-				labels: vec![],
-			})),
-		},
-	};
 }
 
 fn list<'l, T, O>(
@@ -1046,15 +1072,15 @@ fn list<'l, T, O>(
 	};
 }
 
-impl<'l> Parser<TokenStream<'l>, &'l Token<'l>, ParserError<'l>> for Token<'l> {
+impl<'l> Parser<TokenStream<'l>, &'l TokenData<'l>, ParserError<'l>> for Token<'l> {
 	fn parse_next(
 		&mut self,
 		input: &mut TokenStream<'l>,
-	) -> PResult<&'l Token<'l>, ParserError<'l>> {
+	) -> PResult<&'l TokenData<'l>, ParserError<'l>> {
 		match input.next_token() {
 			None => Err(unexpected_eof(input, Some(self), false)),
 			Some(data) => match data.token == *self {
-				true => Ok(&data.token),
+				true => Ok(data),
 				false => Err(ErrMode::Backtrack(ParserError {
 					code: ParserError::UNEXPECTED_TOKEN,
 					range: data.range.clone(),

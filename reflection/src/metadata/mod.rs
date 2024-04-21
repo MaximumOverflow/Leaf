@@ -34,6 +34,6 @@ impl<'l> UniqueIdentifier<'l> {
 
 impl Display for UniqueIdentifier<'_> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}/{}", self.namespace, self.name)
+		write!(f, "{}::{}", self.namespace.replace('/', "::"), self.name)
 	}
 }

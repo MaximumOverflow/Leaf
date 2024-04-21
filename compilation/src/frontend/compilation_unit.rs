@@ -1,9 +1,7 @@
 use std::collections::HashMap;
+use fxhash::FxHashMap;
 use std::path::Path;
 use std::sync::Arc;
-
-use anyhow::{anyhow, Error};
-use fxhash::FxHashMap;
 
 use leaf_parsing::ast::{Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst};
 use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
@@ -12,6 +10,7 @@ use leaf_parsing::ErrMode;
 use leaf_parsing::parser::{Parse, Token, TokenStream};
 use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 use crate::frontend::block::Block;
+use crate::frontend::reports::*;
 use crate::frontend::types::{TypeCache, TypeResolver};
 
 pub struct CompilationUnit<'a, 'l> {
@@ -27,7 +26,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		path: &impl AsRef<Path>,
-	) -> anyhow::Result<()> {
+	) -> Result<(), FrontEndError> {
 		let path = path.as_ref();
 		let absolute_path = path
 			.canonicalize()
@@ -39,7 +38,9 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 		debug_span!("compile_file", file = absolute_path).in_scope(|| {
 			info!("Compiling file `{}`", absolute_path);
-			let code = debug_span!("read_file").in_scope(|| std::fs::read_to_string(path))?;
+			let code = debug_span!("read_file").in_scope(|| {
+				std::fs::read_to_string(path).map_err(|_| COULD_NOT_RETRIEVE_SOURCE)
+			})?;
 			Self::compile_internal(type_cache, assembly, &code, &absolute_path)?;
 			debug!("File `{}` compiled successfully", absolute_path);
 			Ok(())
@@ -50,7 +51,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
-	) -> anyhow::Result<()> {
+	) -> Result<(), FrontEndError> {
 		debug_span!("compile_code").in_scope(|| {
 			info!("Compiling code");
 			Self::compile_internal(type_cache, assembly, code, "<dynamic_code>")?;
@@ -64,7 +65,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 		file: &str,
-	) -> anyhow::Result<()> {
+	) -> Result<(), FrontEndError> {
 		let span = debug_span!("parse_code");
 		let parse_code_span = span.enter();
 
@@ -74,12 +75,9 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		let tokens = match Token::lex_all(code) {
 			Ok(tokens) => tokens,
 			Err(err) => {
-				let mut str = vec![];
-				err.to_report(file)
-					.write((file, ariadne::Source::from(code)), &mut str)
-					.unwrap();
-				return Err(Error::msg(String::from_utf8(str).unwrap()));
-			},
+				dump_report(err.to_report(file), file, code);
+				return Err(LEXER_ERROR);
+			}
 		};
 		let mut stream = TokenStream::new(file, &tokens);
 		drop(lex_span);
@@ -90,21 +88,32 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		let ast = match Ast::parse(&mut stream) {
 			Ok(tokens) => tokens,
 			Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
-				let mut str = vec![];
-				err.to_report(file)
-					.write((file, ariadne::Source::from(code)), &mut str)
-					.unwrap();
-				return Err(Error::msg(String::from_utf8(str).unwrap()));
-			},
-			_ => return Err(anyhow!("Unknown parser error")),
+				dump_report(err.to_report(file), file, code);
+				return Err(PARSER_ERROR);
+			}
+			_ => return Err(PARSER_ERROR),
 		};
 		drop(parse_span);
 		drop(parse_code_span);
 
+		let mut reports = ReportData::new(file);
+
 		let mut unit = Self::new(type_cache, assembly);
-		let symbols = unit.declare_symbols(&ast)?;
-		unit.compile_types(symbols.structs)?;
-		unit.compile_functions(symbols.functions)?;
+		let symbols = match unit.declare_symbols(&ast, &mut reports) {
+			Ok(symbols) => symbols,
+			Err(err) => {
+				generate_and_dump_report(reports.errors, file, code, err);
+				return Err(err);
+			}
+		};
+		if let Err(err) = unit.compile_types(symbols.structs, &mut reports) {
+			generate_and_dump_report(reports.errors, file, code, err);
+			return Err(err);
+		}
+		if let Err(err) = unit.compile_functions(symbols.functions, &mut reports) {
+			generate_and_dump_report(reports.errors, file, code, err);
+			return Err(err);
+		}
 		Ok(())
 	}
 
@@ -122,61 +131,87 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 	fn declare_symbols<'c>(
 		&mut self,
 		ast: &'c Ast<'c>,
-	) -> anyhow::Result<SymbolDeclarations<'l, 'c>> {
+		reports: &mut ReportData,
+	) -> Result<SymbolDeclarations<'l, 'c>, FrontEndError> {
 		let mut symbols = SymbolDeclarations::default();
 		for decl in &ast.declarations {
-			let name = decl.name;
+			let name = decl.name.value;
 			match &decl.symbol {
-				Symbol::Struct(decl) => {
+				Symbol::Struct(struct_decl) => {
 					let span = span!(Level::DEBUG, "create_struct", name);
 					let _span = span.enter();
 					debug!("Creating struct");
 
-					let ty = self.assembly.create_struct(ast.namespace, name).unwrap();
+					if self.types.contains_key(name) {
+						error!("Duplicate declaration");
+						reports.add_error_label(decl.name.range.clone(), format! {
+							"Duplicate declaration of `{}::{}`",
+							ast.namespace, name
+						});
+						return Err(DUPLICATE_DECLARATION);
+					}
+
+					let ty = match self.assembly.create_struct(ast.namespace, name) {
+						Ok(func) => func,
+						Err(err) => {
+							error!("{}", err);
+							reports.add_error_label(decl.name.range.clone(), err);
+							return Err(DECLARATION_ERROR);
+						}
+					};
+
 					let Type::Struct(s) = ty else { unreachable!() };
 					self.types.insert(s.name(), ty);
-					symbols.structs.push((ty, decl));
-				},
-				_ => {},
+					symbols.structs.push((ty, struct_decl));
+				}
+				_ => {}
 			}
 		}
 
 		for decl in &ast.declarations {
-			let name = decl.name;
-			let Symbol::Function(decl) = &decl.symbol else {
+			let name = decl.name.value;
+			let Symbol::Function(func_decl) = &decl.symbol else {
 				continue;
 			};
 
-			let func = self.assembly.create_function(ast.namespace, name).unwrap();
+			if self.functions.contains_key(name) {
+				error!("Duplicate declaration");
+				reports.add_error_label(decl.name.range.clone(), format! {
+					"Duplicate declaration of `{}::{}`",
+					ast.namespace, name
+				});
+				return Err(DUPLICATE_DECLARATION);
+			}
+
+			let func = match self.assembly.create_function(ast.namespace, name) {
+				Ok(func) => func,
+				Err(err) => {
+					error!("{}", err);
+					reports.add_error_label(decl.name.range.clone(), err);
+					return Err(DECLARATION_ERROR);
+				}
+			};
 
 			let span = span!(Level::DEBUG, "create_function", id = func.name());
 			let _span = span.enter();
 			debug!("Creating function");
 
 			trace!("Resolving return type");
-			let ret_ty = self.resolve_type(&decl.return_ty)?;
+			let ret_ty = self.resolve_type(&func_decl.return_ty, reports)?;
 			func.set_return_type(ret_ty).unwrap();
 
 			trace!("Resolving parameter types");
-			let mut params = Vec::with_capacity(decl.params.len());
-			for p in &decl.params {
-				let name = self.heaps.blob_heap().intern(p.name).0;
-				params.push(Parameter::new(name, self.resolve_type(&p.ty)?));
+			let mut params = Vec::with_capacity(func_decl.params.len());
+			for p in &func_decl.params {
+				let name = self.heaps.blob_heap().intern(p.name.value).0;
+				params.push(Parameter::new(name, self.resolve_type(&p.ty, reports)?));
 			}
 			func.set_params(params).unwrap();
 
-			if self.functions.contains_key(name) {
-				error!("Duplicate declaration");
-				return Err(Error::msg(format!(
-					"Duplicate declaration of {}::{}",
-					ast.namespace, name
-				)));
-			}
-
 			self.functions.insert(func.name(), func);
 
-			if decl.block.is_some() {
-				symbols.functions.push((func, decl));
+			if func_decl.block.is_some() {
+				symbols.functions.push((func, func_decl));
 				debug!("Function `{}` declared successfully", func.id());
 			} else {
 				let Ok(_) = func.set_body(None) else {
@@ -189,7 +224,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(symbols)
 	}
 
-	fn compile_types(&mut self, types: Vec<(&'l Type<'l>, &StructAst)>) -> anyhow::Result<()> {
+	fn compile_types(&mut self, types: Vec<(&'l Type<'l>, &StructAst)>, reports: &mut ReportData) -> Result<(), FrontEndError> {
 		for (ty, decl) in types {
 			let span = span!(Level::DEBUG, "compile_type", name = ty.id().name());
 			let _span = span.enter();
@@ -199,12 +234,12 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				Type::Struct(ty) => {
 					let mut members = vec![];
 					for member in &decl.members {
-						let ty = self.resolve_type(&member.ty)?;
-						let name = self.heaps.blob_heap().intern(member.name).0;
+						let ty = self.resolve_type(&member.ty, reports)?;
+						let name = self.heaps.blob_heap().intern(member.name.value).0;
 						members.push(Field::new(name, ty));
 					}
 					ty.set_fields(members).unwrap();
-				},
+				}
 				_ => unreachable!(),
 			}
 			debug!("Type `{}` compiled successfully", ty.id());
@@ -215,7 +250,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 	fn compile_functions(
 		&mut self,
 		funcs: Vec<(&'l Function<'l>, &FunctionAst)>,
-	) -> anyhow::Result<()> {
+		reports: &mut ReportData,
+	) -> Result<(), FrontEndError> {
 		for (func, decl) in funcs {
 			let span = span!(Level::DEBUG, "compile_function", id = func.name());
 			let _span = span.enter();
@@ -236,7 +272,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				block.values.insert(i.name(), (idx, false));
 			}
 
-			block.compile(decl.block.as_ref().unwrap(), &mut body)?;
+			block.compile(decl.block.as_ref().unwrap(), &mut body, reports)?;
 
 			let Ok(_) = func.set_body(Some(body.build())) else {
 				unreachable!()
