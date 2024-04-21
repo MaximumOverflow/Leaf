@@ -1,43 +1,16 @@
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Not, Rem, Sub};
 
-use lalrpop_util::lexer::Token;
-
-type Result<'l, T> = std::result::Result<T, ParseError<'l>>;
-pub type ParseError<'l> = lalrpop_util::ParseError<usize, Token<'l>, String>;
-
 //region Expressions
 #[derive(Debug, PartialEq)]
 pub enum Literal<'l> {
 	Uninit,
 	Char(char),
 	Id(&'l str),
-	Decimal(f64),
-	Boolean(bool),
+	Float(f64),
+	Bool(bool),
 	String(&'l str),
 	Integer(Integer),
-}
-
-impl Literal<'_> {
-	pub fn unescape_char(s: &str) -> Result<char> {
-		let s = &s[1..(s.len() - 1)];
-		match unescape::unescape(s) {
-			Some(esc) => Ok(esc.chars().next().unwrap()),
-			None => Err(ParseError::User {
-				error: format!("{} is not a valid character.", s),
-			}),
-		}
-	}
-
-	pub fn unescape_string(s: &str) -> Result<String> {
-		let s = &s[1..(s.len() - 1)];
-		match unescape::unescape(s) {
-			Some(esc) => Ok(esc),
-			None => Err(ParseError::User {
-				error: format!("{} is not a valid character.", s),
-			}),
-		}
-	}
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -53,57 +26,57 @@ pub enum Integer {
 	UInt64(u64),
 }
 
-impl<'l> TryFrom<&'l str> for Integer {
-	type Error = ParseError<'l>;
-	fn try_from(mut value: &'l str) -> std::result::Result<Self, Self::Error> {
-		let neg = value.as_bytes()[0] == b'-';
-
-		value = &value[neg as usize..];
-		let radix = match value.get(0..2) {
-			Some("0b") => 2,
-			Some("0o") => 8,
-			Some("0x") => 16,
-			_ => 10,
-		};
-
-		if radix != 10 {
-			value = &value[2..];
-		}
-
-		match value.rfind(|c| c == 'i' || c == 'u') {
-			None => i128::from_str_radix(value, radix)
-				.map_err(|e| ParseError::from(e.to_string()))
-				.map(|v| Integer::Any(if neg { -v } else { v })),
-			Some(i) => match &value[i..] {
-				"u8" => u8::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::UInt8(v)),
-				"u16" => u16::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::UInt16(v)),
-				"u32" => u32::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::UInt32(v)),
-				"u64" => u64::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::UInt64(v)),
-				"i8" => i8::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::Int8(if neg { -v } else { v })),
-				"i16" => i16::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::Int16(if neg { -v } else { v })),
-				"i32" => i32::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::Int32(if neg { -v } else { v })),
-				"i64" => i64::from_str_radix(&value[..i], radix)
-					.map_err(|e| ParseError::from(e.to_string()))
-					.map(|v| Integer::Int64(if neg { -v } else { v })),
-				_ => unreachable!("Invalid integer literal {:?}", value),
-			},
-		}
-	}
-}
+// impl<'l> TryFrom<&'l str> for Integer {
+// 	type Error = ParseError<'l>;
+// 	fn try_from(mut value: &'l str) -> std::result::Result<Self, Self::Error> {
+// 		let neg = value.as_bytes()[0] == b'-';
+//
+// 		value = &value[neg as usize..];
+// 		let radix = match value.get(0..2) {
+// 			Some("0b") => 2,
+// 			Some("0o") => 8,
+// 			Some("0x") => 16,
+// 			_ => 10,
+// 		};
+//
+// 		if radix != 10 {
+// 			value = &value[2..];
+// 		}
+//
+// 		match value.rfind(|c| c == 'i' || c == 'u') {
+// 			None => i128::from_str_radix(value, radix)
+// 				.map_err(|e| ParseError::from(e.to_string()))
+// 				.map(|v| Integer::Any(if neg { -v } else { v })),
+// 			Some(i) => match &value[i..] {
+// 				"u8" => u8::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::UInt8(v)),
+// 				"u16" => u16::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::UInt16(v)),
+// 				"u32" => u32::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::UInt32(v)),
+// 				"u64" => u64::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::UInt64(v)),
+// 				"i8" => i8::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::Int8(if neg { -v } else { v })),
+// 				"i16" => i16::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::Int16(if neg { -v } else { v })),
+// 				"i32" => i32::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::Int32(if neg { -v } else { v })),
+// 				"i64" => i64::from_str_radix(&value[..i], radix)
+// 					.map_err(|e| ParseError::from(e.to_string()))
+// 					.map(|v| Integer::Int64(if neg { -v } else { v })),
+// 				_ => unreachable!("Invalid integer literal {:?}", value),
+// 			},
+// 		}
+// 	}
+// }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum UnaryOperator {
@@ -152,11 +125,18 @@ macro_rules! impl_binary_expr {
 			fn $func(self, rhs: Self) -> Self::Output {
 				match (&self, &rhs) {
 					(
+						Expression::Literal(Literal::Integer(Integer::Any(lhs))),
+						Expression::Literal(Literal::Integer(Integer::Any(rhs))),
+					) => {
+						Expression::Literal(Literal::Integer(Integer::Any(lhs.$operation_i(*rhs))))
+					}
+
+					(
 						Expression::Literal(Literal::Integer(Integer::Int8(lhs))),
 						Expression::Literal(Literal::Integer(Integer::Int8(rhs))),
 					) => {
 						Expression::Literal(Literal::Integer(Integer::Int8(lhs.$operation_i(*rhs))))
-					},
+					}
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int16(lhs))),
@@ -201,13 +181,13 @@ macro_rules! impl_binary_expr {
 					))),
 
 					(
-						Expression::Literal(Literal::Decimal(lhs)),
-						Expression::Literal(Literal::Decimal(rhs)),
-					) => Expression::Literal(Literal::Decimal(lhs.$func(rhs))),
+						Expression::Literal(Literal::Float(lhs)),
+						Expression::Literal(Literal::Float(rhs)),
+					) => Expression::Literal(Literal::Float(lhs.$func(rhs))),
 
 					_ => {
 						Expression::Binary(Box::new(self), BinaryOperator::$operator, Box::new(rhs))
-					},
+					}
 				}
 			}
 		}
@@ -224,7 +204,7 @@ impl<'l> Not for Expression<'l> {
 	type Output = Expression<'l>;
 	fn not(self) -> Self::Output {
 		match self {
-			Expression::Literal(Literal::Boolean(v)) => Expression::Literal(Literal::Boolean(!v)),
+			Expression::Literal(Literal::Bool(v)) => Expression::Literal(Literal::Bool(!v)),
 			_ => Expression::Unary(UnaryOperator::Neg, Box::new(self)),
 		}
 	}
@@ -239,7 +219,7 @@ pub struct NewStruct<'l> {
 impl<'l> NewStruct<'l> {
 	pub(crate) fn new(
 		ty: Type<'l>,
-		fields: impl IntoIterator<Item = (&'l str, Expression<'l>)>,
+		fields: impl IntoIterator<Item=(&'l str, Expression<'l>)>,
 	) -> Self {
 		let mut values = HashMap::new();
 		for (i, (key, value)) in fields.into_iter().enumerate() {
@@ -341,42 +321,42 @@ pub struct VarDecl<'l> {
 	pub value: Expression<'l>,
 }
 
-impl<'l> VarDecl<'l> {
-	pub fn new(
-		name: &'l str,
-		mutable: bool,
-		ty: Option<Type<'l>>,
-		value: Expression<'l>,
-	) -> Result<'l, VarDecl<'l>> {
-		if ty.is_none() && value == Expression::Literal(Literal::Uninit) {
-			return Err(ParseError::User {
-				error: format! {
-					"Uninitialized variables need an explicitly defined type. Try `let {}{}: {{type}} = ?`",
-					if mutable { "mut " } else { "" },
-					name,
-				},
-			});
-		}
-
-		Ok(VarDecl {
-			name,
-			mutable,
-			ty,
-			value,
-		})
-	}
-}
+// impl<'l> VarDecl<'l> {
+// 	pub fn new(
+// 		name: &'l str,
+// 		mutable: bool,
+// 		ty: Option<Type<'l>>,
+// 		value: Expression<'l>,
+// 	) -> Result<'l, VarDecl<'l>> {
+// 		if ty.is_none() && value == Expression::Literal(Literal::Uninit) {
+// 			return Err(ParseError::User {
+// 				error: format! {
+// 					"Uninitialized variables need an explicitly defined type. Try `let {}{}: {{type}} = ?`",
+// 					if mutable { "mut " } else { "" },
+// 					name,
+// 				},
+// 			});
+// 		}
+//
+// 		Ok(VarDecl {
+// 			name,
+// 			mutable,
+// 			ty,
+// 			value,
+// 		})
+// 	}
+// }
 
 #[derive(Debug, PartialEq)]
 pub struct If<'l> {
 	pub condition: Expression<'l>,
 	pub block: Block<'l>,
-	pub r#else: Option<Box<Else<'l>>>,
+	pub r#else: Option<Else<'l>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Else<'l> {
-	If(If<'l>),
+	If(Box<If<'l>>),
 	Block(Block<'l>),
 }
 

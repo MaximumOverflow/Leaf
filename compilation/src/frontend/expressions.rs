@@ -37,7 +37,7 @@ pub fn compile_expression<'a, 'l>(
 	body: &mut SSAContextBuilder<'l>,
 ) -> anyhow::Result<ExpressionResult<'l>> {
 	match expr {
-		Expression::Literal(Literal::Boolean(v)) => Ok(ExpressionResult::Value(body.use_const(*v))),
+		Expression::Literal(Literal::Bool(v)) => Ok(ExpressionResult::Value(body.use_const(*v))),
 		Expression::Literal(Literal::String(str)) => {
 			Ok(ExpressionResult::Value(body.use_const(unescape(str))))
 		}

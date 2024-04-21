@@ -2,15 +2,16 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use fxhash::FxHashMap;
 
 use leaf_parsing::ast::{
 	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst,
 };
-use leaf_parsing::parser::CompilationUnitParser as AstParser;
 use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
-use tracing::{debug, error, info, instrument, Level, span, trace};
+use tracing::{debug, debug_span, error, info, instrument, Level, span, trace};
+use leaf_parsing::ErrMode;
+use leaf_parsing::parser::{LexerError, Parse, Token, TokenData, TokenStream};
 use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
@@ -38,9 +39,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			.replace("\\\\?\\", "")
 			.replace('\\', "/");
 
-		span!(Level::DEBUG, "compile_file", file = absolute_path).in_scope(|| {
+		debug_span!("compile_file", file = absolute_path).in_scope(|| {
 			info!("Compiling file `{}`", absolute_path);
-			let code = std::fs::read_to_string(path)?;
+			let code = debug_span!("read_file").in_scope(|| {
+				std::fs::read_to_string(path)
+			})?;
 			Self::compile_internal(type_cache, assembly, &code)?;
 			debug!("File `{}` compiled successfully", absolute_path);
 			Ok(())
@@ -52,7 +55,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 	) -> anyhow::Result<()> {
-		span!(Level::DEBUG, "compile_code").in_scope(|| {
+		debug_span!("compile_code").in_scope(|| {
 			info!("Compiling code");
 			Self::compile_internal(type_cache, assembly, code)?;
 			debug!("Code compiled successfully");
@@ -65,22 +68,37 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 	) -> anyhow::Result<()> {
-		let ast = span!(Level::DEBUG, "parse_code").in_scope(|| {
-			static PARSER: OnceLock<AstParser> = OnceLock::new();
-			let parser = PARSER.get_or_init(|| {
-				span!(Level::DEBUG, "initialize_parser").in_scope(|| {
-					debug!("Initializing parser");
-					AstParser::new()
-				})
-			});
-			debug!("Parsing code");
-			parser.parse(code)
-		});
+		let span = debug_span!("parse_code");
+		let parse_code_span = span.enter();
 
-		let ast = match ast {
-			Ok(root) => root,
-			Err(err) => return Err(Error::msg(err.to_string())),
+		let span = debug_span!("lex");
+		let lex_span = span.enter();
+		debug!("Lexing tokens");
+		let tokens = match Token::lex_all(code) {
+			Ok(tokens) => tokens,
+			Err(err) => {
+				let mut str = vec![];
+				err.to_report("").write(("", ariadne::Source::from(code)), &mut str).unwrap();
+				return Err(Error::msg(String::from_utf8(str).unwrap()));
+			}
 		};
+		let mut stream = TokenStream::new("", &tokens);
+		drop(lex_span);
+
+		let span = debug_span!("parse");
+		let parse_span = span.enter();
+		debug!("Parsing AST");
+		let ast = match Ast::parse(&mut stream) {
+			Ok(tokens) => tokens,
+			Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
+				let mut str = vec![];
+				err.to_report("").write(("", ariadne::Source::from(code)), &mut str).unwrap();
+				return Err(Error::msg(String::from_utf8(str).unwrap()));
+			}
+			_ => return Err(anyhow!("Unknown parser error")),
+		};
+		drop(parse_span);
+		drop(parse_code_span);
 
 		let mut unit = Self::new(type_cache, assembly);
 		let symbols = unit.declare_symbols(&ast)?;

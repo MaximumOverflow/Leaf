@@ -1,7 +1,5 @@
-use lalrpop_util::lalrpop_mod;
-
 pub mod ast;
-lalrpop_mod! {
-	#[allow(unused)]
-	pub parser
-}
+pub mod parser;
+
+pub use winnow::error::{ErrMode, Needed};
+
