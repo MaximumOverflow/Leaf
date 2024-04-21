@@ -80,15 +80,14 @@ fn main() {
 			let registry = Registry::default().with(fmt_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			None
-		},
-
+		}
 		Some(file) => {
 			let flame_layer = FlameLayer::new(BufWriter::new(file)).with_file_and_line(false);
 			let guard = flame_layer.flush_on_drop();
 			let registry = Registry::default().with(fmt_layer).with(flame_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			Some(guard)
-		},
+		}
 	};
 
 	match args {
@@ -158,15 +157,14 @@ fn main() {
 
 					// println!("Stack dump: {:#?}", interpreter.stack());
 					info!("Result: {:#?}", value);
-
 					debug!("Interpretation time: {:?}", interp_time);
-				},
+				}
 				Err(err) => {
 					// println!("Stack dump: {:#?}", interpreter.stack());
 					println!("Error: {}", err);
-				},
+				}
 			};
-		},
+		}
 		Args::Compile(CompileArgs { file, .. }) => {
 			let mut time = SystemTime::now();
 
@@ -197,7 +195,7 @@ fn main() {
 			info!("Deserialization time: {:?}", delta);
 
 			dbg!(read_assembly);
-		},
+		}
 	}
 }
 
@@ -260,10 +258,10 @@ fn main() {
 	match interpreter.call_as_main(main) {
 		Ok(value) => {
 			info!("Result: {:#?}", value);
-		},
+		}
 		Err(err) => {
 			println!("Error: {}", err);
-		},
+		}
 	};
 }
 

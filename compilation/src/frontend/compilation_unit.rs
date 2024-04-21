@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Error};
 use fxhash::FxHashMap;
@@ -9,7 +9,7 @@ use leaf_parsing::ast::{Symbol, CompilationUnit as Ast, Function as FunctionAst,
 use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, debug_span, error, info, instrument, Level, span, trace};
 use leaf_parsing::ErrMode;
-use leaf_parsing::parser::{LexerError, Parse, Token, TokenData, TokenStream};
+use leaf_parsing::parser::{Parse, Token, TokenStream};
 use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 use crate::frontend::block::Block;
 use crate::frontend::types::{TypeCache, TypeResolver};
@@ -40,7 +40,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		debug_span!("compile_file", file = absolute_path).in_scope(|| {
 			info!("Compiling file `{}`", absolute_path);
 			let code = debug_span!("read_file").in_scope(|| std::fs::read_to_string(path))?;
-			Self::compile_internal(type_cache, assembly, &code)?;
+			Self::compile_internal(type_cache, assembly, &code, &absolute_path)?;
 			debug!("File `{}` compiled successfully", absolute_path);
 			Ok(())
 		})
@@ -53,7 +53,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 	) -> anyhow::Result<()> {
 		debug_span!("compile_code").in_scope(|| {
 			info!("Compiling code");
-			Self::compile_internal(type_cache, assembly, code)?;
+			Self::compile_internal(type_cache, assembly, code, "<dynamic_code>")?;
 			debug!("Code compiled successfully");
 			Ok(())
 		})
@@ -63,6 +63,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
+		file: &str,
 	) -> anyhow::Result<()> {
 		let span = debug_span!("parse_code");
 		let parse_code_span = span.enter();
@@ -74,13 +75,13 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Ok(tokens) => tokens,
 			Err(err) => {
 				let mut str = vec![];
-				err.to_report("")
-					.write(("", ariadne::Source::from(code)), &mut str)
+				err.to_report(file)
+					.write((file, ariadne::Source::from(code)), &mut str)
 					.unwrap();
 				return Err(Error::msg(String::from_utf8(str).unwrap()));
 			},
 		};
-		let mut stream = TokenStream::new("", &tokens);
+		let mut stream = TokenStream::new(file, &tokens);
 		drop(lex_span);
 
 		let span = debug_span!("parse");
@@ -90,8 +91,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Ok(tokens) => tokens,
 			Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
 				let mut str = vec![];
-				err.to_report("")
-					.write(("", ariadne::Source::from(code)), &mut str)
+				err.to_report(file)
+					.write((file, ariadne::Source::from(code)), &mut str)
 					.unwrap();
 				return Err(Error::msg(String::from_utf8(str).unwrap()));
 			},

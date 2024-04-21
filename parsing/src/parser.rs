@@ -13,16 +13,11 @@ use winnow::combinator::{alt, delimited, opt, repeat};
 use winnow::error::{ErrMode, ErrorKind, Needed};
 use winnow::stream::{ContainsToken, Offset, Stream, StreamIsPartial};
 use winnow::token::one_of;
-
-use crate::ast::{
-	BinaryOperator, Block, CompilationUnit, Else, Expression, Function, FunctionCall,
-	FunctionParameter, If, Integer, Literal, Statement, Struct, StructMember, Symbol,
-	SymbolDeclaration, Type, VarDecl, While,
-};
+use crate::ast::*;
 
 fn parse_token<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, LexerError>
-where
-	<T as FromStr>::Err: Error,
+	where
+		<T as FromStr>::Err: Error,
 {
 	match lex.slice().parse::<T>() {
 		Ok(value) => Ok(value),
@@ -35,8 +30,8 @@ where
 }
 
 fn parse_token_skip_end_2<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, LexerError>
-where
-	<T as FromStr>::Err: Error,
+	where
+		<T as FromStr>::Err: Error,
 {
 	match lex.slice()[0..lex.slice().len() - 2].parse::<T>() {
 		Ok(value) => Ok(value),
@@ -49,8 +44,8 @@ where
 }
 
 fn parse_token_skip_end_3<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, LexerError>
-where
-	<T as FromStr>::Err: Error,
+	where
+		<T as FromStr>::Err: Error,
 {
 	match lex.slice()[0..lex.slice().len() - 3].parse::<T>() {
 		Ok(value) => Ok(value),
@@ -313,7 +308,7 @@ impl<'l> Token<'l> {
 							)),
 						},
 					});
-				},
+				}
 				Err(err) => return Err(err),
 			};
 			tokens.push(TokenData {
@@ -408,8 +403,8 @@ impl<'l> Stream for TokenStream<'l> {
 
 	#[cfg_attr(not(debug_assertions), inline(always))]
 	fn offset_for<P>(&self, predicate: P) -> Option<usize>
-	where
-		P: Fn(Self::Token) -> bool,
+		where
+			P: Fn(Self::Token) -> bool,
 	{
 		self.tokens[self.range.clone()].iter().position(predicate)
 	}
@@ -546,8 +541,8 @@ impl<'l> winnow::error::ParserError<TokenStream<'l>> for ParserError<'l> {
 }
 
 pub trait Parse<'l>
-where
-	Self: Sized,
+	where
+		Self: Sized,
 {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>>;
 }
@@ -581,7 +576,7 @@ impl<'l> Parse<'l> for Literal<'l> {
 						err_tokens: from_ref(data),
 						labels: vec![],
 					}));
-				},
+				}
 			},
 			None => return Err(unexpected_eof(input, None, false)),
 		};
@@ -618,29 +613,29 @@ impl<'l> Parse<'l> for Expression<'l> {
 						Token::Sub => expr - term,
 						Token::Eq => {
 							Expression::Binary(expr.into(), BinaryOperator::Eq, term.into())
-						},
+						}
 						Token::Lt => {
 							Expression::Binary(expr.into(), BinaryOperator::Lt, term.into())
-						},
+						}
 						Token::Gt => {
 							Expression::Binary(expr.into(), BinaryOperator::Gt, term.into())
-						},
+						}
 						Token::Le => {
 							Expression::Binary(expr.into(), BinaryOperator::Le, term.into())
-						},
+						}
 						Token::Ge => {
 							Expression::Binary(expr.into(), BinaryOperator::Ge, term.into())
-						},
+						}
 						_ => unreachable!(),
 					}
-				},
+				}
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&start);
 					return Ok(expr);
-				},
+				}
 				Err(e) => {
 					return Err(e);
-				},
+				}
 			}
 		}
 	}
@@ -667,24 +662,48 @@ impl<'l> Expression<'l> {
 						Token::Mod => expr % term,
 						_ => unreachable!(),
 					}
-				},
+				}
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&start);
 					return Ok(expr);
-				},
+				}
 				Err(e) => {
 					return Err(e);
-				},
+				}
 			}
 		}
 	}
 
 	fn factor(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		alt((
+			NewStruct::parse.map(|v| Expression::NewStruct(v)),
 			Literal::parse.map(|l| Expression::Literal(l)),
 			delimited(Token::OpenRound, Expression::parse, Token::CloseRound),
 		))
-		.parse_next(input)
+			.parse_next(input)
+	}
+}
+
+impl<'l> Parse<'l> for NewStruct<'l> {
+	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
+		let id = ident(false).parse_next(input)?;
+
+		let members = delimited(
+			Token::OpenCurly,
+			list(
+				Token::Comma,
+				(
+					ident(false),
+					required(Token::Colon),
+					required(Expression::parse),
+				)
+					.map(|(id, _, expr)| (id, expr)),
+			),
+			required(Token::CloseCurly),
+		)
+			.parse_next(input)?;
+
+		Ok(Self::new(Type::Id(id), members))
 	}
 }
 
@@ -696,7 +715,7 @@ impl<'l> Parse<'l> for FunctionCall<'l> {
 			list(Token::Comma, Expression::parse),
 			required(Token::CloseRound),
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 		Ok(Self { func, params })
 	}
 }
@@ -705,20 +724,25 @@ impl<'l> Parse<'l> for Type<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		let start = input.start_char();
 		let ty = alt((
-			(Token::Mul, Token::Mut, Type::parse).map(|(_, _, t)| Type::Pointer(t.into(), true)),
-			(Token::Mul, Type::parse).map(|(_, t)| Type::Pointer(t.into(), false)),
+			(Token::Mul, Token::Mut, required(Type::parse))
+				.map(|(_, _, t)| Type::Pointer(t.into(), true)),
+			(Token::Mul, required(Type::parse)).map(|(_, t)| Type::Pointer(t.into(), false)),
 			delimited(
 				Token::OpenSquare,
-				(Type::parse, Token::SemiColon, Expression::parse),
+				(
+					required(Type::parse),
+					required(Token::SemiColon),
+					required(Expression::parse),
+				),
 				Token::CloseSquare,
 			)
-			.map(|(ty, _, exp)| Type::Array {
-				base: ty.into(),
-				length: Some(exp.into()),
-			}),
+				.map(|(ty, _, exp)| Type::Array {
+					base: ty.into(),
+					length: Some(exp.into()),
+				}),
 			ident(true).map(|id| Type::Id(id)),
 		))
-		.parse_next(input);
+			.parse_next(input);
 
 		match ty {
 			Ok(ty) => Ok(ty),
@@ -730,7 +754,7 @@ impl<'l> Parse<'l> for Type<'l> {
 							.with_color(Color::Red),
 					);
 					Err(ErrMode::Cut(err))
-				},
+				}
 				_ => Err(err),
 			},
 		}
@@ -744,7 +768,7 @@ impl<'l> Parse<'l> for Block<'l> {
 			repeat(0.., Statement::parse),
 			Token::CloseCurly,
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 		Ok(Self { statements })
 	}
 }
@@ -771,7 +795,7 @@ impl<'l> Parse<'l> for Statement<'l> {
 			(FunctionCall::parse, required(Token::SemiColon))
 				.map(|(c, _)| Statement::Expression(Expression::FunctionCall(c.into()))),
 		))
-		.parse_next(input)
+			.parse_next(input)
 	}
 }
 
@@ -793,7 +817,7 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 			)
 				.map(|(_, ty, _, _)| (Some(ty), Expression::Literal(Literal::Uninit))),
 		))
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self {
 			ty,
@@ -815,7 +839,7 @@ impl<'l> Parse<'l> for If<'l> {
 			(Token::Else, If::parse).map(|(_, v)| Else::If(v.into())),
 			(Token::Else, required(Block::parse)).map(|(_, v)| Else::Block(v)),
 		)))
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self {
 			condition,
@@ -845,7 +869,7 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 			Struct::parse.map(|s| Symbol::Struct(s)),
 			Function::parse.map(|f| Symbol::Function(f)),
 		))
-		.parse_next(input);
+			.parse_next(input);
 
 		if symbol.is_ok() {
 			return Ok(Self {
@@ -863,8 +887,8 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 						.with_message(format!("In symbol declaration `{name}`"))
 						.with_color(Color::Cyan),
 				);
-			},
-			_ => {},
+			}
+			_ => {}
 		}
 		Err(symbol.unwrap_err())
 	}
@@ -879,7 +903,7 @@ impl<'l> Parse<'l> for Struct<'l> {
 			list(Token::Comma, StructMember::parse),
 			required(Token::CloseCurly),
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self { members })
 	}
@@ -887,7 +911,7 @@ impl<'l> Parse<'l> for Struct<'l> {
 
 impl<'l> Parse<'l> for StructMember<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
-		match (ident(false), Token::Colon, Type::parse).parse_next(input) {
+		match (ident(false), required(Token::Colon), required(Type::parse)).parse_next(input) {
 			Ok((name, _, ty)) => Ok(Self { name, ty }),
 			Err(err) => Err(err),
 		}
@@ -899,18 +923,18 @@ impl<'l> Parse<'l> for Function<'l> {
 		let params = delimited(
 			Token::OpenRound,
 			list(Token::Comma, FunctionParameter::parse),
-			Token::CloseRound,
+			required(Token::CloseRound),
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Token::ThinArrow.parse_next(input)?;
-		let return_ty = Type::parse(input)?;
+		let return_ty = required(Type::parse).parse_next(input)?;
 
 		let block = alt((
 			Token::SemiColon.map(|_| None),
 			required(Block::parse).map(|b| Some(b)),
 		))
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self {
 			params,
@@ -922,7 +946,7 @@ impl<'l> Parse<'l> for Function<'l> {
 
 impl<'l> Parse<'l> for FunctionParameter<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
-		match (ident(false), Token::Colon, Type::parse).parse_next(input) {
+		match (ident(false), required(Token::Colon), required(Type::parse)).parse_next(input) {
 			Ok((name, _, ty)) => Ok(Self { name, ty }),
 			Err(err) => Err(err),
 		}
@@ -943,8 +967,8 @@ impl<'l> Parse<'l> for CompilationUnit<'l> {
 						message: None,
 						err_tokens: from_ref(data),
 						labels: vec![],
-					}))
-				},
+					}));
+				}
 			},
 		};
 		Token::SemiColon.parse_next(input)?;
@@ -962,9 +986,9 @@ impl<'l> Parse<'l> for CompilationUnit<'l> {
 fn ident<'l>(required: bool) -> impl Parser<TokenStream<'l>, &'l str, ParserError<'l>> {
 	return move |input: &mut TokenStream<'l>| match input.next_token() {
 		Some(TokenData {
-			token: Token::Ident(ident),
-			..
-		}) => Ok(*ident),
+				 token: Token::Ident(ident),
+				 ..
+			 }) => Ok(*ident),
 		None => return Err(unexpected_eof(input, None, required)),
 		Some(data) => match required {
 			false => Err(ErrMode::Backtrack(ParserError {
@@ -989,8 +1013,8 @@ fn list<'l, T, O>(
 	mut separator: Token<'l>,
 	mut parser: T,
 ) -> impl Parser<TokenStream<'l>, Vec<O>, ParserError<'l>>
-where
-	T: Parser<TokenStream<'l>, O, ParserError<'l>>,
+	where
+		T: Parser<TokenStream<'l>, O, ParserError<'l>>,
 {
 	return move |input: &mut TokenStream<'l>| {
 		let mut vec = vec![];
@@ -1001,21 +1025,21 @@ where
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&checkpoint);
 					break;
-				},
+				}
 				Err(err) => {
 					return Err(err);
-				},
+				}
 			}
 			checkpoint = input.checkpoint();
 			match separator.parse_next(input) {
-				Ok(_) => {},
+				Ok(_) => {}
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&checkpoint);
 					break;
-				},
+				}
 				Err(err) => {
 					return Err(err);
-				},
+				}
 			}
 		}
 		Ok(vec)
@@ -1044,8 +1068,8 @@ impl<'l> Parser<TokenStream<'l>, &'l Token<'l>, ParserError<'l>> for Token<'l> {
 }
 
 pub fn required<'l, O, T>(mut parser: T) -> impl Parser<TokenStream<'l>, O, ParserError<'l>>
-where
-	T: Parser<TokenStream<'l>, O, ParserError<'l>>,
+	where
+		T: Parser<TokenStream<'l>, O, ParserError<'l>>,
 {
 	move |input: &mut TokenStream<'l>| match parser.parse_next(input) {
 		Ok(ok) => Ok(ok),
