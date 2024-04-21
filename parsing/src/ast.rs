@@ -127,16 +127,14 @@ macro_rules! impl_binary_expr {
 					(
 						Expression::Literal(Literal::Integer(Integer::Any(lhs))),
 						Expression::Literal(Literal::Integer(Integer::Any(rhs))),
-					) => {
-						Expression::Literal(Literal::Integer(Integer::Any(lhs.$operation_i(*rhs))))
-					}
+					) => Expression::Literal(Literal::Integer(Integer::Any(lhs.$operation_i(*rhs)))),
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int8(lhs))),
 						Expression::Literal(Literal::Integer(Integer::Int8(rhs))),
 					) => {
 						Expression::Literal(Literal::Integer(Integer::Int8(lhs.$operation_i(*rhs))))
-					}
+					},
 
 					(
 						Expression::Literal(Literal::Integer(Integer::Int16(lhs))),
@@ -187,7 +185,7 @@ macro_rules! impl_binary_expr {
 
 					_ => {
 						Expression::Binary(Box::new(self), BinaryOperator::$operator, Box::new(rhs))
-					}
+					},
 				}
 			}
 		}
@@ -219,7 +217,7 @@ pub struct NewStruct<'l> {
 impl<'l> NewStruct<'l> {
 	pub(crate) fn new(
 		ty: Type<'l>,
-		fields: impl IntoIterator<Item=(&'l str, Expression<'l>)>,
+		fields: impl IntoIterator<Item = (&'l str, Expression<'l>)>,
 	) -> Self {
 		let mut values = HashMap::new();
 		for (i, (key, value)) in fields.into_iter().enumerate() {

@@ -103,7 +103,10 @@ mod build {
 			self.params.set(params)
 		}
 
-		pub fn set_body(&self, body: Option<FunctionBody<'l>>) -> Result<(), Option<FunctionBody<'l>>> {
+		pub fn set_body(
+			&self,
+			body: Option<FunctionBody<'l>>,
+		) -> Result<(), Option<FunctionBody<'l>>> {
 			self.body.set(body)
 		}
 	}
@@ -126,10 +129,7 @@ mod build {
 #[cfg(feature = "read")]
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Function<'val> {
 	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
-	fn read<S: Read>(
-		stream: &mut S,
-		req: impl Into<Self::Requirements>,
-	) -> Result<Self, Error> {
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let req = req.into();
 		unsafe {
 			assert!(!req.functions.is_null());
@@ -137,7 +137,10 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 			let id = UniqueIdentifier::read(stream, req)?;
 			match structs.get(&id) {
 				Some(cell) => Ok(&*cell.get()),
-				None => Err(Error::new(ErrorKind::NotFound, format!("Could not retrieve function `{id}`"))),
+				None => Err(Error::new(
+					ErrorKind::NotFound,
+					format!("Could not retrieve function `{id}`"),
+				)),
 			}
 		}
 	}
@@ -162,7 +165,10 @@ fn debug_ret_ty(v: &OnceLock<&Type>, fmt: &mut Formatter) -> Result<(), std::fmt
 	}
 }
 
-fn debug_body(v: &OnceLock<Option<SSAContext>>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+fn debug_body(
+	v: &OnceLock<Option<SSAContext>>,
+	fmt: &mut Formatter,
+) -> Result<(), std::fmt::Error> {
 	match v.get() {
 		None => fmt.write_str("?"),
 		Some(None) => fmt.write_str("None"),
@@ -179,6 +185,6 @@ fn debug_params(v: &OnceLock<Vec<Parameter>>, fmt: &mut Formatter) -> Result<(),
 				list.entry(&format_args!("{}: {}", param.name, param.ty));
 			}
 			list.finish()
-		}
+		},
 	}
 }

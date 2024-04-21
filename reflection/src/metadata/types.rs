@@ -10,7 +10,6 @@ use crate::UniqueIdentifier;
 use std::io::{Read, Write, Error, ErrorKind};
 use std::io::Cursor;
 
-
 #[repr(u8)]
 #[derive(Clone, Hash, Metadata)]
 #[metadata(lifetimes(val = "l"))]
@@ -52,7 +51,7 @@ impl PartialEq<Self> for Type<'_> {
 		match (self, other) {
 			(Type::Array { count: ca, ty: ta }, Type::Array { count: cb, ty: tb }) => {
 				ca == cb && ta == tb
-			}
+			},
 			(
 				Type::Pointer {
 					mutable: ma,
@@ -112,21 +111,63 @@ impl Type<'_> {
 
 	pub fn id(&self) -> UniqueIdentifier {
 		match self {
-			Type::Void => UniqueIdentifier { namespace: "core::intrinsics::types", name: "void" },
-			Type::Char => UniqueIdentifier { namespace: "core::intrinsics::types", name: "char" },
-			Type::Bool => UniqueIdentifier { namespace: "core::intrinsics::types", name: "bool" },
-			Type::Int8 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i8" },
-			Type::Int16 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i16" },
-			Type::Int32 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i32" },
-			Type::Int64 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "i64" },
-			Type::UInt8 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u8" },
-			Type::UInt16 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u16" },
-			Type::UInt32 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u32" },
-			Type::UInt64 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "u64" },
-			Type::Float16 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "f16" },
-			Type::Float32 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "f32" },
-			Type::Float64 => UniqueIdentifier { namespace: "core::intrinsics::types", name: "f64" },
-			Type::Struct(data) => { data.id }
+			Type::Void => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "void",
+			},
+			Type::Char => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "char",
+			},
+			Type::Bool => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "bool",
+			},
+			Type::Int8 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "i8",
+			},
+			Type::Int16 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "i16",
+			},
+			Type::Int32 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "i32",
+			},
+			Type::Int64 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "i64",
+			},
+			Type::UInt8 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "u8",
+			},
+			Type::UInt16 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "u16",
+			},
+			Type::UInt32 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "u32",
+			},
+			Type::UInt64 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "u64",
+			},
+			Type::Float16 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "f16",
+			},
+			Type::Float32 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "f32",
+			},
+			Type::Float64 => UniqueIdentifier {
+				namespace: "core::intrinsics::types",
+				name: "f64",
+			},
+			Type::Struct(data) => data.id,
 			Type::Array { .. } => unreachable!(),
 			Type::Pointer { .. } => unreachable!(),
 		}
@@ -223,10 +264,7 @@ mod build {
 #[cfg(feature = "read")]
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Struct<'val> {
 	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
-	fn read<S: Read>(
-		stream: &mut S,
-		req: impl Into<Self::Requirements>,
-	) -> Result<Self, Error> {
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let req = req.into();
 		unsafe {
 			assert!(!req.structs.is_null());
@@ -234,7 +272,10 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 			let id = UniqueIdentifier::read(stream, req)?;
 			match structs.get(&id) {
 				Some(cell) => Ok(&*cell.get()),
-				None => Err(Error::new(ErrorKind::NotFound, format!("Could not retrieve type `{id}`"))),
+				None => Err(Error::new(
+					ErrorKind::NotFound,
+					format!("Could not retrieve type `{id}`"),
+				)),
 			}
 		}
 	}
@@ -255,10 +296,7 @@ impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val
 #[cfg(feature = "read")]
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val Type<'val> {
 	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
-	fn read<S: Read>(
-		stream: &mut S,
-		req: impl Into<Self::Requirements>,
-	) -> Result<Self, Error> {
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let req = req.into();
 		let blob: &'val [u8] = crate::serialization::MetadataRead::read(stream, req)?;
 		let ty: Type<'val> = Type::read(&mut Cursor::new(blob), req)?;
@@ -279,7 +317,7 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 			Type::Float64 => Ok(&Type::Float64),
 			Type::Struct(data) => Ok(req.type_heap.struct_ref(data)),
 			Type::Array { .. } => unimplemented!(),
-			Type::Pointer { mutable, ty } => Ok(req.type_heap.pointer(ty, mutable))
+			Type::Pointer { mutable, ty } => Ok(req.type_heap.pointer(ty, mutable)),
 		}
 	}
 }
@@ -296,7 +334,10 @@ impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val
 		let mut buffer = vec![];
 		Type::write(self, &mut buffer, req)?;
 		let Some(idx) = req.blobs.get_blob_index(&buffer) else {
-			return Err(Error::new(ErrorKind::NotFound, format!("Type `{self}` was not previously interned")));
+			return Err(Error::new(
+				ErrorKind::NotFound,
+				format!("Type `{self}` was not previously interned"),
+			));
 		};
 		idx.write(stream, ())
 	}
@@ -311,6 +352,6 @@ fn debug_fields(v: &OnceLock<Vec<Field>>, fmt: &mut Formatter) -> Result<(), std
 				list.entry(&format_args!("{}: {}", field.name, field.ty));
 			}
 			list.finish()
-		}
+		},
 	}
 }

@@ -16,8 +16,7 @@ pub enum Opcode<'l> {
 	Br(ValueIdx, usize, usize) = 0x02,
 	Ret(Option<ValueIdx>) = 0x03,
 	Call(
-		#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
-		&'l Function<'l>,
+		#[derivative(Debug(format_with = "std::fmt::Display::fmt"))] &'l Function<'l>,
 		Vec<ValueIdx>,
 		Option<ValueIdx>,
 	) = 0x04,
@@ -230,7 +229,7 @@ mod build {
 					match &opcode {
 						Opcode::Jp(block) => {
 							opcodes.push(Opcode::Jp(block_offsets[*block]));
-						}
+						},
 						Opcode::Br(cond, true_case, false_case) => opcodes.push(Opcode::Br(
 							*cond,
 							block_offsets[*true_case],

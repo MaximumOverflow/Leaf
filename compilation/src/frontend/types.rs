@@ -60,15 +60,19 @@ pub trait TypeResolver<'l> {
 					"f64" => &Type::Float64,
 					_ => match self.types().get(id) {
 						Some(ty) => *ty,
-						None => return Err(anyhow!("Type `{id}` is not available in the current scope")),
+						None => {
+							return Err(anyhow!(
+								"Type `{id}` is not available in the current scope"
+							))
+						},
 					},
 				}
-			}
+			},
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
 				let base = self.resolve_type(base)?;
 				self.type_cache().make_pointer(base, *mutable)
-			}
+			},
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
 				Some(Expression::Literal(Literal::Integer(length))) => {
 					trace!("Resolving array type");
@@ -96,16 +100,20 @@ pub trait TypeResolver<'l> {
 					});
 
 					ty
-				}
+				},
 				_ => unimplemented!(),
 			},
 			_ => unimplemented!(),
 		};
 
 		let mut buf = vec![];
-		Type::write(ty, &mut buf, &WriteRequirements {
-			blobs: self.blob_heap().clone(),
-		})?;
+		Type::write(
+			ty,
+			&mut buf,
+			&WriteRequirements {
+				blobs: self.blob_heap().clone(),
+			},
+		)?;
 		self.blob_heap().intern(buf);
 		Ok(ty)
 	}

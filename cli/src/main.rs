@@ -80,7 +80,7 @@ fn main() {
 			let registry = Registry::default().with(fmt_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			None
-		}
+		},
 
 		Some(file) => {
 			let flame_layer = FlameLayer::new(BufWriter::new(file)).with_file_and_line(false);
@@ -88,7 +88,7 @@ fn main() {
 			let registry = Registry::default().with(fmt_layer).with(flame_layer);
 			tracing::subscriber::set_global_default(registry).unwrap();
 			Some(guard)
-		}
+		},
 	};
 
 	match args {
@@ -140,13 +140,16 @@ fn main() {
 					trace!("Allocated buffer at {ptr:#?} with {layout:?}");
 					ptr as usize
 				});
-				interpreter.register_extern_fn("core/test/dealloc", |info: (*const u8, usize, usize)| {
-					let (ptr, size, align) = info;
-					let layout = Layout::from_size_align_unchecked(size, align);
-					let ptr = ptr as *mut u8;
-					std::alloc::dealloc(ptr, layout);
-					trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
-				});
+				interpreter.register_extern_fn(
+					"core/test/dealloc",
+					|info: (*const u8, usize, usize)| {
+						let (ptr, size, align) = info;
+						let layout = Layout::from_size_align_unchecked(size, align);
+						let ptr = ptr as *mut u8;
+						std::alloc::dealloc(ptr, layout);
+						trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
+					},
+				);
 			}
 
 			match interpreter.call_as_main(main) {
@@ -157,13 +160,13 @@ fn main() {
 					info!("Result: {:#?}", value);
 
 					debug!("Interpretation time: {:?}", interp_time);
-				}
+				},
 				Err(err) => {
 					// println!("Stack dump: {:#?}", interpreter.stack());
 					println!("Error: {}", err);
-				}
+				},
 			};
-		}
+		},
 		Args::Compile(CompileArgs { file, .. }) => {
 			let mut time = SystemTime::now();
 
@@ -194,7 +197,7 @@ fn main() {
 			info!("Deserialization time: {:?}", delta);
 
 			dbg!(read_assembly);
-		}
+		},
 	}
 }
 
@@ -257,10 +260,10 @@ fn main() {
 	match interpreter.call_as_main(main) {
 		Ok(value) => {
 			info!("Result: {:#?}", value);
-		}
+		},
 		Err(err) => {
 			println!("Error: {}", err);
-		}
+		},
 	};
 }
 

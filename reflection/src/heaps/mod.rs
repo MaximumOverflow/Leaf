@@ -43,8 +43,16 @@ pub struct HeapScopes<'l> {
 }
 
 impl<'l> HeapScopes<'l> {
-	pub fn new(bump: &'l ArenaAllocator, type_heap: Arc<TypeHeap<'l>>, blob_heap: Arc<BlobHeapScope<'l>>) -> Self {
-		Self { bump, type_heap, blob_heap }
+	pub fn new(
+		bump: &'l ArenaAllocator,
+		type_heap: Arc<TypeHeap<'l>>,
+		blob_heap: Arc<BlobHeapScope<'l>>,
+	) -> Self {
+		Self {
+			bump,
+			type_heap,
+			blob_heap,
+		}
 	}
 
 	pub fn bump(&self) -> &'l ArenaAllocator {

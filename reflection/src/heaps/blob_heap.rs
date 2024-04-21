@@ -91,7 +91,10 @@ impl Debug for BlobHeapScope<'_> {
 		for (i, blob) in vec.iter().enumerate() {
 			name.clear();
 			write!(name, "{i}").unwrap();
-			dbg.field(&name, &format_args!("[u8; {}] @ {:#?}", blob.len(), blob.as_ptr()));
+			dbg.field(
+				&name,
+				&format_args!("[u8; {}] @ {:#?}", blob.len(), blob.as_ptr()),
+			);
 		}
 		dbg.finish()
 	}
@@ -196,10 +199,7 @@ mod intern {
 #[cfg(feature = "read")]
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for Arc<BlobHeapScope<'val>> {
 	type Requirements = &'req Arc<BlobHeap<'val>>;
-	fn read<S: Read>(
-		stream: &mut S,
-		req: impl Into<Self::Requirements>,
-	) -> Result<Self, Error> {
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let count = usize::read(stream, ())?;
 		let mut buffer = vec![];
 		let heap = BlobHeap::make_scope(req.into());

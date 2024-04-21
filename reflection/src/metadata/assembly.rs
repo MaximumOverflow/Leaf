@@ -30,7 +30,7 @@ pub struct Assembly<'l> {
 }
 
 impl<'l> Assembly<'l> {
-	pub fn functions(&'l self) -> impl Iterator<Item=&'l Function<'l>> {
+	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}
 }
@@ -137,28 +137,26 @@ mod build {
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for Assembly<'val> {
 	type Requirements = Heaps<'val>;
 	#[tracing::instrument(skip_all)]
-	fn read<S: Read>(
-		stream: &mut S,
-		req: impl Into<Self::Requirements>,
-	) -> Result<Self, Error> {
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let req = req.into();
 		let mut magic = [0; 4];
 		stream.read_exact(&mut magic)?;
 		if magic.as_slice() != b"LEAF" {
-			return Err(Error::new(ErrorKind::InvalidData, format! {
-				"Expected magic value {:#?}, found {:#?}",
-				u32::from_ne_bytes(*b"LEAF"),
-				u32::from_ne_bytes(magic),
-			}));
+			return Err(Error::new(
+				ErrorKind::InvalidData,
+				format! {
+					"Expected magic value {:#?}, found {:#?}",
+					u32::from_ne_bytes(*b"LEAF"),
+					u32::from_ne_bytes(magic),
+				},
+			));
 		}
 
 		let _format_version = Version::read(stream, ())?;
 		let assembly_version = Version::read(stream, ())?;
 		let assembly_name = String::read(stream, ())?;
 
-		let blob_heap = Arc::<BlobHeapScope>::read(
-			stream, req.blob_heap(),
-		)?;
+		let blob_heap = Arc::<BlobHeapScope>::read(stream, req.blob_heap())?;
 
 		let mut requirements = ReadRequirements {
 			blobs: blob_heap.clone(),
@@ -170,16 +168,19 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for Assemb
 		let struct_ids = Vec::<UniqueIdentifier>::read(stream, &requirements)?;
 		let function_ids = Vec::<UniqueIdentifier>::read(stream, &requirements)?;
 
-		let structs: HashMap<UniqueIdentifier<'val>, &'val UnsafeCell<Struct<'val>>> = HashMap::from_iter(
-			struct_ids.iter().map(|id| {
-				(*id, req.type_heap().struct_cell(Struct::new(*id, "")))
-			})
-		);
-		let functions: HashMap<UniqueIdentifier<'val>, &'val UnsafeCell<Function<'val>>> = HashMap::from_iter(
-			function_ids.iter().map(|id| {
-				(*id, &*req.general_purpose_heap().alloc(UnsafeCell::new(Function::new(*id, ""))))
-			})
-		);
+		let structs: HashMap<UniqueIdentifier<'val>, &'val UnsafeCell<Struct<'val>>> =
+			HashMap::from_iter(
+				struct_ids
+					.iter()
+					.map(|id| (*id, req.type_heap().struct_cell(Struct::new(*id, "")))),
+			);
+		let functions: HashMap<UniqueIdentifier<'val>, &'val UnsafeCell<Function<'val>>> =
+			HashMap::from_iter(function_ids.iter().map(|id| {
+				(
+					*id,
+					&*req.general_purpose_heap().alloc(UnsafeCell::new(Function::new(*id, ""))),
+				)
+			}));
 		requirements.structs = &structs;
 		requirements.functions = &functions;
 
@@ -201,12 +202,11 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for Assemb
 			Ok(Self {
 				name: assembly_name,
 				assembly_version,
-				types: structs.into_iter().map(|(id, ty)| {
-					(id, req.type_heap().struct_ref(&*ty.get()))
-				}).collect(),
-				functions: functions.into_iter().map(|(id, func)| {
-					(id, &*func.get())
-				}).collect(),
+				types: structs
+					.into_iter()
+					.map(|(id, ty)| (id, req.type_heap().struct_ref(&*ty.get())))
+					.collect(),
+				functions: functions.into_iter().map(|(id, func)| (id, &*func.get())).collect(),
 				bump: req.general_purpose_heap(),
 				type_heap: req.type_heap().clone(),
 				blob_heap,
@@ -264,10 +264,7 @@ impl<'val> crate::serialization::MetadataWrite<'val, '_> for Assembly<'val> {
 #[cfg(feature = "read")]
 impl crate::serialization::MetadataRead<'_, '_> for Version {
 	type Requirements = ();
-	fn read<S: Read>(
-		stream: &mut S,
-		_: impl Into<Self::Requirements>,
-	) -> Result<Self, Error> {
+	fn read<S: Read>(stream: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let mut bytes = [0; 2];
 		stream.read_exact(&mut bytes)?;
 		let major = u16::from_le_bytes(bytes);
@@ -298,7 +295,10 @@ impl crate::serialization::MetadataWrite<'_, '_> for Version {
 	}
 }
 
-fn debug_types(v: &HashMap<UniqueIdentifier, &Type>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+fn debug_types(
+	v: &HashMap<UniqueIdentifier, &Type>,
+	fmt: &mut Formatter,
+) -> Result<(), std::fmt::Error> {
 	let mut list = fmt.debug_list();
 	for ty in v.values() {
 		list.entry(ty);
@@ -306,7 +306,10 @@ fn debug_types(v: &HashMap<UniqueIdentifier, &Type>, fmt: &mut Formatter) -> Res
 	list.finish()
 }
 
-fn debug_functions(v: &HashMap<UniqueIdentifier, &Function>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+fn debug_functions(
+	v: &HashMap<UniqueIdentifier, &Function>,
+	fmt: &mut Formatter,
+) -> Result<(), std::fmt::Error> {
 	let mut list = fmt.debug_list();
 	for ty in v.values() {
 		list.entry(ty);

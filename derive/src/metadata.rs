@@ -6,7 +6,7 @@ use proc_macro2::Ident;
 use quote::{format_ident, quote, ToTokens};
 use syn::{Attribute, Data, DeriveInput, GenericParam};
 
-#[rustfmt::ignore]
+#[rustfmt::skip]
 pub fn get_discriminant(attrs: &[Attribute]) -> Ident {
 	for attr in attrs {
 		let Some(ident) = attr.path().get_ident() else { continue; };
@@ -44,7 +44,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 					} else {
 						write!(text, "{},", param.lifetime).unwrap()
 					}
-				}
+				},
 				GenericParam::Type(_) => unimplemented!(),
 				GenericParam::Const(_) => unimplemented!(),
 			}
@@ -56,7 +56,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 				text.insert(0, '<');
 				text.push('>');
 				Some(text.parse().unwrap())
-			}
+			},
 		}
 	};
 
@@ -74,7 +74,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 					Some(ident) => {
 						is_tuple = false;
 						(ident.clone(), ident.to_token_stream())
-					}
+					},
 				};
 				field_reads.push(quote! {
 					let #read_ident = crate::serialization::MetadataRead::read(__stream, __req)?;
@@ -109,7 +109,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 					std::result::Result::Ok(())
 				},
 			)
-		}
+		},
 		Data::Enum(data) => {
 			let discriminant_ty = get_discriminant(&ast.attrs);
 			let mut read_operations = Vec::with_capacity(data.variants.len());
@@ -136,7 +136,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 						Some(ident) => {
 							is_tuple = false;
 							ident.clone()
-						}
+						},
 					};
 					field_reads.push(quote! {
 						let #ident = crate::serialization::MetadataRead::read(__stream, __req)?;
@@ -213,7 +213,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 					}
 				},
 			)
-		}
+		},
 	};
 
 	return quote! {

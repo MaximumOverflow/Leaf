@@ -8,7 +8,9 @@ use bytemuck::{bytes_of, from_bytes};
 use paste::paste;
 use tracing::{trace, trace_span};
 
-use leaf_compilation::reflection::{Comparison, Function, FunctionBody, Opcode, Type, UniqueIdentifier, Value, ValueIdx};
+use leaf_compilation::reflection::{
+	Comparison, Function, FunctionBody, Opcode, Type, UniqueIdentifier, Value, ValueIdx,
+};
 
 use crate::interpreter::memory::LayoutCache;
 use crate::interpreter::stubs::ExternFunctionStub;
@@ -47,9 +49,7 @@ impl<'l> Interpreter<'l> {
 			Vec::from(std::slice::from_raw_parts(ptr, size_of::<R>()))
 		};
 
-		let (namespace, name) = path
-			.rsplit_once('/')
-			.unwrap_or(("", path));
+		let (namespace, name) = path.rsplit_once('/').unwrap_or(("", path));
 
 		let id = UniqueIdentifier::new(name, namespace);
 		self.extern_functions.insert(id, Box::new(stub));
@@ -74,10 +74,14 @@ impl<'l> Interpreter<'l> {
 		function: &'l Function<'l>,
 		stack: &'s mut [u8],
 	) -> anyhow::Result<&'s [u8]>
-		where
-			'l: 's,
+	where
+		'l: 's,
 	{
-		let scope = trace_span!("call", namespace = function.namespace(), name = function.name());
+		let scope = trace_span!(
+			"call",
+			namespace = function.namespace(),
+			name = function.name()
+		);
 		let _scope = scope.enter();
 
 		let body = function.body().unwrap();
@@ -136,11 +140,11 @@ impl<'l> Interpreter<'l> {
 			}
 
 			match opcode {
-				Opcode::Nop => {}
+				Opcode::Nop => {},
 				Opcode::Jp(target) => {
 					pc = *target;
 					continue;
-				}
+				},
 				Opcode::Br(cond, true_case, false_case) => {
 					debug_assert_eq!(body.value_type(*cond), Some(&Type::Bool));
 					pc = match value_bytes(stack_frame, &offsets, body, *cond)[0] {
@@ -148,79 +152,79 @@ impl<'l> Interpreter<'l> {
 						_ => *true_case,
 					};
 					continue;
-				}
+				},
 				Opcode::SAdd(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_add, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SSub(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_sub, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SMul(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_mul, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SDiv(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_div, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SMod(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_rem, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Eq) => {
 					impl_cmp!(eq, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Ne) => {
 					impl_cmp!(ne, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Lt) => {
 					impl_cmp!(lt, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Gt) => {
 					impl_cmp!(gt, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Le) => {
 					impl_cmp!(le, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::SCmp(lhs, rhs, dst, Comparison::Ge) => {
 					impl_cmp!(ge, lhs, rhs, dst, i8, i16, i32, i64);
-				}
+				},
 				Opcode::UAdd(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_add, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::USub(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_sub, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UMul(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_mul, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UDiv(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_div, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UMod(lhs, rhs, dst) => {
 					impl_bin_op!(wrapping_rem, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Eq) => {
 					impl_cmp!(eq, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Ne) => {
 					impl_cmp!(ne, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Lt) => {
 					impl_cmp!(lt, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Gt) => {
 					impl_cmp!(gt, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Le) => {
 					impl_cmp!(le, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::UCmp(lhs, rhs, dst, Comparison::Ge) => {
 					impl_cmp!(ge, lhs, rhs, dst, u8, u16, u32, u64);
-				}
+				},
 				Opcode::LNot(val, dst) => {
 					let val = value_bytes(stack_frame, &offsets, body, *val);
 					let result = val[0] == 0;
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					dst[0] = result as u8;
-				}
+				},
 
 				Opcode::Store(src, dst) => unsafe {
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
@@ -236,7 +240,7 @@ impl<'l> Interpreter<'l> {
 					let ptr = value_bytes(stack_frame, &offsets, body, *val).as_ptr() as usize;
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					dst.copy_from_slice(bytes_of(&ptr));
-				}
+				},
 				Opcode::Aggregate(values, dst) => {
 					let (bytes, _) = push_values(
 						stack_frame,
@@ -249,17 +253,17 @@ impl<'l> Interpreter<'l> {
 
 					let dst = value_bytes_mut(stack_frame, &offsets, *dst);
 					dst.copy_from_slice(bytes);
-				}
+				},
 
 				Opcode::Ret(value) => match value {
 					Some(value) => {
 						assert_eq!(body.value_type(*value), Some(function.ret_ty()));
 						return Ok(value_bytes(stack_frame, &offsets, body, *value));
-					}
+					},
 					None => {
 						assert_eq!(function.ret_ty(), &Type::Void);
 						return Ok(&[]);
-					}
+					},
 				},
 				Opcode::Call(func, params, result) => {
 					let (call_frame, _) = push_values(
@@ -276,11 +280,15 @@ impl<'l> Interpreter<'l> {
 							panic!("Unregistered external function {:?}", func.id());
 						};
 
-						let result_bytes =
-							trace_span!("call_native", namespace = func.namespace(), name = func.name()).in_scope(|| {
-								trace!("{}", function.id());
-								stub(call_frame)
-							});
+						let result_bytes = trace_span!(
+							"call_native",
+							namespace = func.namespace(),
+							name = func.name()
+						)
+						.in_scope(|| {
+							trace!("{}", function.id());
+							stub(call_frame)
+						});
 						if let Some(result) = result {
 							value_bytes_mut(stack_frame, &offsets, *result)
 								.copy_from_slice(&result_bytes);
@@ -292,7 +300,7 @@ impl<'l> Interpreter<'l> {
 								.copy_from_slice(&result_bytes);
 						}
 					}
-				}
+				},
 				_ => unimplemented!("{:?}", opcode),
 			}
 
@@ -330,7 +338,7 @@ fn value_bytes<'s, 'l: 's>(
 			let [start, size] = offsets[value.0];
 			let end = start + size;
 			&stack_frame[start..end]
-		}
+		},
 	}
 }
 
@@ -372,7 +380,7 @@ fn push_values<'s, 'l: 's>(
 				let ty_layout = layout_cache.get_type_layout(ty);
 				let ptr = stack.as_ptr();
 				ptr.align_offset(ty_layout.align())
-			}
+			},
 		};
 
 		let (stack_frame, stack) = stack.split_at_mut(offset);

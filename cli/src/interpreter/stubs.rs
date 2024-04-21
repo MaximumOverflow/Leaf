@@ -1,4 +1,6 @@
-pub trait ExternFunctionStub<P, R> where Self: 'static,
+pub trait ExternFunctionStub<P, R>
+where
+	Self: 'static,
 {
 	unsafe fn dyn_call(&self, params: &[u8]) -> R;
 }

@@ -11,8 +11,8 @@ use crate::heaps::{BlobHeapScope, TypeHeap};
 
 #[cfg(feature = "read")]
 pub trait MetadataRead<'val, 'req>
-	where
-		Self: Sized,
+where
+	Self: Sized,
 {
 	type Requirements;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error>;
@@ -32,8 +32,8 @@ pub trait MetadataRead<'val, 'req>
 
 #[cfg(feature = "write")]
 pub trait MetadataWrite<'val, 'req>
-	where
-		Self: Sized,
+where
+	Self: Sized,
 {
 	type Requirements;
 	fn write<S: Write>(
@@ -186,7 +186,7 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Opt
 			Some(value) => {
 				<u8 as MetadataWrite>::write(&1u8, stream, ())?;
 				<T as MetadataWrite>::write(value, stream, req)
-			}
+			},
 		}
 	}
 }
@@ -216,7 +216,10 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Onc
 			Some(value) => <T as MetadataWrite>::write(value, stream, req),
 			None => Err(Error::new(
 				ErrorKind::NotFound,
-				format!("{} was not initialized", std::any::type_name::<OnceLock<T>>()),
+				format!(
+					"{} was not initialized",
+					std::any::type_name::<OnceLock<T>>()
+				),
 			)),
 		}
 	}
@@ -224,8 +227,8 @@ impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Onc
 
 #[cfg(feature = "read")]
 impl<'val, 'req, T: MetadataRead<'val, 'req>> MetadataRead<'val, 'req> for Vec<T>
-	where
-		T::Requirements: Clone,
+where
+	T::Requirements: Clone,
 {
 	type Requirements = T::Requirements;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
@@ -241,8 +244,8 @@ impl<'val, 'req, T: MetadataRead<'val, 'req>> MetadataRead<'val, 'req> for Vec<T
 
 #[cfg(feature = "write")]
 impl<'val, 'req, T: MetadataWrite<'val, 'req>> MetadataWrite<'val, 'req> for Vec<T>
-	where
-		T::Requirements: Clone,
+where
+	T::Requirements: Clone,
 {
 	type Requirements = T::Requirements;
 	fn write<S: Write>(
@@ -281,7 +284,10 @@ impl<'val: 'req, 'req> MetadataWrite<'val, 'req> for &'val [u8] {
 	) -> Result<(), Error> {
 		let req = req.into();
 		let Some(idx) = req.blobs.get_blob_index(self) else {
-			return Err(Error::new(ErrorKind::NotFound, "Blob was not previously interned"));
+			return Err(Error::new(
+				ErrorKind::NotFound,
+				"Blob was not previously interned",
+			));
 		};
 		idx.write(stream, ())
 	}
@@ -309,7 +315,10 @@ impl<'val: 'req, 'req> MetadataWrite<'val, 'req> for &'val str {
 	) -> Result<(), Error> {
 		let req = req.into();
 		let Some(idx) = req.blobs.get_blob_index(self.as_bytes()) else {
-			return Err(Error::new(ErrorKind::NotFound, format!("String {self:?} was not previously interned")));
+			return Err(Error::new(
+				ErrorKind::NotFound,
+				format!("String {self:?} was not previously interned"),
+			));
 		};
 		idx.write(stream, ())
 	}

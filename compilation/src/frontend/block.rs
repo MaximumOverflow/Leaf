@@ -43,12 +43,12 @@ impl<'a, 'l> Block<'a, 'l> {
 				None if self.func.ret_ty() == &Type::Void => {
 					body.push_opcode(Opcode::Ret(None));
 					Ok(())
-				}
+				},
 				Some(expr) => {
 					let value = compile_expression(expr, Some(self.func.ret_ty()), self, body)?;
 					body.push_opcode(Opcode::Ret(Some(value.unwrap_value())));
 					Ok(())
-				}
+				},
 				None => Err(anyhow!(
 					"Expected type {}, found {}",
 					self.func.ret_ty(),
@@ -67,7 +67,7 @@ impl<'a, 'l> Block<'a, 'l> {
 						let ty = expected.unwrap();
 						let local = body.alloca(ty);
 						self.values.insert(decl.name, (local, decl.mutable));
-					}
+					},
 					_ => {
 						let value = compile_expression(&decl.value, expected, self, body)?;
 						let ty = body.value_type(value.unwrap_value()).unwrap();
@@ -76,11 +76,11 @@ impl<'a, 'l> Block<'a, 'l> {
 						let local = body.alloca(ty);
 						body.push_opcode(Opcode::Store(value.unwrap_value(), local));
 						self.values.insert(decl.name, (local, decl.mutable));
-					}
+					},
 				}
 
 				Ok(())
-			}
+			},
 
 			Statement::Assignment(lhs, rhs) => {
 				let lhs = compile_expression(lhs, None, self, body)?.unwrap_value();
@@ -89,7 +89,7 @@ impl<'a, 'l> Block<'a, 'l> {
 				assert_eq!(Some(lhs_t), body.value_type(rhs));
 				body.push_opcode(Opcode::Store(rhs, lhs));
 				Ok(())
-			}
+			},
 
 			Statement::While(stmt) => {
 				let check = body.create_block();
@@ -116,7 +116,7 @@ impl<'a, 'l> Block<'a, 'l> {
 
 				body.set_current_block(exit).unwrap();
 				Ok(())
-			}
+			},
 
 			Statement::If(stmt) => {
 				let cond = compile_expression(&stmt.condition, Some(&Type::Bool), self, body)?
@@ -141,15 +141,15 @@ impl<'a, 'l> Block<'a, 'l> {
 						body.push_jp(false_case).unwrap();
 						body.set_current_block(false_case).unwrap();
 						Ok(())
-					}
+					},
 					_ => unimplemented!(),
 				}
-			}
+			},
 
 			Statement::Expression(expr) => {
 				compile_expression(expr, None, self, body)?;
 				Ok(())
-			}
+			},
 
 			_ => unimplemented!("{:#?}", statement),
 		}

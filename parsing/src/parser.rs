@@ -10,14 +10,19 @@ use derive_more::Display;
 use logos::{Lexer, Logos};
 use winnow::{Parser, PResult};
 use winnow::combinator::{alt, delimited, opt, repeat};
-use winnow::error::{ErrMode, ErrorKind, Needed, ParserError as PErr};
+use winnow::error::{ErrMode, ErrorKind, Needed};
 use winnow::stream::{ContainsToken, Offset, Stream, StreamIsPartial};
 use winnow::token::one_of;
 
-use crate::ast::{BinaryOperator, Block, CompilationUnit, Else, Expression, Function, FunctionCall, FunctionParameter, If, Integer, Literal, Statement, Struct, StructMember, Symbol, SymbolDeclaration, Type, VarDecl, While};
+use crate::ast::{
+	BinaryOperator, Block, CompilationUnit, Else, Expression, Function, FunctionCall,
+	FunctionParameter, If, Integer, Literal, Statement, Struct, StructMember, Symbol,
+	SymbolDeclaration, Type, VarDecl, While,
+};
 
 fn parse_token<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, LexerError>
-	where <T as FromStr>::Err: Error
+where
+	<T as FromStr>::Err: Error,
 {
 	match lex.slice().parse::<T>() {
 		Ok(value) => Ok(value),
@@ -25,12 +30,13 @@ fn parse_token<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, Lexe
 			code: "L0002",
 			range: lex.span(),
 			message: Some(err.to_string()),
-		})
+		}),
 	}
 }
 
 fn parse_token_skip_end_2<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, LexerError>
-	where <T as FromStr>::Err: Error
+where
+	<T as FromStr>::Err: Error,
 {
 	match lex.slice()[0..lex.slice().len() - 2].parse::<T>() {
 		Ok(value) => Ok(value),
@@ -38,12 +44,13 @@ fn parse_token_skip_end_2<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Res
 			code: "L0002",
 			range: lex.span(),
 			message: Some(err.to_string()),
-		})
+		}),
 	}
 }
 
 fn parse_token_skip_end_3<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Result<T, LexerError>
-	where <T as FromStr>::Err: Error
+where
+	<T as FromStr>::Err: Error,
 {
 	match lex.slice()[0..lex.slice().len() - 3].parse::<T>() {
 		Ok(value) => Ok(value),
@@ -51,7 +58,7 @@ fn parse_token_skip_end_3<'l, T: FromStr>(lex: &mut Lexer<'l, Token<'l>>) -> Res
 			code: "L0002",
 			range: lex.span(),
 			message: Some(err.to_string()),
-		})
+		}),
 	}
 }
 
@@ -300,10 +307,13 @@ impl<'l> Token<'l> {
 						range: lexer.span(),
 						message: match ExactSizeIterator::len(&lexer.span()) {
 							1 => Some(format!("Unexpected char `{}`", &text[lexer.span()])),
-							_ => Some(format!("Unexpected char sequence `{}`", &text[lexer.span()])),
+							_ => Some(format!(
+								"Unexpected char sequence `{}`",
+								&text[lexer.span()]
+							)),
 						},
 					});
-				}
+				},
 				Err(err) => return Err(err),
 			};
 			tokens.push(TokenData {
@@ -322,14 +332,15 @@ impl LexerError {
 			.with_code(self.code)
 			.with_message("Lexing failed")
 			.with_label(
-				Label::new((file, self.range.clone()))
-					.with_color(Color::Red)
-					.with_message(self.message.unwrap_or_else(|| "The following input generated a lexer error".to_string()))
+				Label::new((file, self.range.clone())).with_color(Color::Red).with_message(
+					self.message.unwrap_or_else(|| {
+						"The following input generated a lexer error".to_string()
+					}),
+				),
 			)
 			.finish()
 	}
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenData<'l> {
@@ -396,13 +407,16 @@ impl<'l> Stream for TokenStream<'l> {
 	}
 
 	#[cfg_attr(not(debug_assertions), inline(always))]
-	fn offset_for<P>(&self, predicate: P) -> Option<usize> where P: Fn(Self::Token) -> bool {
+	fn offset_for<P>(&self, predicate: P) -> Option<usize>
+	where
+		P: Fn(Self::Token) -> bool,
+	{
 		self.tokens[self.range.clone()].iter().position(predicate)
 	}
 
 	#[cfg_attr(not(debug_assertions), inline(always))]
-	fn offset_at(&self, tokens: usize) -> Result<usize, Needed> {
-		todo!()
+	fn offset_at(&self, _: usize) -> Result<usize, Needed> {
+		unimplemented!()
 	}
 
 	#[cfg_attr(not(debug_assertions), inline(always))]
@@ -431,8 +445,10 @@ impl<'l> Stream for TokenStream<'l> {
 impl<'l> StreamIsPartial for TokenStream<'l> {
 	type PartialState = ();
 	fn complete(&mut self) -> Self::PartialState {}
-	fn restore_partial(&mut self, state: Self::PartialState) {}
-	fn is_partial_supported() -> bool { false }
+	fn restore_partial(&mut self, _: Self::PartialState) {}
+	fn is_partial_supported() -> bool {
+		false
+	}
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -461,12 +477,12 @@ impl<'l> ParserError<'l> {
 			[token] => builder.with_label(
 				Label::new((file, token.range.clone()))
 					.with_message(format!("Unexpected token `{}`", token.token))
-					.with_color(Color::Red)
+					.with_color(Color::Red),
 			),
 			[start, .., end] => builder.with_label(
 				Label::new((file, start.range.start..end.range.end))
 					.with_message("Unexpected tokens")
-					.with_color(Color::Red)
+					.with_color(Color::Red),
 			),
 		};
 
@@ -504,15 +520,21 @@ impl<'l> winnow::error::ParserError<TokenStream<'l>> for ParserError<'l> {
 			},
 			_ => Self {
 				code: Self::UNKNOWN,
-				range: input.tokens[input.range.start].range.start..input.tokens[input.range.end - 1].range.end,
+				range: input.tokens[input.range.start].range.start
+					..input.tokens[input.range.end - 1].range.end,
 				err_tokens: &input.tokens[input.range.clone()],
 				message: None,
 				labels: vec![],
-			}
+			},
 		}
 	}
 
-	fn append(mut self, input: &TokenStream<'l>, token_start: &<TokenStream<'l> as Stream>::Checkpoint, kind: ErrorKind) -> Self {
+	fn append(
+		mut self,
+		input: &TokenStream<'l>,
+		_: &<TokenStream<'l> as Stream>::Checkpoint,
+		kind: ErrorKind,
+	) -> Self {
 		let mut error = Self::from_error_kind(input, kind);
 		self.labels.extend(error.labels);
 		error.labels = self.labels;
@@ -523,7 +545,10 @@ impl<'l> winnow::error::ParserError<TokenStream<'l>> for ParserError<'l> {
 	}
 }
 
-pub trait Parse<'l> where Self: Sized {
+pub trait Parse<'l>
+where
+	Self: Sized,
+{
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>>;
 }
 
@@ -542,9 +567,9 @@ impl<'l> Parse<'l> for Literal<'l> {
 				Token::UInt32(v) => Literal::Integer(Integer::UInt32(v)),
 				Token::UInt64(v) => Literal::Integer(Integer::UInt64(v)),
 				Token::Float(v) => Literal::Float(v),
-				Token::Float16(v) => unimplemented!(),
-				Token::Float32(v) => unimplemented!(),
-				Token::Float64(v) => unimplemented!(),
+				Token::Float16(_v) => unimplemented!(),
+				Token::Float32(_v) => unimplemented!(),
+				Token::Float64(_v) => unimplemented!(),
 				Token::CharLiteral(v) => Literal::Char(v),
 				Token::BoolLiteral(v) => Literal::Bool(v),
 				Token::StringLiteral(v) => Literal::String(v),
@@ -556,8 +581,8 @@ impl<'l> Parse<'l> for Literal<'l> {
 						err_tokens: from_ref(data),
 						labels: vec![],
 					}));
-				}
-			}
+				},
+			},
 			None => return Err(unexpected_eof(input, None, false)),
 		};
 		Ok(literal)
@@ -591,21 +616,31 @@ impl<'l> Parse<'l> for Expression<'l> {
 					expr = match op.token {
 						Token::Add => expr + term,
 						Token::Sub => expr - term,
-						Token::Eq => Expression::Binary(expr.into(), BinaryOperator::Eq, term.into()),
-						Token::Lt => Expression::Binary(expr.into(), BinaryOperator::Lt, term.into()),
-						Token::Gt => Expression::Binary(expr.into(), BinaryOperator::Gt, term.into()),
-						Token::Le => Expression::Binary(expr.into(), BinaryOperator::Le, term.into()),
-						Token::Ge => Expression::Binary(expr.into(), BinaryOperator::Ge, term.into()),
+						Token::Eq => {
+							Expression::Binary(expr.into(), BinaryOperator::Eq, term.into())
+						},
+						Token::Lt => {
+							Expression::Binary(expr.into(), BinaryOperator::Lt, term.into())
+						},
+						Token::Gt => {
+							Expression::Binary(expr.into(), BinaryOperator::Gt, term.into())
+						},
+						Token::Le => {
+							Expression::Binary(expr.into(), BinaryOperator::Le, term.into())
+						},
+						Token::Ge => {
+							Expression::Binary(expr.into(), BinaryOperator::Ge, term.into())
+						},
 						_ => unreachable!(),
 					}
-				}
-				Err(ErrMode::Backtrack(err)) => {
+				},
+				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&start);
 					return Ok(expr);
-				}
+				},
 				Err(e) => {
 					return Err(e);
-				}
+				},
 			}
 		}
 	}
@@ -632,14 +667,14 @@ impl<'l> Expression<'l> {
 						Token::Mod => expr % term,
 						_ => unreachable!(),
 					}
-				}
+				},
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&start);
 					return Ok(expr);
-				}
+				},
 				Err(e) => {
 					return Err(e);
-				}
+				},
 			}
 		}
 	}
@@ -648,7 +683,8 @@ impl<'l> Expression<'l> {
 		alt((
 			Literal::parse.map(|l| Expression::Literal(l)),
 			delimited(Token::OpenRound, Expression::parse, Token::CloseRound),
-		)).parse_next(input)
+		))
+		.parse_next(input)
 	}
 }
 
@@ -659,7 +695,8 @@ impl<'l> Parse<'l> for FunctionCall<'l> {
 			Token::OpenRound,
 			list(Token::Comma, Expression::parse),
 			required(Token::CloseRound),
-		).parse_next(input)?;
+		)
+		.parse_next(input)?;
 		Ok(Self { func, params })
 	}
 }
@@ -667,16 +704,21 @@ impl<'l> Parse<'l> for FunctionCall<'l> {
 impl<'l> Parse<'l> for Type<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		let start = input.start_char();
-		let mut ty = alt((
+		let ty = alt((
 			(Token::Mul, Token::Mut, Type::parse).map(|(_, _, t)| Type::Pointer(t.into(), true)),
 			(Token::Mul, Type::parse).map(|(_, t)| Type::Pointer(t.into(), false)),
 			delimited(
 				Token::OpenSquare,
 				(Type::parse, Token::SemiColon, Expression::parse),
 				Token::CloseSquare,
-			).map(|(ty, _, exp)| Type::Array { base: ty.into(), length: Some(exp.into()) }),
+			)
+			.map(|(ty, _, exp)| Type::Array {
+				base: ty.into(),
+				length: Some(exp.into()),
+			}),
 			ident(true).map(|id| Type::Id(id)),
-		)).parse_next(input);
+		))
+		.parse_next(input);
 
 		match ty {
 			Ok(ty) => Ok(ty),
@@ -685,12 +727,12 @@ impl<'l> Parse<'l> for Type<'l> {
 					err.labels.push(
 						Label::new((input.file_name, start..err.range.end))
 							.with_message("Invalid type")
-							.with_color(Color::Red)
+							.with_color(Color::Red),
 					);
 					Err(ErrMode::Cut(err))
-				}
+				},
 				_ => Err(err),
-			}
+			},
 		}
 	}
 }
@@ -701,7 +743,8 @@ impl<'l> Parse<'l> for Block<'l> {
 			Token::OpenCurly,
 			repeat(0.., Statement::parse),
 			Token::CloseCurly,
-		).parse_next(input)?;
+		)
+		.parse_next(input)?;
 		Ok(Self { statements })
 	}
 }
@@ -709,17 +752,26 @@ impl<'l> Parse<'l> for Block<'l> {
 impl<'l> Parse<'l> for Statement<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		alt((
-			(VarDecl::parse, required(Token::SemiColon))
-				.map(|(v, _)| Statement::VarDecl(v)),
+			(VarDecl::parse, required(Token::SemiColon)).map(|(v, _)| Statement::VarDecl(v)),
 			If::parse.map(|v| Statement::If(v)),
 			While::parse.map(|v| Statement::While(v)),
-			(Expression::parse, Token::Equal, Expression::parse, required(Token::SemiColon))
+			(
+				Expression::parse,
+				Token::Equal,
+				Expression::parse,
+				required(Token::SemiColon),
+			)
 				.map(|(lhs, _, rhs, _)| Statement::Assignment(lhs, rhs)),
-			(Token::Return, opt(Expression::parse), required(Token::SemiColon))
+			(
+				Token::Return,
+				opt(Expression::parse),
+				required(Token::SemiColon),
+			)
 				.map(|(_, expr, _)| Statement::Return(expr)),
 			(FunctionCall::parse, required(Token::SemiColon))
-				.map(|(c, _)| Statement::Expression(Expression::FunctionCall(c.into())))
-		)).parse_next(input)
+				.map(|(c, _)| Statement::Expression(Expression::FunctionCall(c.into()))),
+		))
+		.parse_next(input)
 	}
 }
 
@@ -732,11 +784,16 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 		let (ty, value) = alt((
 			(Token::Colon, Type::parse, Token::Equal, Expression::parse)
 				.map(|(_, ty, _, val)| (Some(ty), val)),
-			(Token::Equal, Expression::parse)
-				.map(|(_, val)| (None, val)),
-			(required(Token::Colon), Type::parse, Token::Equal, Token::QuestionMark)
-				.map(|(_, ty, _, val)| (Some(ty), Expression::Literal(Literal::Uninit))),
-		)).parse_next(input)?;
+			(Token::Equal, Expression::parse).map(|(_, val)| (None, val)),
+			(
+				required(Token::Colon),
+				Type::parse,
+				Token::Equal,
+				Token::QuestionMark,
+			)
+				.map(|(_, ty, _, _)| (Some(ty), Expression::Literal(Literal::Uninit))),
+		))
+		.parse_next(input)?;
 
 		Ok(Self {
 			ty,
@@ -757,7 +814,8 @@ impl<'l> Parse<'l> for If<'l> {
 		let r#else = opt(alt((
 			(Token::Else, If::parse).map(|(_, v)| Else::If(v.into())),
 			(Token::Else, required(Block::parse)).map(|(_, v)| Else::Block(v)),
-		))).parse_next(input)?;
+		)))
+		.parse_next(input)?;
 
 		Ok(Self {
 			condition,
@@ -786,7 +844,8 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 		let mut symbol = alt((
 			Struct::parse.map(|s| Symbol::Struct(s)),
 			Function::parse.map(|f| Symbol::Function(f)),
-		)).parse_next(input);
+		))
+		.parse_next(input);
 
 		if symbol.is_ok() {
 			return Ok(Self {
@@ -802,10 +861,10 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 				err.labels.push(
 					Label::new((input.file_name, start..end))
 						.with_message(format!("In symbol declaration `{name}`"))
-						.with_color(Color::Cyan)
+						.with_color(Color::Cyan),
 				);
-			}
-			_ => {}
+			},
+			_ => {},
 		}
 		Err(symbol.unwrap_err())
 	}
@@ -819,7 +878,8 @@ impl<'l> Parse<'l> for Struct<'l> {
 			required(Token::OpenCurly),
 			list(Token::Comma, StructMember::parse),
 			required(Token::CloseCurly),
-		).parse_next(input)?;
+		)
+		.parse_next(input)?;
 
 		Ok(Self { members })
 	}
@@ -840,7 +900,8 @@ impl<'l> Parse<'l> for Function<'l> {
 			Token::OpenRound,
 			list(Token::Comma, FunctionParameter::parse),
 			Token::CloseRound,
-		).parse_next(input)?;
+		)
+		.parse_next(input)?;
 
 		Token::ThinArrow.parse_next(input)?;
 		let return_ty = Type::parse(input)?;
@@ -848,9 +909,14 @@ impl<'l> Parse<'l> for Function<'l> {
 		let block = alt((
 			Token::SemiColon.map(|_| None),
 			required(Block::parse).map(|b| Some(b)),
-		)).parse_next(input)?;
+		))
+		.parse_next(input)?;
 
-		Ok(Self { params, return_ty, block })
+		Ok(Self {
+			params,
+			return_ty,
+			block,
+		})
 	}
 }
 
@@ -870,14 +936,16 @@ impl<'l> Parse<'l> for CompilationUnit<'l> {
 			None => return Err(unexpected_eof(input, None, true)),
 			Some(data) => match data.token {
 				Token::NamespaceLiteral(ns) => ns,
-				_ => return Err(ErrMode::Backtrack(ParserError {
-					code: ParserError::UNEXPECTED_TOKEN,
-					range: data.range.clone(),
-					message: None,
-					err_tokens: from_ref(data),
-					labels: vec![],
-				})),
-			}
+				_ => {
+					return Err(ErrMode::Backtrack(ParserError {
+						code: ParserError::UNEXPECTED_TOKEN,
+						range: data.range.clone(),
+						message: None,
+						err_tokens: from_ref(data),
+						labels: vec![],
+					}))
+				},
+			},
 		};
 		Token::SemiColon.parse_next(input)?;
 
@@ -892,34 +960,37 @@ impl<'l> Parse<'l> for CompilationUnit<'l> {
 }
 
 fn ident<'l>(required: bool) -> impl Parser<TokenStream<'l>, &'l str, ParserError<'l>> {
-	return move |input: &mut TokenStream<'l>| {
-		match input.next_token() {
-			Some(TokenData { token: Token::Ident(ident), .. }) => {
-				Ok(*ident)
-			}
-			None => return Err(unexpected_eof(input, None, required)),
-			Some(data) => match required {
-				false => Err(ErrMode::Backtrack(ParserError {
-					code: ParserError::UNEXPECTED_TOKEN,
-					range: data.range.clone(),
-					message: None,
-					err_tokens: from_ref(data),
-					labels: vec![],
-				})),
-				true => Err(ErrMode::Cut(ParserError {
-					code: ParserError::UNEXPECTED_TOKEN,
-					range: data.range.clone(),
-					message: None,
-					err_tokens: from_ref(data),
-					labels: vec![],
-				}))
-			}
-		}
+	return move |input: &mut TokenStream<'l>| match input.next_token() {
+		Some(TokenData {
+			token: Token::Ident(ident),
+			..
+		}) => Ok(*ident),
+		None => return Err(unexpected_eof(input, None, required)),
+		Some(data) => match required {
+			false => Err(ErrMode::Backtrack(ParserError {
+				code: ParserError::UNEXPECTED_TOKEN,
+				range: data.range.clone(),
+				message: None,
+				err_tokens: from_ref(data),
+				labels: vec![],
+			})),
+			true => Err(ErrMode::Cut(ParserError {
+				code: ParserError::UNEXPECTED_TOKEN,
+				range: data.range.clone(),
+				message: None,
+				err_tokens: from_ref(data),
+				labels: vec![],
+			})),
+		},
 	};
 }
 
-fn list<'l, T, O>(mut separator: Token<'l>, mut parser: T) -> impl Parser<TokenStream<'l>, Vec<O>, ParserError<'l>>
-	where T: Parser<TokenStream<'l>, O, ParserError<'l>>,
+fn list<'l, T, O>(
+	mut separator: Token<'l>,
+	mut parser: T,
+) -> impl Parser<TokenStream<'l>, Vec<O>, ParserError<'l>>
+where
+	T: Parser<TokenStream<'l>, O, ParserError<'l>>,
 {
 	return move |input: &mut TokenStream<'l>| {
 		let mut vec = vec![];
@@ -930,21 +1001,21 @@ fn list<'l, T, O>(mut separator: Token<'l>, mut parser: T) -> impl Parser<TokenS
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&checkpoint);
 					break;
-				}
+				},
 				Err(err) => {
 					return Err(err);
-				}
+				},
 			}
 			checkpoint = input.checkpoint();
 			match separator.parse_next(input) {
-				Ok(_) => {}
+				Ok(_) => {},
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&checkpoint);
 					break;
-				}
+				},
 				Err(err) => {
 					return Err(err);
-				}
+				},
 			}
 		}
 		Ok(vec)
@@ -952,7 +1023,10 @@ fn list<'l, T, O>(mut separator: Token<'l>, mut parser: T) -> impl Parser<TokenS
 }
 
 impl<'l> Parser<TokenStream<'l>, &'l Token<'l>, ParserError<'l>> for Token<'l> {
-	fn parse_next(&mut self, input: &mut TokenStream<'l>) -> PResult<&'l Token<'l>, ParserError<'l>> {
+	fn parse_next(
+		&mut self,
+		input: &mut TokenStream<'l>,
+	) -> PResult<&'l Token<'l>, ParserError<'l>> {
 		match input.next_token() {
 			None => Err(unexpected_eof(input, Some(self), false)),
 			Some(data) => match data.token == *self {
@@ -963,21 +1037,20 @@ impl<'l> Parser<TokenStream<'l>, &'l Token<'l>, ParserError<'l>> for Token<'l> {
 					message: None,
 					err_tokens: from_ref(data),
 					labels: vec![],
-				}))
-			}
+				})),
+			},
 		}
 	}
 }
 
 pub fn required<'l, O, T>(mut parser: T) -> impl Parser<TokenStream<'l>, O, ParserError<'l>>
-	where T: Parser<TokenStream<'l>, O, ParserError<'l>>
+where
+	T: Parser<TokenStream<'l>, O, ParserError<'l>>,
 {
 	move |input: &mut TokenStream<'l>| match parser.parse_next(input) {
 		Ok(ok) => Ok(ok),
 		Err(ErrMode::Incomplete(v)) => Err(ErrMode::Incomplete(v)),
-		Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
-			Err(ErrMode::Cut(err))
-		}
+		Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => Err(ErrMode::Cut(err)),
 	}
 }
 
@@ -987,29 +1060,33 @@ impl<'l, const LEN: usize> ContainsToken<&'l TokenData<'l>> for [Token<'l>; LEN]
 	}
 }
 
-fn unexpected_eof<'l>(stream: &TokenStream<'l>, expected: Option<&Token>, cut: bool) -> ErrMode<ParserError<'l>> {
-	let range = stream.tokens
+fn unexpected_eof<'l>(
+	stream: &TokenStream<'l>,
+	expected: Option<&Token>,
+	cut: bool,
+) -> ErrMode<ParserError<'l>> {
+	let range = stream
+		.tokens
 		.get(stream.range.end.wrapping_sub(1))
 		.map(|t| t.range.clone())
 		.unwrap_or_default();
 
 	let error = ParserError {
 		code: ParserError::UNEXPECTED_EOF,
-		range: stream.tokens
+		range: stream
+			.tokens
 			.get(stream.range.end.wrapping_sub(1))
 			.map(|t| t.range.clone())
 			.unwrap_or_default(),
 
 		message: Some("Unexpected end of stream".to_string()),
 		err_tokens: &[],
-		labels: vec![
-			Label::new((stream.file_name, range.end..range.end))
-				.with_message(match expected {
-					None => "Expected additional tokens here".to_string(),
-					Some(token) => format!("Expected token `{token}`, found EOF"),
-				})
-				.with_color(Color::Red)
-		],
+		labels: vec![Label::new((stream.file_name, range.end..range.end))
+			.with_message(match expected {
+				None => "Expected additional tokens here".to_string(),
+				Some(token) => format!("Expected token `{token}`, found EOF"),
+			})
+			.with_color(Color::Red)],
 	};
 
 	match cut {

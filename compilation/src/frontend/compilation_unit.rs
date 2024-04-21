@@ -5,9 +5,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{anyhow, Error};
 use fxhash::FxHashMap;
 
-use leaf_parsing::ast::{
-	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst,
-};
+use leaf_parsing::ast::{Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst};
 use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, debug_span, error, info, instrument, Level, span, trace};
 use leaf_parsing::ErrMode;
@@ -41,9 +39,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 		debug_span!("compile_file", file = absolute_path).in_scope(|| {
 			info!("Compiling file `{}`", absolute_path);
-			let code = debug_span!("read_file").in_scope(|| {
-				std::fs::read_to_string(path)
-			})?;
+			let code = debug_span!("read_file").in_scope(|| std::fs::read_to_string(path))?;
 			Self::compile_internal(type_cache, assembly, &code)?;
 			debug!("File `{}` compiled successfully", absolute_path);
 			Ok(())
@@ -78,9 +74,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Ok(tokens) => tokens,
 			Err(err) => {
 				let mut str = vec![];
-				err.to_report("").write(("", ariadne::Source::from(code)), &mut str).unwrap();
+				err.to_report("")
+					.write(("", ariadne::Source::from(code)), &mut str)
+					.unwrap();
 				return Err(Error::msg(String::from_utf8(str).unwrap()));
-			}
+			},
 		};
 		let mut stream = TokenStream::new("", &tokens);
 		drop(lex_span);
@@ -92,9 +90,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Ok(tokens) => tokens,
 			Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
 				let mut str = vec![];
-				err.to_report("").write(("", ariadne::Source::from(code)), &mut str).unwrap();
+				err.to_report("")
+					.write(("", ariadne::Source::from(code)), &mut str)
+					.unwrap();
 				return Err(Error::msg(String::from_utf8(str).unwrap()));
-			}
+			},
 			_ => return Err(anyhow!("Unknown parser error")),
 		};
 		drop(parse_span);
@@ -135,8 +135,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 					let Type::Struct(s) = ty else { unreachable!() };
 					self.types.insert(s.name(), ty);
 					symbols.structs.push((ty, decl));
-				}
-				_ => {}
+				},
+				_ => {},
 			}
 		}
 
@@ -178,7 +178,9 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				symbols.functions.push((func, decl));
 				debug!("Function `{}` declared successfully", func.id());
 			} else {
-				let Ok(_) = func.set_body(None) else { unreachable!() };
+				let Ok(_) = func.set_body(None) else {
+					unreachable!()
+				};
 				debug!("External function `{}` declared successfully", func.id());
 			}
 		}
@@ -201,7 +203,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 						members.push(Field::new(name, ty));
 					}
 					ty.set_fields(members).unwrap();
-				}
+				},
 				_ => unreachable!(),
 			}
 			debug!("Type `{}` compiled successfully", ty.id());
@@ -235,7 +237,9 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 			block.compile(decl.block.as_ref().unwrap(), &mut body)?;
 
-			let Ok(_) = func.set_body(Some(body.build())) else { unreachable!() };
+			let Ok(_) = func.set_body(Some(body.build())) else {
+				unreachable!()
+			};
 			debug!("Function `{}` compiled successfully", func.id());
 		}
 		Ok(())
