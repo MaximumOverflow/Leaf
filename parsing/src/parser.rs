@@ -107,8 +107,8 @@ impl<'l> winnow::error::ParserError<TokenStream<'l>> for ParserError<'l> {
 }
 
 pub trait Parse<'l>
-where
-	Self: Sized,
+	where
+		Self: Sized,
 {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>>;
 }
@@ -117,10 +117,10 @@ impl<'l> Parse<'l> for Ident<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		match input.next_token() {
 			Some(TokenData {
-				token: Token::Ident(ident),
-				range,
-				..
-			}) => Ok(Ident {
+					 token: Token::Ident(ident),
+					 range,
+					 ..
+				 }) => Ok(Ident {
 				value: ident,
 				range: range.clone(),
 			}),
@@ -233,14 +233,14 @@ impl<'l> Parse<'l> for Expression<'l> {
 						},
 						_ => unreachable!(),
 					}
-				},
+				}
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&start);
 					return Ok(expr);
-				},
+				}
 				Err(e) => {
 					return Err(e);
-				},
+				}
 			}
 		}
 	}
@@ -251,30 +251,61 @@ impl<'l> Expression<'l> {
 		let mut expr = Self::factor(input)?;
 
 		loop {
-			let ops = one_of([Token::Mul, Token::Div, Token::Mod]);
-			let start = input.checkpoint();
+			let checkpoint = input.checkpoint();
+			let start = input.start_char();
 			let len = input.eof_offset();
 
-			match (ops, Self::factor).parse_next(input) {
-				Ok((op, term)) => {
-					// infinite loop check: the parser must always consume
+			let op = match one_of([
+				Token::Mul, Token::Div, Token::Mod,
+				Token::OpenRound,
+			]).parse_next(input) {
+				Ok(op) => op,
+				Err(ErrMode::Backtrack(_)) => {
+					input.reset(&checkpoint);
+					return Ok(expr);
+				}
+				Err(e) => {
+					return Err(e);
+				}
+			};
+
+			match op.token {
+				Token::OpenRound => {
+					let params = required(list(Token::Comma, Expression::parse)).parse_next(input)?;
+					required(Token::CloseRound).parse_next(input)?;
+					let end = input.start_char();
+
 					if input.eof_offset() == len {
 						unimplemented!()
 					}
-					expr = match op.token {
-						Token::Mul => expr * term,
-						Token::Div => expr / term,
-						Token::Mod => expr % term,
-						_ => unreachable!(),
+
+					expr = Self::FunctionCall(Box::new(FunctionCall {
+						func: expr,
+						params,
+						range: start..end,
+					}));
+				}
+				_ => match Self::factor(input) {
+					Ok(term) => {
+						// infinite loop check: the parser must always consume
+						if input.eof_offset() == len {
+							unimplemented!()
+						}
+						expr = match op.token {
+							Token::Mul => expr * term,
+							Token::Div => expr / term,
+							Token::Mod => expr % term,
+							_ => unreachable!(),
+						}
 					}
-				},
-				Err(ErrMode::Backtrack(_)) => {
-					input.reset(&start);
-					return Ok(expr);
-				},
-				Err(e) => {
-					return Err(e);
-				},
+					Err(ErrMode::Backtrack(_)) => {
+						input.reset(&checkpoint);
+						return Ok(expr);
+					}
+					Err(e) => {
+						return Err(e);
+					}
+				}
 			}
 		}
 	}
@@ -285,7 +316,7 @@ impl<'l> Expression<'l> {
 			Literal::parse.map(|l| Expression::Literal(l)),
 			delimited(Token::OpenRound, Expression::parse, Token::CloseRound),
 		))
-		.parse_next(input)
+			.parse_next(input)
 	}
 }
 
@@ -307,32 +338,13 @@ impl<'l> Parse<'l> for NewStruct<'l> {
 			),
 			required(Token::CloseCurly),
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		let end = input.start_char();
 		Ok(Self {
 			ty: Type::Id(id),
 			range: start..end,
 			values: members,
-		})
-	}
-}
-
-impl<'l> Parse<'l> for FunctionCall<'l> {
-	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
-		let start = input.start_char();
-		let func = Expression::parse(input)?;
-		let params = delimited(
-			Token::OpenRound,
-			list(Token::Comma, Expression::parse),
-			required(Token::CloseRound),
-		)
-		.parse_next(input)?;
-		let end = input.start_char();
-		Ok(Self {
-			func,
-			params,
-			range: start..end,
 		})
 	}
 }
@@ -353,13 +365,13 @@ impl<'l> Parse<'l> for Type<'l> {
 				),
 				Token::CloseSquare,
 			)
-			.map(|(ty, _, exp)| Type::Array {
-				base: ty.into(),
-				length: Some(exp.into()),
-			}),
+				.map(|(ty, _, exp)| Type::Array {
+					base: ty.into(),
+					length: Some(exp.into()),
+				}),
 			required(Ident::parse).map(|id| Type::Id(id)),
 		))
-		.parse_next(input);
+			.parse_next(input);
 
 		match ty {
 			Ok(ty) => Ok(ty),
@@ -371,7 +383,7 @@ impl<'l> Parse<'l> for Type<'l> {
 							.with_color(Color::Red),
 					);
 					Err(ErrMode::Cut(err))
-				},
+				}
 				_ => Err(err),
 			},
 		}
@@ -386,7 +398,7 @@ impl<'l> Parse<'l> for Block<'l> {
 			repeat(0.., Statement::parse),
 			Token::CloseCurly,
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 		let end = input.start_char();
 		Ok(Self {
 			statements,
@@ -423,10 +435,10 @@ impl<'l> Parse<'l> for Statement<'l> {
 						expr,
 					},
 				}),
-			(FunctionCall::parse, required(Token::SemiColon))
-				.map(|(c, _)| Statement::Expression(Expression::FunctionCall(c.into()))),
+			(Expression::parse, opt(Token::SemiColon))
+				.map(|(expr, _)| Statement::Expression(expr))
 		))
-		.parse_next(input)
+			.parse_next(input)
 	}
 }
 
@@ -445,17 +457,15 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 				Type::parse,
 				Token::Equal,
 				Token::QuestionMark,
-			)
-				.map(|(_, ty, _, val)| {
-					(
-						Some(ty),
-						Expression::Literal(Literal::Uninit {
-							range: val.range.clone(),
-						}),
-					)
-				}),
-		))
-		.parse_next(input)?;
+			).map(|(_, ty, _, val)| {
+				(
+					Some(ty),
+					Expression::Literal(Literal::Uninit {
+						range: val.range.clone(),
+					}),
+				)
+			}),
+		)).parse_next(input)?;
 
 		Ok(Self {
 			ty,
@@ -477,7 +487,7 @@ impl<'l> Parse<'l> for If<'l> {
 			(Token::Else, If::parse).map(|(_, v)| Else::If(v.into())),
 			(Token::Else, required(Block::parse)).map(|(_, v)| Else::Block(v)),
 		)))
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self {
 			condition,
@@ -506,7 +516,7 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 			Struct::parse.map(|s| Symbol::Struct(s)),
 			Function::parse.map(|f| Symbol::Function(f)),
 		))
-		.parse_next(input);
+			.parse_next(input);
 		let end = input.start_char();
 
 		if symbol.is_ok() {
@@ -526,8 +536,8 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 						.with_message(format!("In symbol declaration `{name}`"))
 						.with_color(Color::Cyan),
 				);
-			},
-			_ => {},
+			}
+			_ => {}
 		}
 		Err(symbol.unwrap_err())
 	}
@@ -542,7 +552,7 @@ impl<'l> Parse<'l> for Struct<'l> {
 			list(Token::Comma, StructMember::parse),
 			required(Token::CloseCurly),
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self { members })
 	}
@@ -564,7 +574,7 @@ impl<'l> Parse<'l> for Function<'l> {
 			list(Token::Comma, FunctionParameter::parse),
 			required(Token::CloseRound),
 		)
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Token::ThinArrow.parse_next(input)?;
 		let return_ty = required(Type::parse).parse_next(input)?;
@@ -573,7 +583,7 @@ impl<'l> Parse<'l> for Function<'l> {
 			Token::SemiColon.map(|_| None),
 			required(Block::parse).map(|b| Some(b)),
 		))
-		.parse_next(input)?;
+			.parse_next(input)?;
 
 		Ok(Self {
 			params,
@@ -607,7 +617,7 @@ impl<'l> Parse<'l> for CompilationUnit<'l> {
 						err_tokens: from_ref(data),
 						labels: vec![],
 					}));
-				},
+				}
 			},
 		};
 		Token::SemiColon.parse_next(input)?;
@@ -626,8 +636,8 @@ fn list<'l, T, O>(
 	mut separator: Token<'l>,
 	mut parser: T,
 ) -> impl Parser<TokenStream<'l>, Vec<O>, ParserError<'l>>
-where
-	T: Parser<TokenStream<'l>, O, ParserError<'l>>,
+	where
+		T: Parser<TokenStream<'l>, O, ParserError<'l>>,
 {
 	return move |input: &mut TokenStream<'l>| {
 		let mut vec = vec![];
@@ -638,21 +648,21 @@ where
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&checkpoint);
 					break;
-				},
+				}
 				Err(err) => {
 					return Err(err);
-				},
+				}
 			}
 			checkpoint = input.checkpoint();
 			match separator.parse_next(input) {
-				Ok(_) => {},
+				Ok(_) => {}
 				Err(ErrMode::Backtrack(_)) => {
 					input.reset(&checkpoint);
 					break;
-				},
+				}
 				Err(err) => {
 					return Err(err);
-				},
+				}
 			}
 		}
 		Ok(vec)
@@ -664,25 +674,29 @@ impl<'l> Parser<TokenStream<'l>, &'l TokenData<'l>, ParserError<'l>> for Token<'
 		&mut self,
 		input: &mut TokenStream<'l>,
 	) -> PResult<&'l TokenData<'l>, ParserError<'l>> {
+		let checkpoint = input.checkpoint();
 		match input.next_token() {
 			None => Err(unexpected_eof(input, Some(self), false)),
 			Some(data) => match data.token == *self {
 				true => Ok(data),
-				false => Err(ErrMode::Backtrack(ParserError {
-					code: ParserError::UNEXPECTED_TOKEN,
-					range: data.range.clone(),
-					message: None,
-					err_tokens: from_ref(data),
-					labels: vec![],
-				})),
+				false => {
+					input.reset(&checkpoint);
+					Err(ErrMode::Backtrack(ParserError {
+						code: ParserError::UNEXPECTED_TOKEN,
+						range: data.range.clone(),
+						message: None,
+						err_tokens: from_ref(data),
+						labels: vec![],
+					}))
+				}
 			},
 		}
 	}
 }
 
 pub fn required<'l, O, T>(mut parser: T) -> impl Parser<TokenStream<'l>, O, ParserError<'l>>
-where
-	T: Parser<TokenStream<'l>, O, ParserError<'l>>,
+	where
+		T: Parser<TokenStream<'l>, O, ParserError<'l>>,
 {
 	move |input: &mut TokenStream<'l>| match parser.parse_next(input) {
 		Ok(ok) => Ok(ok),

@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::iter::Enumerate;
 use std::ops::Range;
 use std::slice::Iter;
@@ -339,11 +339,17 @@ pub struct TokenData<'l> {
 	pub range: Range<usize>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TokenStream<'l> {
 	file_name: &'l str,
 	range: Range<usize>,
 	tokens: &'l [TokenData<'l>],
+}
+
+impl Debug for TokenStream<'_> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:?}", &self.tokens[self.range.clone()])
+	}
 }
 
 impl<'l> TokenStream<'l> {
