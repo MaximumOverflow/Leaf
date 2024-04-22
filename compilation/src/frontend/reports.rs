@@ -52,16 +52,9 @@ impl<'l> ReportData<'l> {
 		}
 	}
 
-	pub fn add_error_label(
-		&mut self,
-		range: Range<usize>,
-		message: impl ToString,
-	) {
-		self.errors.add_label(
-			Label::new((self.file, range))
-				.with_color(Color::Red)
-				.with_message(message)
-		)
+	pub fn add_error_label(&mut self, range: Range<usize>, message: impl ToString) {
+		self.errors
+			.add_label(Label::new((self.file, range)).with_color(Color::Red).with_message(message))
 	}
 
 	#[rustfmt::skip]
@@ -83,7 +76,12 @@ impl<'l> ReportData<'l> {
 	}
 }
 
-pub fn generate_and_dump_report<'l>(report: ReportBuilder<'static, (&'l str, Range<usize>)>, file: &'l str, code: &str, err: FrontEndError) {
+pub fn generate_and_dump_report<'l>(
+	report: ReportBuilder<'static, (&'l str, Range<usize>)>,
+	file: &'l str,
+	code: &str,
+	err: FrontEndError,
+) {
 	use std::fmt::Write;
 	let mut msg = String::new();
 	let mut separator = "";

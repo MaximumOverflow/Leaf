@@ -45,28 +45,35 @@ impl<'a, 'l> Block<'a, 'l> {
 				None if self.func.ret_ty() == &Type::Void => {
 					body.push_opcode(Opcode::Ret(None));
 					Ok(())
-				}
+				},
 				Some(expr) => {
-					let value = compile_expression(expr, Some(self.func.ret_ty()), self, body, reports)?;
+					let value =
+						compile_expression(expr, Some(self.func.ret_ty()), self, body, reports)?;
 					let value = value.unwrap_value();
 					let value_ty = body.value_type(value).unwrap();
 					if value_ty != self.func.ret_ty() {
-						reports.add_error_label(expr.range(), format! {
-							"Expected type `{}`, found `{}`",
-							self.func.ret_ty(), value_ty,
-						});
+						reports.add_error_label(
+							expr.range(),
+							format! {
+								"Expected type `{}`, found `{}`",
+								self.func.ret_ty(), value_ty,
+							},
+						);
 						return Err(INVALID_RETURN_TYPE);
 					}
 					body.push_opcode(Opcode::Ret(Some(value)));
 					Ok(())
-				}
+				},
 				None => {
-					reports.add_error_label(range.clone(), format! {
-						"Expected type `{}`, found `void`",
-						self.func.ret_ty(),
-					});
+					reports.add_error_label(
+						range.clone(),
+						format! {
+							"Expected type `{}`, found `void`",
+							self.func.ret_ty(),
+						},
+					);
 					return Err(INVALID_RETURN_TYPE);
-				}
+				},
 			},
 
 			Statement::VarDecl(decl) => {
@@ -80,7 +87,7 @@ impl<'a, 'l> Block<'a, 'l> {
 						let ty = expected.unwrap();
 						let local = body.alloca(ty);
 						self.values.insert(decl.name.value, (local, decl.mutable));
-					}
+					},
 					_ => {
 						let value = compile_expression(&decl.value, expected, self, body, reports)?;
 						let ty = body.value_type(value.unwrap_value()).unwrap();
@@ -89,11 +96,11 @@ impl<'a, 'l> Block<'a, 'l> {
 						let local = body.alloca(ty);
 						body.push_opcode(Opcode::Store(value.unwrap_value(), local));
 						self.values.insert(decl.name.value, (local, decl.mutable));
-					}
+					},
 				}
 
 				Ok(())
-			}
+			},
 
 			Statement::Assignment(lhs, rhs) => {
 				let lhs = compile_expression(lhs, None, self, body, reports)?.unwrap_value();
@@ -102,7 +109,7 @@ impl<'a, 'l> Block<'a, 'l> {
 				assert_eq!(Some(lhs_t), body.value_type(rhs));
 				body.push_opcode(Opcode::Store(rhs, lhs));
 				Ok(())
-			}
+			},
 
 			Statement::While(stmt) => {
 				let check = body.create_block();
@@ -111,8 +118,9 @@ impl<'a, 'l> Block<'a, 'l> {
 
 				body.push_jp(check).unwrap();
 				body.set_current_block(check).unwrap();
-				let condition = compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
-					.unwrap_value();
+				let condition =
+					compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
+						.unwrap_value();
 				body.push_br(condition, exec, exit).unwrap();
 
 				body.set_current_block(exec).unwrap();
@@ -129,11 +137,12 @@ impl<'a, 'l> Block<'a, 'l> {
 
 				body.set_current_block(exit).unwrap();
 				Ok(())
-			}
+			},
 
 			Statement::If(stmt) => {
-				let cond = compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
-					.unwrap_value();
+				let cond =
+					compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
+						.unwrap_value();
 				match &stmt.r#else {
 					None => {
 						let true_case = body.create_block();
@@ -154,15 +163,15 @@ impl<'a, 'l> Block<'a, 'l> {
 						body.push_jp(false_case).unwrap();
 						body.set_current_block(false_case).unwrap();
 						Ok(())
-					}
+					},
 					_ => unimplemented!(),
 				}
-			}
+			},
 
 			Statement::Expression(expr) => {
 				compile_expression(expr, None, self, body, reports)?;
 				Ok(())
-			}
+			},
 
 			_ => unimplemented!("{:#?}", statement),
 		}

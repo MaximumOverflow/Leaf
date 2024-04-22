@@ -25,7 +25,7 @@ impl<'l> BlobHeap<'l> {
 		}
 	}
 
-	#[tracing::instrument(skip_all)]
+	#[tracing::instrument(skip_all, fields(ty = std::any::type_name::< T > ()))]
 	pub fn intern<T: Intern<'l>>(&self, data: T) -> T::Interned {
 		data.intern(self).0
 	}
@@ -64,7 +64,7 @@ pub struct BlobHeapScope<'l> {
 }
 
 impl<'l> BlobHeapScope<'l> {
-	#[tracing::instrument(skip_all)]
+	#[tracing::instrument(skip_all, fields(ty = std::any::type_name::< T > ()))]
 	pub fn intern<T: Intern<'l>>(&self, data: T) -> (T::Interned, usize) {
 		data.intern_in_scope(self)
 	}

@@ -39,7 +39,11 @@ pub trait TypeResolver<'l> {
 	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>>;
 
 	#[tracing::instrument(skip_all)]
-	fn resolve_type(&self, ast: &TypeNode, reports: &mut ReportData) -> Result<&'l Type<'l>, FrontEndError> {
+	fn resolve_type(
+		&self,
+		ast: &TypeNode,
+		reports: &mut ReportData,
+	) -> Result<&'l Type<'l>, FrontEndError> {
 		let ty: &Type = match ast {
 			TypeNode::Id(Ident { value: id, .. }) => {
 				trace!("Resolving type {id:?}");
@@ -61,17 +65,20 @@ pub trait TypeResolver<'l> {
 					_ => match self.types().get(id) {
 						Some(ty) => *ty,
 						None => {
-							reports.add_error_label(ast.range(), format!("Type `{id}` is not available in the current scope"));
+							reports.add_error_label(
+								ast.range(),
+								format!("Type `{id}` is not available in the current scope"),
+							);
 							return Err(TYPE_NOT_FOUND);
-						}
+						},
 					},
 				}
-			}
+			},
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
 				let base = self.resolve_type(base, reports)?;
 				self.type_cache().make_pointer(base, *mutable)
-			}
+			},
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
 				Some(Expression::Literal(Literal::Integer { value: length, .. })) => {
 					trace!("Resolving array type");
@@ -99,7 +106,7 @@ pub trait TypeResolver<'l> {
 					});
 
 					ty
-				}
+				},
 				_ => unimplemented!(),
 			},
 			_ => unimplemented!(),
@@ -112,7 +119,8 @@ pub trait TypeResolver<'l> {
 			&WriteRequirements {
 				blobs: self.blob_heap().clone(),
 			},
-		).unwrap();
+		)
+		.unwrap();
 		self.blob_heap().intern(buf);
 		Ok(ty)
 	}

@@ -77,7 +77,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Err(err) => {
 				dump_report(err.to_report(file), file, code);
 				return Err(LEXER_ERROR);
-			}
+			},
 		};
 		let mut stream = TokenStream::new(file, &tokens);
 		drop(lex_span);
@@ -90,7 +90,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
 				dump_report(err.to_report(file), file, code);
 				return Err(PARSER_ERROR);
-			}
+			},
 			_ => return Err(PARSER_ERROR),
 		};
 		drop(parse_span);
@@ -104,7 +104,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			Err(err) => {
 				generate_and_dump_report(reports.errors, file, code, err);
 				return Err(err);
-			}
+			},
 		};
 		if let Err(err) = unit.compile_types(symbols.structs, &mut reports) {
 			generate_and_dump_report(reports.errors, file, code, err);
@@ -144,10 +144,13 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 					if self.types.contains_key(name) {
 						error!("Duplicate declaration");
-						reports.add_error_label(decl.name.range.clone(), format! {
-							"Duplicate declaration of `{}::{}`",
-							ast.namespace, name
-						});
+						reports.add_error_label(
+							decl.name.range.clone(),
+							format! {
+								"Duplicate declaration of `{}::{}`",
+								ast.namespace, name
+							},
+						);
 						return Err(DUPLICATE_DECLARATION);
 					}
 
@@ -157,14 +160,14 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 							error!("{}", err);
 							reports.add_error_label(decl.name.range.clone(), err);
 							return Err(DECLARATION_ERROR);
-						}
+						},
 					};
 
 					let Type::Struct(s) = ty else { unreachable!() };
 					self.types.insert(s.name(), ty);
 					symbols.structs.push((ty, struct_decl));
-				}
-				_ => {}
+				},
+				_ => {},
 			}
 		}
 
@@ -176,10 +179,13 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 			if self.functions.contains_key(name) {
 				error!("Duplicate declaration");
-				reports.add_error_label(decl.name.range.clone(), format! {
-					"Duplicate declaration of `{}::{}`",
-					ast.namespace, name
-				});
+				reports.add_error_label(
+					decl.name.range.clone(),
+					format! {
+						"Duplicate declaration of `{}::{}`",
+						ast.namespace, name
+					},
+				);
 				return Err(DUPLICATE_DECLARATION);
 			}
 
@@ -189,7 +195,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 					error!("{}", err);
 					reports.add_error_label(decl.name.range.clone(), err);
 					return Err(DECLARATION_ERROR);
-				}
+				},
 			};
 
 			let span = span!(Level::DEBUG, "create_function", id = func.name());
@@ -224,7 +230,11 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(symbols)
 	}
 
-	fn compile_types(&mut self, types: Vec<(&'l Type<'l>, &StructAst)>, reports: &mut ReportData) -> Result<(), FrontEndError> {
+	fn compile_types(
+		&mut self,
+		types: Vec<(&'l Type<'l>, &StructAst)>,
+		reports: &mut ReportData,
+	) -> Result<(), FrontEndError> {
 		for (ty, decl) in types {
 			let span = span!(Level::DEBUG, "compile_type", name = ty.id().name());
 			let _span = span.enter();
@@ -239,7 +249,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 						members.push(Field::new(name, ty));
 					}
 					ty.set_fields(members).unwrap();
-				}
+				},
 				_ => unreachable!(),
 			}
 			debug!("Type `{}` compiled successfully", ty.id());

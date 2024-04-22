@@ -22,29 +22,12 @@ impl Display for Ident<'_> {
 #[derive(Debug, PartialEq)]
 pub enum Literal<'l> {
 	Id(Ident<'l>),
-	Uninit {
-		range: Range<usize>,
-	},
-	Char {
-		value: char,
-		range: Range<usize>,
-	},
-	Float {
-		value: f64,
-		range: Range<usize>,
-	},
-	Bool {
-		value: bool,
-		range: Range<usize>,
-	},
-	String {
-		value: &'l str,
-		range: Range<usize>,
-	},
-	Integer {
-		value: Integer,
-		range: Range<usize>,
-	},
+	Uninit { range: Range<usize> },
+	Char { value: char, range: Range<usize> },
+	Float { value: f64, range: Range<usize> },
+	Bool { value: bool, range: Range<usize> },
+	String { value: &'l str, range: Range<usize> },
+	Integer { value: Integer, range: Range<usize> },
 }
 
 impl Node for Literal<'_> {
@@ -234,18 +217,6 @@ macro_rules! impl_binary_expr {
 		}
 	};
 }
-
-// impl<'l> Add for Expression<'l> {
-// 	type Output = Expression < 'l >;
-// 	fn add(self, rhs: Self) -> Self::Output {
-// 		match (&self, &rhs) {
-// 			(
-// 				Expression::Literal(Literal::Integer { value: Integer::Any(lhs), range: lhs_r }),
-// 				Expression::Literal(Literal::Integer { value: Integer::Any(rhs), range: rhs_r }),
-// 			) => Expression::Literal(Literal::Integer { value: Integer::Any(lhs.add(rhs)), range: lhs_r.start..rhs_r.start }),
-// 		}
-// 	}
-// }
 
 impl_binary_expr!(Add, add, Add, wrapping_add);
 impl_binary_expr!(Sub, sub, Sub, wrapping_sub);

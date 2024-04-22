@@ -4,7 +4,7 @@ use std::mem::{size_of, transmute};
 use std::rc::Rc;
 
 use anyhow::anyhow;
-use bytemuck::{bytes_of, from_bytes};
+use bytemuck::bytes_of;
 use paste::paste;
 use tracing::{trace, trace_span};
 
@@ -89,9 +89,8 @@ impl<'l> Interpreter<'l> {
 
 		let (stack_frame, stack) = {
 			let align_offset = stack.as_ptr().align_offset(layout.align());
-			let split_idx = align_offset + layout.size();
-			let (stack_frame, stack) = stack.split_at_mut(split_idx);
-			(&mut stack_frame[align_offset..], stack)
+			let (_, stack) = stack.split_at_mut(align_offset);
+			stack.split_at_mut(layout.size())
 		};
 
 		trace!("{}: {:?} {:X?}", function.id(), layout, offsets);
@@ -108,7 +107,7 @@ impl<'l> Interpreter<'l> {
 					match lhs.len() {
 						$(
 							paste!{ [<SIZE_OF_ $ty:upper>] } => {
-								let result = from_bytes::<$ty>(lhs).$do(*from_bytes::<$ty>(rhs));
+								let result = bytemuck::pod_read_unaligned::<$ty>(lhs).$do(bytemuck::pod_read_unaligned::<$ty>(rhs));
 								let dst = value_bytes_mut(stack_frame, &offsets, *$dst);
 								dst[..std::mem::size_of_val(&result)].copy_from_slice(bytes_of(&result));
 							}
@@ -129,7 +128,7 @@ impl<'l> Interpreter<'l> {
 					match lhs.len() {
 						$(
 							paste!{ [<SIZE_OF_ $ty:upper>] } => {
-								let result = from_bytes::<$ty>(lhs).$do(from_bytes::<$ty>(rhs));
+								let result = bytemuck::pod_read_unaligned::<$ty>(lhs).$do(&bytemuck::pod_read_unaligned::<$ty>(rhs));
 								let dst = value_bytes_mut(stack_frame, &offsets, *$dst);
 								dst[..std::mem::size_of_val(&result)].copy_from_slice(bytes_of(&result));
 							}
