@@ -31,6 +31,7 @@ pub enum Literal<'l> {
 }
 
 impl Node for Literal<'_> {
+	#[inline]
 	fn range(&self) -> Range<usize> {
 		match self {
 			| Literal::Id(id) => id.range.clone(),
@@ -170,6 +171,7 @@ pub enum Expression<'l> {
 }
 
 impl<'l> Node for Expression<'l> {
+	#[inline]
 	fn range(&self) -> Range<usize> {
 		match self {
 			Expression::Block(Block { range, .. }) => range.clone(),
@@ -240,6 +242,7 @@ pub struct NewStruct<'l> {
 }
 
 impl Node for NewStruct<'_> {
+	#[inline]
 	fn range(&self) -> Range<usize> {
 		self.range.clone()
 	}
@@ -253,6 +256,7 @@ pub struct FunctionCall<'l> {
 }
 
 impl Node for FunctionCall<'_> {
+	#[inline]
 	fn range(&self) -> Range<usize> {
 		self.range.clone()
 	}
@@ -316,6 +320,7 @@ pub struct Function<'l> {
 pub struct FunctionParameter<'l> {
 	pub name: Ident<'l>,
 	pub ty: Type<'l>,
+	pub mutable: bool,
 }
 
 //endregion
@@ -333,12 +338,28 @@ pub enum Statement<'l> {
 	While(While<'l>),
 	VarDecl(VarDecl<'l>),
 	Expression(Expression<'l>),
-	Yield(Option<Expression<'l>>),
 	Return {
 		range: Range<usize>,
 		expr: Option<Expression<'l>>,
 	},
-	Assignment(Expression<'l>, Expression<'l>),
+	Assignment {
+		lhs: Expression<'l>,
+		rhs: Expression<'l>,
+	},
+}
+
+impl Node for Statement<'_> {
+	#[inline]
+	fn range(&self) -> Range<usize> {
+		match self {
+			Statement::If(v) => v.range(),
+			Statement::While(v) => v.range(),
+			Statement::VarDecl(v) => v.range(),
+			Statement::Expression(v) => v.range(),
+			Statement::Return { range, .. } => range.clone(),
+			Statement::Assignment { lhs, rhs } => lhs.range().start..rhs.range().start,
+		}
+	}
 }
 
 #[derive(Debug, PartialEq)]
@@ -347,6 +368,14 @@ pub struct VarDecl<'l> {
 	pub mutable: bool,
 	pub ty: Option<Type<'l>>,
 	pub value: Expression<'l>,
+	pub range: Range<usize>,
+}
+
+impl Node for VarDecl<'_> {
+	#[inline]
+	fn range(&self) -> Range<usize> {
+		self.range.clone()
+	}
 }
 
 // impl<'l> VarDecl<'l> {
@@ -380,6 +409,14 @@ pub struct If<'l> {
 	pub condition: Expression<'l>,
 	pub block: Block<'l>,
 	pub r#else: Option<Else<'l>>,
+	pub range: Range<usize>,
+}
+
+impl Node for If<'_> {
+	#[inline]
+	fn range(&self) -> Range<usize> {
+		self.range.clone()
+	}
 }
 
 #[derive(Debug, PartialEq)]
@@ -392,6 +429,14 @@ pub enum Else<'l> {
 pub struct While<'l> {
 	pub condition: Expression<'l>,
 	pub block: Block<'l>,
+	pub range: Range<usize>,
+}
+
+impl Node for While<'_> {
+	#[inline]
+	fn range(&self) -> Range<usize> {
+		self.range.clone()
+	}
 }
 
 //endregion
@@ -408,6 +453,7 @@ pub enum Type<'l> {
 }
 
 impl Node for Type<'_> {
+	#[inline]
 	fn range(&self) -> Range<usize> {
 		match self {
 			Type::Id(id) => id.range.clone(),

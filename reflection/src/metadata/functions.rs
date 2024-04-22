@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::OnceLock;
 use bitflags::bitflags;
 
-use crate::metadata::ssa::SSAContext;
+use crate::metadata::ssa::SSAData;
 use crate::{Type, UniqueIdentifier};
 
 #[allow(unused_imports)]
@@ -65,9 +65,10 @@ pub struct Parameter<'l> {
 	name: &'l str,
 	#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
 	ty: &'l Type<'l>,
+	mutable: bool,
 }
 
-pub type FunctionBody<'l> = SSAContext<'l>;
+pub type FunctionBody<'l> = SSAData<'l>;
 
 bitflags! {
 	pub struct FunctionFlags: u32 {
@@ -112,8 +113,8 @@ mod build {
 	}
 
 	impl<'l> Parameter<'l> {
-		pub fn new(name: &'l str, ty: &'l Type<'l>) -> Self {
-			Self { name, ty }
+		pub fn new(name: &'l str, ty: &'l Type<'l>, mutable: bool) -> Self {
+			Self { name, ty, mutable }
 		}
 
 		pub fn name(&self) -> &'l str {
@@ -122,6 +123,10 @@ mod build {
 
 		pub fn ty(&self) -> &'l Type<'l> {
 			self.ty
+		}
+
+		pub fn mutable(&self) -> bool {
+			self.mutable
 		}
 	}
 }
@@ -166,7 +171,7 @@ fn debug_ret_ty(v: &OnceLock<&Type>, fmt: &mut Formatter) -> Result<(), std::fmt
 }
 
 fn debug_body(
-	v: &OnceLock<Option<SSAContext>>,
+	v: &OnceLock<Option<FunctionBody>>,
 	fmt: &mut Formatter,
 ) -> Result<(), std::fmt::Error> {
 	match v.get() {

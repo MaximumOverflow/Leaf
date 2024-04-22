@@ -14,9 +14,10 @@ use std::io::Cursor;
 #[derive(Clone, Hash, Metadata)]
 #[metadata(lifetimes(val = "l"))]
 pub enum Type<'l> {
-	Void = 0x00,
-	Char = 0x01,
-	Bool = 0x02,
+	Uninit = 0x00,
+	Void = 0x01,
+	Char = 0x02,
+	Bool = 0x03,
 
 	Int8 = 0x10,
 	Int16 = 0x11,
@@ -29,11 +30,12 @@ pub enum Type<'l> {
 
 	Float16 = 0x20,
 	Float32 = 0x21,
-	Float64 = 0x23,
+	Float64 = 0x22,
 
-	Struct(&'l Struct<'l>) = 0x32,
-	Array { count: usize, ty: &'l Type<'l> } = 0x30,
-	Pointer { mutable: bool, ty: &'l Type<'l> } = 0x31,
+	Struct(&'l Struct<'l>) = 0x40,
+	Array { count: usize, ty: &'l Type<'l> } = 0x41,
+	Pointer { mutable: bool, ty: &'l Type<'l> } = 0x42,
+	Reference { mutable: bool, ty: &'l Type<'l> } = 0x43,
 }
 
 impl Eq for Type<'_> {}
@@ -71,6 +73,7 @@ impl PartialEq<Self> for Type<'_> {
 impl Display for Type<'_> {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Type::Uninit => write!(f, "?"),
 			Type::Void => write!(f, "void"),
 			Type::Char => write!(f, "char"),
 			Type::Bool => write!(f, "bool"),
@@ -85,12 +88,16 @@ impl Display for Type<'_> {
 			Type::Float16 => write!(f, "f16"),
 			Type::Float32 => write!(f, "f32"),
 			Type::Float64 => write!(f, "f64"),
+			Type::Struct(base) => Display::fmt(&base.id, f),
 			Type::Array { count, ty } => write!(f, "[{}; {}]", ty, count),
 			Type::Pointer { mutable, ty } => match *mutable {
 				false => write!(f, "*{}", ty),
 				true => write!(f, "*mut {}", ty),
 			},
-			Type::Struct(base) => Display::fmt(&base.id, f),
+			Type::Reference { mutable, ty } => match *mutable {
+				false => write!(f, "&{}", ty),
+				true => write!(f, "&mut {}", ty),
+			},
 		}
 	}
 }
@@ -105,10 +112,12 @@ impl Debug for Type<'_> {
 }
 
 impl Type<'_> {
+	#[inline(always)]
 	pub(crate) fn discriminant(&self) -> u8 {
 		unsafe { std::mem::transmute(std::mem::discriminant(self)) }
 	}
 
+	#[inline(always)]
 	pub fn id(&self) -> UniqueIdentifier {
 		match self {
 			Type::Void => UniqueIdentifier {
@@ -170,6 +179,53 @@ impl Type<'_> {
 			Type::Struct(data) => data.id,
 			Type::Array { .. } => unreachable!(),
 			Type::Pointer { .. } => unreachable!(),
+			Type::Reference { .. } => unreachable!(),
+			Type::Uninit => unreachable!(),
+		}
+	}
+
+	#[inline(always)]
+	pub fn is_integer(&self) -> bool {
+		self.discriminant() & 0x10 != 0
+	}
+
+	#[inline(always)]
+	pub fn is_float(&self) -> bool {
+		self.discriminant() & 0x20 != 0
+	}
+
+	#[inline(always)]
+	pub fn is_intrinsic(&self) -> bool {
+		self.discriminant() & 0x40 == 0
+	}
+
+	#[inline(always)]
+	pub fn is_signed_integer(&self) -> Option<bool> {
+		match self {
+			Type::Int8 | Type::Int16 | Type::Int32 | Type::Int64 => Some(true),
+			Type::UInt8 | Type::UInt16 | Type::UInt32 | Type::UInt64 => Some(false),
+			_ => None,
+		}
+	}
+
+	#[inline(always)]
+	pub fn integer_size(&self) -> Option<usize> {
+		match self {
+			Type::Int8 | Type::UInt8 => Some(1),
+			Type::Int16 | Type::UInt16 => Some(2),
+			Type::Int32 | Type::UInt32 => Some(4),
+			Type::Int64 | Type::UInt64 => Some(8),
+			_ => None,
+		}
+	}
+
+	#[inline(always)]
+	pub fn float_size(&self) -> Option<usize> {
+		match self {
+			Type::Float16 => Some(2),
+			Type::Float32 => Some(4),
+			Type::Float64 => Some(8),
+			_ => None,
 		}
 	}
 }
@@ -301,6 +357,7 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 		let blob: &'val [u8] = crate::serialization::MetadataRead::read(stream, req)?;
 		let ty: Type<'val> = Type::read(&mut Cursor::new(blob), req)?;
 		match ty {
+			Type::Uninit => Ok(&Type::Uninit),
 			Type::Void => Ok(&Type::Void),
 			Type::Char => Ok(&Type::Char),
 			Type::Bool => Ok(&Type::Bool),
@@ -318,6 +375,7 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 			Type::Struct(data) => Ok(req.type_heap.struct_ref(data)),
 			Type::Array { .. } => unimplemented!(),
 			Type::Pointer { mutable, ty } => Ok(req.type_heap.pointer(ty, mutable)),
+			Type::Reference { mutable, ty } => Ok(req.type_heap.reference(ty, mutable)),
 		}
 	}
 }

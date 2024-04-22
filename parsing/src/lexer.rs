@@ -4,6 +4,7 @@ use std::iter::Enumerate;
 use std::ops::Range;
 use std::slice::Iter;
 use std::str::FromStr;
+use std::sync::Arc;
 use ariadne::{Color, Label, Report, ReportKind};
 use derive_more::Display;
 use logos::{Lexer, Logos};
@@ -333,8 +334,8 @@ impl<'l> Token<'l> {
 }
 
 impl LexerError {
-	pub fn to_report<'l>(self, file: &'l str) -> Report<'static, (&'l str, Range<usize>)> {
-		Report::build(ReportKind::Error, file, self.range.start)
+	pub fn to_report<'l>(self, file: Arc<str>) -> Report<'static, (Arc<str>, Range<usize>)> {
+		Report::build(ReportKind::Error, file.clone(), self.range.start)
 			.with_code(self.code)
 			.with_message("Lexing failed")
 			.with_label(
@@ -357,7 +358,7 @@ pub struct TokenData<'l> {
 
 #[derive(Clone)]
 pub struct TokenStream<'l> {
-	file_name: &'l str,
+	file_name: Arc<str>,
 	range: Range<usize>,
 	tokens: &'l [TokenData<'l>],
 }
@@ -369,11 +370,11 @@ impl Debug for TokenStream<'_> {
 }
 
 impl<'l> TokenStream<'l> {
-	pub fn new(file_name: &'l str, tokens: &'l [TokenData<'l>]) -> Self {
+	pub fn new(file_name: &str, tokens: &'l [TokenData<'l>]) -> Self {
 		Self {
 			tokens,
-			file_name,
 			range: 0..tokens.len(),
+			file_name: Arc::from(file_name),
 		}
 	}
 
@@ -385,8 +386,8 @@ impl<'l> TokenStream<'l> {
 		self.tokens
 	}
 
-	pub fn file_name(&self) -> &'l str {
-		self.file_name
+	pub fn file_name(&self) -> &Arc<str> {
+		&self.file_name
 	}
 
 	pub fn start_char(&self) -> usize {

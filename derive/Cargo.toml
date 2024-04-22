@@ -13,3 +13,7 @@ proc-macro2 = "1.0.80"
 
 [lib]
 proc-macro = true
+
+[features]
+metadata = []
+operators = []

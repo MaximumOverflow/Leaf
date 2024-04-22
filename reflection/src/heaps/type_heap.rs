@@ -8,6 +8,7 @@ pub struct TypeHeap<'l> {
 	set: RefCell<HashSet<usize>>,
 	drops: RefCell<Vec<DropHelper>>,
 	pointers: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
+	references: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
 	structs: RefCell<HashMap<usize, (&'l Type<'l>, &'l Struct<'l>)>>,
 }
 
@@ -15,6 +16,7 @@ pub struct TypeHeap<'l> {
 impl<'l> TypeHeap<'l> {
 	pub fn new(bump: &'l ArenaAllocator) -> Self {
 		Self {
+			references: Default::default(),
 			structs: Default::default(),
 			pointers: Default::default(),
 			drops: Default::default(),
@@ -81,13 +83,48 @@ impl<'l> TypeHeap<'l> {
 				| Type::Float16
 				| Type::Float32
 				| Type::Float64 => {}
-				_ => panic!("Type `{ty}` does not belong to this TypeHeap"),
+				_ => panic!("Type `{ty}` does not belong to this TypeHeap")
 			}
 		}
 
 		let ty = self.alloc(Type::Pointer { ty, mutable });
 		set.insert(as_key(ty));
 		pointers.insert(key, ty);
+		ty
+	}
+
+	pub fn reference(&self, ty: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
+		let mut references = self.references.borrow_mut();
+		let mut set = self.set.borrow_mut();
+
+		let key = (as_key(ty), mutable);
+		if let Some(ty) = references.get(&key) {
+			return *ty;
+		}
+
+		if !set.contains(&key.0) {
+			match ty {
+				| Type::Void
+				| Type::Char
+				| Type::Bool
+				| Type::Int8
+				| Type::Int16
+				| Type::Int32
+				| Type::Int64
+				| Type::UInt8
+				| Type::UInt16
+				| Type::UInt32
+				| Type::UInt64
+				| Type::Float16
+				| Type::Float32
+				| Type::Float64 => {}
+				_ => panic!("Type `{ty}` does not belong to this TypeHeap")
+			}
+		}
+
+		let ty = self.alloc(Type::Reference { ty, mutable });
+		set.insert(as_key(ty));
+		references.insert(key, ty);
 		ty
 	}
 

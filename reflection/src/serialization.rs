@@ -159,6 +159,38 @@ impl MetadataWrite<'_, '_> for String {
 }
 
 #[cfg(feature = "read")]
+impl<'val, 'req> MetadataRead<'val, 'req> for () {
+	type Requirements = ();
+	fn read<S: Read>(_: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
+		Ok(())
+	}
+}
+
+#[cfg(feature = "write")]
+impl<'val, 'req> MetadataWrite<'val, 'req> for () {
+	type Requirements = ();
+	fn write<S: Write>(&self, _: &mut S, _: impl Into<Self::Requirements>) -> Result<(), Error> {
+		Ok(())
+	}
+}
+
+#[cfg(feature = "read")]
+impl<'val, 'req, T> MetadataRead<'val, 'req> for PhantomData<T> {
+	type Requirements = ();
+	fn read<S: Read>(_: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
+		Ok(Self)
+	}
+}
+
+#[cfg(feature = "write")]
+impl<'val, 'req, T> MetadataWrite<'val, 'req> for PhantomData<T> {
+	type Requirements = ();
+	fn write<S: Write>(&self, _: &mut S, _: impl Into<Self::Requirements>) -> Result<(), Error> {
+		Ok(())
+	}
+}
+
+#[cfg(feature = "read")]
 impl<'val, 'req, T: MetadataRead<'val, 'req>> MetadataRead<'val, 'req> for Option<T> {
 	type Requirements = T::Requirements;
 	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {

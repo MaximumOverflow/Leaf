@@ -19,10 +19,6 @@ use leaf_compilation::reflection::{Assembly, Version};
 use leaf_compilation::reflection::heaps::{ArenaAllocator, Heaps};
 use leaf_compilation::reflection::serialization::{MetadataRead, MetadataWrite};
 
-use crate::interpreter::Interpreter;
-
-mod interpreter;
-
 #[derive(Debug, clap::Parser)]
 enum Args {
 	#[command(short_flag = 'c')]
@@ -102,7 +98,7 @@ fn main() {
 
 			let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
 			if let Err(err) = CompilationUnit::compile_file(&type_cache, &mut assembly, &file) {
-				return println!("{:#}", err);
+				return println!("{:#}", err.0);
 			}
 			let comp_time = time.elapsed().unwrap();
 
@@ -115,57 +111,58 @@ fn main() {
 			// 	&code[start..end]
 			// };
 
-			let Some(main) = assembly.functions().find(|f| f.name() == "main") else {
-				eprintln!("Could not find entry point 'main'");
+			let Some(_main) = assembly.functions().find(|f| f.name() == "main") else {
+				eprintln!("Could not find entry point `main`");
 				return;
 			};
 
-			time = SystemTime::now();
-			let mut interpreter = Interpreter::new();
-			unsafe {
-				interpreter.register_extern_fn("core/test/print", |fmt: usize| {
-					let mut len = 0;
-					let mut ptr = fmt as *const c_char;
-					while *ptr != 0 {
-						len += 1;
-						ptr = ptr.add(1);
-					}
-					let slice = std::slice::from_raw_parts(fmt as *const u8, len);
-					let str = std::str::from_utf8(slice).unwrap();
-					print!("{}", str);
-				});
-				interpreter.register_extern_fn("core/test/alloc", |info: [usize; 2]| {
-					let [size, align] = info;
-					let layout = Layout::from_size_align_unchecked(size, align);
-					let ptr = std::alloc::alloc(layout);
-					trace!("Allocated buffer at {ptr:#?} with {layout:?}");
-					ptr as usize
-				});
-				interpreter.register_extern_fn(
-					"core/test/dealloc",
-					|info: (*const u8, usize, usize)| {
-						let (ptr, size, align) = info;
-						let layout = Layout::from_size_align_unchecked(size, align);
-						let ptr = ptr as *mut u8;
-						std::alloc::dealloc(ptr, layout);
-						trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
-					},
-				);
-			}
-
-			match interpreter.call_as_main(main) {
-				Ok(value) => {
-					let interp_time = time.elapsed().unwrap();
-
-					// println!("Stack dump: {:#?}", interpreter.stack());
-					info!("Result: {:#?}", value);
-					info!("Interpretation time: {:?}", interp_time);
-				},
-				Err(err) => {
-					// println!("Stack dump: {:#?}", interpreter.stack());
-					println!("Error: {}", err);
-				},
-			};
+			// time = SystemTime::now();
+			unimplemented!()
+			// let mut interpreter = Interpreter::new();
+			// unsafe {
+			// 	interpreter.register_extern_fn("core/test/print", |fmt: usize| {
+			// 		let mut len = 0;
+			// 		let mut ptr = fmt as *const c_char;
+			// 		while *ptr != 0 {
+			// 			len += 1;
+			// 			ptr = ptr.add(1);
+			// 		}
+			// 		let slice = std::slice::from_raw_parts(fmt as *const u8, len);
+			// 		let str = std::str::from_utf8(slice).unwrap();
+			// 		print!("{}", str);
+			// 	});
+			// 	interpreter.register_extern_fn("core/test/alloc", |info: [usize; 2]| {
+			// 		let [size, align] = info;
+			// 		let layout = Layout::from_size_align_unchecked(size, align);
+			// 		let ptr = std::alloc::alloc(layout);
+			// 		trace!("Allocated buffer at {ptr:#?} with {layout:?}");
+			// 		ptr as usize
+			// 	});
+			// 	interpreter.register_extern_fn(
+			// 		"core/test/dealloc",
+			// 		|info: (*const u8, usize, usize)| {
+			// 			let (ptr, size, align) = info;
+			// 			let layout = Layout::from_size_align_unchecked(size, align);
+			// 			let ptr = ptr as *mut u8;
+			// 			std::alloc::dealloc(ptr, layout);
+			// 			trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
+			// 		},
+			// 	);
+			// }
+			//
+			// match interpreter.call_as_main(main) {
+			// 	Ok(value) => {
+			// 		let interp_time = time.elapsed().unwrap();
+			//
+			// 		// println!("Stack dump: {:#?}", interpreter.stack());
+			// 		info!("Result: {:#?}", value);
+			// 		info!("Interpretation time: {:?}", interp_time);
+			// 	},
+			// 	Err(err) => {
+			// 		// println!("Stack dump: {:#?}", interpreter.stack());
+			// 		println!("Error: {}", err);
+			// 	},
+			// };
 		},
 		Args::Compile(CompileArgs { file, .. }) => {
 			let mut time = SystemTime::now();
@@ -176,7 +173,7 @@ fn main() {
 
 			let mut assembly = Assembly::new("compiler::tmp", Version::default(), &heaps);
 			if let Err(err) = CompilationUnit::compile_file(&type_cache, &mut assembly, &file) {
-				return println!("{:#}", err);
+				return println!("{:#}", err.0);
 			}
 			let mut delta = time.elapsed().unwrap();
 			info!("Compilation time: {:?}", delta);

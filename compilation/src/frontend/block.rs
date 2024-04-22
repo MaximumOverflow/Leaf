@@ -1,34 +1,36 @@
 use std::sync::Arc;
+
+use ariadne::Label;
 use fxhash::FxHashMap;
 use tracing::instrument;
 
-use leaf_parsing::ast::{Block as BlockAst, Expression, Literal, Node, Statement};
-use leaf_reflection::{Function, Opcode, SSAContextBuilder, Type, ValueIdx};
+use leaf_parsing::ast::{Block as BlockAst, If, Node, Statement, VarDecl, While};
+use leaf_reflection::{Function, SSABuilder, Type, ValueRef};
 use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 
 use crate::frontend::expressions::compile_expression;
-use crate::frontend::reports::{FrontEndError, INVALID_RETURN_TYPE, ReportData};
-use crate::frontend::types::{assert_type_eq, TypeCache, TypeResolver};
+use crate::frontend::reports::*;
+use crate::frontend::types::{assert_type_eq, assert_value_type_eq, TypeCache, TypeResolver};
 
-pub struct Block<'a, 'l> {
+pub struct Block<'a, 'b, 'l> {
 	pub heaps: HeapScopes<'l>,
 	pub type_cache: &'a TypeCache<'l>,
 	pub func: &'l Function<'l>,
+	pub values: FxHashMap<&'a str, ValueRef<'b, 'l>>,
 	pub types: &'a FxHashMap<&'l str, &'l Type<'l>>,
-	pub values: FxHashMap<&'a str, (ValueIdx, bool)>,
 	pub functions: &'a FxHashMap<&'l str, &'l Function<'l>>,
+	pub report_data: ReportData<'b, 'l, 'a>,
 }
 
-impl<'a, 'l> Block<'a, 'l> {
+impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 	#[instrument(skip_all)]
 	pub fn compile(
 		&mut self,
 		ast: &'a BlockAst<'a>,
-		body: &mut SSAContextBuilder<'l>,
-		reports: &mut ReportData,
-	) -> Result<(), FrontEndError> {
+		builder: &mut SSABuilder<'b, 'l>,
+	) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
 		for statement in &ast.statements {
-			self.compile_statement(statement, body, reports)?;
+			self.compile_statement(statement, builder)?;
 		}
 		Ok(())
 	}
@@ -37,139 +39,163 @@ impl<'a, 'l> Block<'a, 'l> {
 	fn compile_statement(
 		&mut self,
 		statement: &'a Statement<'a>,
-		body: &mut SSAContextBuilder<'l>,
-		reports: &mut ReportData,
-	) -> Result<(), FrontEndError> {
+		builder: &mut SSABuilder<'b, 'l>,
+	) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
 		match statement {
-			Statement::Return { expr, range } => match expr {
-				Some(expr) => {
-					let value =
-						compile_expression(expr, Some(self.func.ret_ty()), self, body, reports)?;
-					let value = value.unwrap_value();
-					let value_ty = body.value_type(value).unwrap();
-
-					assert_type_eq(value_ty, self.func.ret_ty(), expr.range(), reports)
-						.or(Err(INVALID_RETURN_TYPE))?;
-
-					body.push_opcode(Opcode::Ret(Some(value)));
-					Ok(())
-				},
-				None => {
-					assert_type_eq(&Type::Void, self.func.ret_ty(), range.clone(), reports)
-						.or(Err(INVALID_RETURN_TYPE))?;
-
-					body.push_opcode(Opcode::Ret(None));
-					return Ok(());
-				},
-			},
-
-			Statement::VarDecl(decl) => {
-				let expected = match &decl.ty {
+			Statement::VarDecl(VarDecl {
+				name,
+				mutable,
+				ty,
+				value: expr,
+				..
+			}) => {
+				let expected_ty = match ty {
 					None => None,
-					Some(ty) => Some(self.resolve_type(ty, reports)?),
+					Some(ty) => Some(self.resolve_type(ty, &self.report_data)?),
 				};
-
-				match decl.value {
-					Expression::Literal(Literal::Uninit { .. }) => {
-						let ty = expected.unwrap();
-						let local = body.alloca(ty);
-						self.values.insert(decl.name.value, (local, decl.mutable));
-					},
+				let value = compile_expression(expr, expected_ty, self, builder)?;
+				let local = match value.ty() {
+					Type::Uninit => builder.alloca(expected_ty.unwrap(), *mutable),
 					_ => {
-						let value = compile_expression(&decl.value, expected, self, body, reports)?;
-						let ty = body.value_type(value.unwrap_value()).unwrap();
-						assert_eq!(Some(expected.unwrap_or(ty)), Some(ty));
-
-						let local = body.alloca(ty);
-						body.push_opcode(Opcode::Store(value.unwrap_value(), local));
-						self.values.insert(decl.name.value, (local, decl.mutable));
+						let expected_ty = expected_ty.unwrap_or(value.ty());
+						assert_value_type_eq(value, expected_ty, expr.range(), &self.report_data)?;
+						let local = builder.alloca(expected_ty, *mutable);
+						builder.store(value, local).unwrap();
+						local
 					},
-				}
-
-				Ok(())
-			},
-
-			Statement::Assignment(lhs, rhs) => {
-				let lhs = compile_expression(lhs, None, self, body, reports)?.unwrap_value();
-				let lhs_t = body.value_type(lhs).unwrap();
-				let rhs = compile_expression(rhs, Some(lhs_t), self, body, reports)?.unwrap_value();
-				assert_eq!(Some(lhs_t), body.value_type(rhs));
-				body.push_opcode(Opcode::Store(rhs, lhs));
-				Ok(())
-			},
-
-			Statement::While(stmt) => {
-				let check = body.create_block();
-				let exec = body.create_block();
-				let exit = body.create_block();
-
-				body.push_jp(check).unwrap();
-				body.set_current_block(check).unwrap();
-				let condition =
-					compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
-						.unwrap_value();
-				body.push_br(condition, exec, exit).unwrap();
-
-				body.set_current_block(exec).unwrap();
-				let mut block = Block {
-					heaps: self.heaps.clone(),
-					func: self.func,
-					types: self.types,
-					values: self.values.clone(),
-					type_cache: self.type_cache,
-					functions: self.functions,
 				};
-				block.compile(&stmt.block, body, reports)?;
-				body.push_jp(check).unwrap();
-
-				body.set_current_block(exit).unwrap();
+				self.values.insert(name.value, local);
+				self.report_data.variable_info.insert(local, (name, ty.as_ref(), expr));
 				Ok(())
 			},
 
-			Statement::If(stmt) => {
-				let cond =
-					compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
-						.unwrap_value();
-
-				let val_ty = body.value_type(cond).unwrap();
-				assert_type_eq(val_ty, &Type::Bool, stmt.condition.range(), reports)?;
-
-				match &stmt.r#else {
-					None => {
-						let true_case = body.create_block();
-						let false_case = body.create_block();
-						body.push_br(cond, true_case, false_case).unwrap();
-						body.set_current_block(true_case).unwrap();
-
-						body.set_current_block(true_case).unwrap();
-						let mut block = Block {
-							heaps: self.heaps.clone(),
-							func: self.func,
-							types: self.types,
-							values: self.values.clone(),
-							type_cache: self.type_cache,
-							functions: self.functions,
-						};
-						block.compile(&stmt.block, body, reports)?;
-						body.push_jp(false_case).unwrap();
-						body.set_current_block(false_case).unwrap();
+			Statement::Assignment { lhs, rhs } => {
+				let dst = compile_expression(lhs, None, self, builder)?;
+				let val = compile_expression(rhs, Some(dst.ty()), self, builder)?;
+				match dst.ty() {
+					Type::Reference { ty, mutable: false } => Err((
+						VALUE_NOT_ASSIGNABLE,
+						self.report_data.new_error(lhs.range().start).with_label(
+							Label::new((self.report_data.file(), lhs.range()))
+								.with_message(format!("Cannot assign `{}` to `{}`", val.ty(), ty)),
+						),
+					)),
+					Type::Reference { ty, mutable: true } if *ty == val.ty() => {
+						builder.store(val, dst).unwrap();
 						Ok(())
 					},
-					_ => unimplemented!(),
+					_ => Err((
+						INVALID_TYPE,
+						self.report_data.new_error(rhs.range().start).with_label(
+							Label::new((self.report_data.file(), rhs.range())).with_message(
+								format!("Cannot assign `{}` to `{}`", val.ty(), dst.ty()),
+							),
+						),
+					)),
 				}
+			},
+
+			Statement::If(If {
+				condition: cond,
+				block: do_block_ast,
+				r#else: Option::None,
+				range,
+			}) => {
+				let val = compile_expression(cond, Some(&Type::Bool), self, builder)?;
+				assert_value_type_eq(val, &Type::Bool, cond.range(), &self.report_data)?;
+
+				let do_block = builder.create_block();
+				let continue_block = builder.create_block();
+				builder.br(val, do_block, continue_block).unwrap();
+
+				builder.set_current_block(do_block).unwrap();
+				let mut block = self.create_child();
+				block.compile(do_block_ast, builder)?;
+				builder.jp(continue_block).unwrap();
+				builder.set_current_block(continue_block).unwrap();
+				Ok(())
+			},
+
+			Statement::While(While {
+				condition: cond,
+				block: do_block_ast,
+				range,
+			}) => {
+				let check_block = builder.create_block();
+				builder.jp(check_block).unwrap();
+
+				builder.set_current_block(check_block).unwrap();
+				let val = compile_expression(cond, Some(&Type::Bool), self, builder)?;
+				assert_value_type_eq(val, &Type::Bool, cond.range(), &self.report_data)?;
+
+				let do_block = builder.create_block();
+				let continue_block = builder.create_block();
+				builder.br(val, do_block, continue_block).unwrap();
+
+				builder.set_current_block(do_block).unwrap();
+				let mut block = self.create_child();
+				block.compile(do_block_ast, builder)?;
+				builder.jp(check_block).unwrap();
+				builder.set_current_block(continue_block).unwrap();
+				Ok(())
 			},
 
 			Statement::Expression(expr) => {
-				compile_expression(expr, None, self, body, reports)?;
+				compile_expression(expr, None, self, builder)?;
 				Ok(())
 			},
 
-			_ => unimplemented!("{:#?}", statement),
+			Statement::Return {
+				expr: Option::None,
+				range,
+			} => {
+				if let Err((_, report)) = assert_type_eq(
+					&Type::Void,
+					self.func.ret_ty(),
+					range.clone(),
+					&self.report_data,
+				) {
+					return Err((INVALID_RETURN_TYPE, report));
+				}
+				builder.ret(None).unwrap();
+				Ok(())
+			},
+
+			Statement::Return {
+				expr: Some(expr), ..
+			} => {
+				let value = compile_expression(expr, Some(self.func.ret_ty()), self, builder)?;
+
+				if let Err((_, mut report)) =
+					assert_value_type_eq(value, self.func.ret_ty(), expr.range(), &self.report_data)
+				{
+					return Err((INVALID_RETURN_TYPE, report));
+				}
+				builder.ret(Some(value)).unwrap();
+				Ok(())
+			},
+
+			_ => Err((
+				NOT_IMPLEMENTED,
+				unsupported_report(self.report_data.file(), statement, None::<&str>),
+			)),
+		}
+	}
+
+	pub fn create_child(&self) -> Block<'a, 'b, 'l> {
+		Block {
+			heaps: self.heaps.clone(),
+			type_cache: self.type_cache,
+			func: self.func,
+			values: self.values.clone(),
+			types: self.types,
+			functions: self.functions,
+			report_data: self.report_data.clone(),
 		}
 	}
 }
 
-impl<'l> TypeResolver<'l> for Block<'_, 'l> {
+impl<'l> TypeResolver<'l> for Block<'_, '_, 'l> {
 	fn type_cache(&self) -> &TypeCache<'l> {
 		self.type_cache
 	}

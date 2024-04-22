@@ -1,372 +1,205 @@
-use std::collections::BTreeMap;
+use ariadne::{Color, Label};
 
-use leaf_parsing::ast::{
-	BinaryOperator, Expression, Ident, Integer, Literal, NewStruct, Node, UnaryOperator,
-};
-use leaf_reflection::{Comparison, Function, Opcode, SSAContextBuilder, Type, ValueIdx};
+use leaf_parsing::ast::{BinaryOperator, Expression, FunctionCall, Ident, Integer, Literal, Node};
+use leaf_reflection::{Comparison, SSABuilder, Type, ValueRef};
 
 use crate::frontend::block::Block;
 use crate::frontend::reports::*;
-use crate::frontend::types::{assert_type_eq, TypeResolver};
-
-pub enum ExpressionResult<'l> {
-	Void,
-	Value(ValueIdx),
-	Function(&'l Function<'l>),
-}
-
-impl<'l> ExpressionResult<'l> {
-	pub fn unwrap_value(&self) -> ValueIdx {
-		match self {
-			Self::Value(v) => *v,
-			_ => panic!("Expression result was not a value"),
-		}
-	}
-
-	pub fn unwrap_function(&self) -> &'l Function<'l> {
-		match self {
-			Self::Function(v) => *v,
-			_ => panic!("Expression result was not a function"),
-		}
-	}
-}
 
 #[tracing::instrument(skip_all)]
-pub fn compile_expression<'a, 'l>(
+pub fn compile_expression<'a, 'b, 'l>(
 	expr: &Expression,
 	expected: Option<&'l Type<'l>>,
-	block: &'a Block<'a, 'l>,
-	body: &mut SSAContextBuilder<'l>,
-	reports: &mut ReportData,
-) -> Result<ExpressionResult<'l>, FrontEndError> {
+	block: &'a Block<'a, 'b, 'l>,
+	builder: &mut SSABuilder<'b, 'l>,
+) -> Result<ValueRef<'b, 'l>, (FrontEndError, FrontEndReportBuilder)> {
 	match expr {
-		Expression::Literal(Literal::Bool { value: v, .. }) => {
-			Ok(ExpressionResult::Value(body.use_const(*v)))
-		},
-		Expression::Literal(Literal::String { value: str, .. }) => {
-			Ok(ExpressionResult::Value(body.use_const(unescape(str))))
-		},
-		Expression::Literal(Literal::Integer {
-			value: Integer::Int8(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::Int16(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::Int32(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::Int64(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::UInt8(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::UInt16(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::UInt32(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::UInt64(v),
-			..
-		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		Expression::Literal(Literal::Integer {
-			value: Integer::Any(v),
-			range,
-		}) => {
-			macro_rules! impl_int {
-				($v: expr, $([$ty: ty; $int: ident]),+) => {
-					match expected {
-						$(
-							Some(Type::$int) => {
-								match (*$v).try_into() {
-									Ok(v) => {
-										Ok(ExpressionResult::Value(body.use_const::<$ty>(v)))
-									}
-									Err(_) => {
-										reports.add_error_label(range.clone(), format! {
-											"Integer {v} cannot fit into range {:?} of type {}",
-											<$ty>::MIN..<$ty>::MAX,
-											Type::$int,
-										});
-										Err(INVALID_INTEGER)
-									}
-								}
-							}
-						)*
-						_ => unimplemented!("{:#?}", expr),
-					}
-				};
-			}
-
-			impl_int! {
-				v,
-				[i8; Int8],
-				[i16; Int16],
-				[i32; Int32],
-				[i64; Int64],
-				[u8; UInt8],
-				[u16; UInt16],
-				[u32; UInt32],
-				[u64; UInt64]
-			}
-		},
-		Expression::Literal(Literal::Id(Ident {
-			value: ident,
-			range,
-		})) => {
-			if let Some(value) = block.values.get(ident) {
-				return Ok(ExpressionResult::Value(value.0));
-			}
-			if let Some(func) = block.functions.get(ident) {
-				return Ok(ExpressionResult::Function(func));
-			}
-			reports.add_error_label(
-				range.clone(),
-				format! {
-					"Identifier `{ident}` is not present in the current scope"
-				},
-			);
-			Err(VARIABLE_NOT_FOUND)
-		},
-		Expression::NewStruct(NewStruct {
-			ty: ty_ast,
-			values,
-			range,
-		}) => {
-			let ty = block.resolve_type(ty_ast, reports)?;
-			let Type::Struct(r#struct) = ty else {
-				reports.add_error_label(
-					ty_ast.range(),
-					format! {
-						"Type `{ty}` is not a struct"
-					},
-				);
-				return Err(NOT_AN_ARRAY);
-			};
-
-			let mut exprs = BTreeMap::new();
-			for (ident, expr) in values {
-				let Some(pos) = r#struct.fields().iter().position(|f| f.name() == ident.value)
-				else {
-					reports.add_error_label(
-						ident.range.clone(),
-						format! {
-							"Field `{ident}` not found in type `{ty}`"
-						},
-					);
-					return Err(FIELD_NOT_FOUND);
-				};
-				exprs.insert(pos, (pos, ident, expr, r#struct.fields()[pos].ty()));
-			}
-
-			if exprs.len() != r#struct.fields().len() {
-				let mut msg = "Struct expression missing fields: ".to_string();
-				let mut separator = "";
-				for field in r#struct.fields() {
-					if exprs.values().find(|v| v.1.value == field.name()).is_none() {
-						msg.push_str(separator);
-						msg.push_str(field.name());
-						separator = ", ";
-					}
+		Expression::Literal(Literal::Integer { value, range }) => match value {
+			Integer::Int8(v) => Ok(builder.constant(*v)),
+			Integer::Int16(v) => Ok(builder.constant(*v)),
+			Integer::Int32(v) => Ok(builder.constant(*v)),
+			Integer::Int64(v) => Ok(builder.constant(*v)),
+			Integer::UInt8(v) => Ok(builder.constant(*v)),
+			Integer::UInt16(v) => Ok(builder.constant(*v)),
+			Integer::UInt32(v) => Ok(builder.constant(*v)),
+			Integer::UInt64(v) => Ok(builder.constant(*v)),
+			Integer::Any(v) => {
+				macro_rules! try_cast {
+					($ty: ident, $expected: expr) => {{
+						match (*v).try_into() {
+							Ok(v) => Ok(builder.constant::<$ty>(v)),
+							Err(_) => Err((
+								INVALID_INTEGER,
+								block.report_data.new_error(range.start).with_label(
+									Label::new((block.report_data.file(), range.clone()))
+										.with_color(Color::Red)
+										.with_message(format!(
+											"{v} cannot be converted to `{}`",
+											$expected
+										)),
+								),
+							)),
+						}
+					}};
 				}
-				reports.add_error_label(range.clone(), msg);
-				return Err(MISSING_FIELD);
-			}
 
-			let mut values = vec![ValueIdx(0); exprs.len()];
-			for (i, _, expr, ty) in exprs.values().cloned() {
-				values[i] =
-					compile_expression(expr, Some(ty), block, body, reports)?.unwrap_value();
-				let val_ty = body.value_type(values[i]).unwrap();
-				assert_type_eq(val_ty, ty, expr.range(), reports).or(Err(INVALID_FIELD_TYPE))?;
-			}
-
-			let local = body.alloca(ty);
-			body.push_opcode(Opcode::Aggregate(values, local));
-			Ok(ExpressionResult::Value(local))
-		},
-		Expression::Unary { operator, expr, .. } => {
-			let val = compile_expression(expr, expected, block, body, reports)?.unwrap_value();
-			let val_ty = body.value_type(val).unwrap();
-			match operator {
-				UnaryOperator::Neg => match val_ty {
-					_ => unimplemented!("{:#?}", operator),
-				},
-				UnaryOperator::Not => match val_ty {
-					Type::Bool => {
-						let local = body.alloca(&Type::Bool);
-						body.push_opcode(Opcode::LNot(val, local));
-						Ok(ExpressionResult::Value(local))
+				match expected {
+					Some(Type::Int8) => try_cast!(i8, Type::Int8),
+					Some(Type::Int16) => try_cast!(i16, Type::Int16),
+					Some(Type::Int32) => try_cast!(i32, Type::Int32),
+					Some(Type::Int64) => try_cast!(i64, Type::Int64),
+					Some(Type::UInt8) => try_cast!(u8, Type::UInt8),
+					Some(Type::UInt16) => try_cast!(u16, Type::UInt16),
+					Some(Type::UInt32) => try_cast!(u32, Type::UInt32),
+					Some(Type::UInt64) => try_cast!(u64, Type::UInt64),
+					None if (i32::MIN as i128..i32::MAX as i128).contains(v) => {
+						Ok(builder.constant(*v as i32))
 					},
-					_ => unimplemented!("{:#?}", operator),
-				},
-				UnaryOperator::Addr => {
-					let ty = block.type_cache.make_pointer(val_ty, false);
-					let local = body.alloca(&ty);
-					body.push_opcode(Opcode::StoreA(val, local));
-					Ok(ExpressionResult::Value(local))
-				},
-				_ => unimplemented!("{:#?}", operator),
-			}
+					None if (i64::MIN as i128..i64::MAX as i128).contains(v) => {
+						Ok(builder.constant(*v as i64))
+					},
+					_ => Err((
+						NOT_IMPLEMENTED,
+						unsupported_report(block.report_data.file(), expr, None::<&str>),
+					)),
+				}
+			},
 		},
+
+		Expression::Literal(Literal::Bool { value, .. }) => Ok(builder.constant(*value)),
+		Expression::Literal(Literal::String { value, .. }) => Ok(builder.constant(unescape(value))),
+
+		Expression::Literal(Literal::Id(Ident { value, range })) => {
+			if let Some(val) = block.values.get(value) {
+				return match val.ty() {
+					Type::Reference { ty, .. } if val.is_variable() && Some(*ty) == expected => {
+						Ok(builder.load(*val).unwrap())
+					},
+					_ => Ok(*val),
+				};
+			}
+
+			let err_label = format!("Identifier `{value}` does not exist in the current scope");
+			return Err((
+				VARIABLE_NOT_FOUND,
+				block.report_data.new_error(range.start).with_label(
+					Label::new((block.report_data.file(), range.clone()))
+						.with_color(Color::Red)
+						.with_message(err_label),
+				),
+			));
+		},
+
 		Expression::Binary {
-			lhs, operator, rhs, ..
-		} => {
-			let lhs = compile_expression(lhs, expected, block, body, reports)?.unwrap_value();
-			let rhs = compile_expression(rhs, expected, block, body, reports)?.unwrap_value();
-			let lhs_ty = body.value_type(lhs).unwrap();
-			let rhs_ty = body.value_type(rhs).unwrap();
-
-			match operator {
-				BinaryOperator::Add => match (lhs_ty, rhs_ty) {
-					(Type::Int32, Type::Int32) => {
-						let local = body.alloca(&Type::Int32);
-						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					(Type::UInt32, Type::UInt8) => {
-						let local = body.alloca(&Type::UInt32);
-						body.push_opcode(Opcode::UConv(rhs, local, 4));
-						body.push_opcode(Opcode::UAdd(lhs, local, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					(Type::UInt32, Type::UInt32) => {
-						let local = body.alloca(&Type::UInt32);
-						body.push_opcode(Opcode::UAdd(lhs, rhs, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					(Type::Pointer { .. }, Type::Int64) => {
-						let local = body.alloca(lhs_ty);
-						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					(Type::Pointer { .. }, Type::UInt64) => {
-						let local = body.alloca(lhs_ty);
-						body.push_opcode(Opcode::UAdd(lhs, rhs, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
-				},
-				BinaryOperator::Mod => match (lhs_ty, rhs_ty) {
-					(Type::Int32, Type::Int32) => {
-						let local = body.alloca(&Type::Int32);
-						body.push_opcode(Opcode::SMod(lhs, rhs, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					(Type::UInt32, Type::UInt32) => {
-						let local = body.alloca(&Type::UInt32);
-						body.push_opcode(Opcode::UMod(lhs, rhs, local));
-						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
-				},
-				| BinaryOperator::Eq
-				| BinaryOperator::Ne
-				| BinaryOperator::Lt
-				| BinaryOperator::Gt
-				| BinaryOperator::Le
-				| BinaryOperator::Ge => match (lhs_ty, rhs_ty) {
-					(Type::Int32, Type::Int32) => {
-						let local = body.alloca(&Type::Bool);
-						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*operator)));
-						Ok(ExpressionResult::Value(local))
-					},
-					(Type::UInt32, Type::UInt32) => {
-						let local = body.alloca(&Type::Bool);
-						body.push_opcode(Opcode::UCmp(lhs, rhs, local, op_to_cmp(*operator)));
-						Ok(ExpressionResult::Value(local))
-					},
-					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
-				},
-				_ => unimplemented!("{:#?}", operator),
-			}
-		},
-		Expression::Indexing {
-			array,
-			indices,
+			operator,
+			lhs,
+			rhs,
 			range,
 		} => {
-			let value = compile_expression(array, None, block, body, reports)?.unwrap_value();
-			let value_ty = body.value_type(value).unwrap();
-			let Type::Array { count, ty: elem_ty } = value_ty else {
-				reports.add_error_label(
-					array.range(),
-					format! {
-						"Type `{value_ty}` is not an array type"
-					},
-				);
-				return Err(NOT_AN_ARRAY);
-			};
-
-			if indices.len() != 1 {
-				reports.add_error_label(
-					array.range(),
-					format! {
-						"Expected 1 index, found {}",
-						indices.len()
-					},
-				);
-				return Err(INVALID_PARAMETER_COUNT);
-			}
-
-			let mut index_vals = Vec::with_capacity(indices.len());
-			for expr in indices {
-				let value = compile_expression(expr, None, block, body, reports)?.unwrap_value();
-				let value_ty = body.value_type(value).unwrap();
-				assert_type_eq(value_ty, &Type::UInt64, expr.range(), reports)?;
-				index_vals.push(value);
-			}
-
-			//TODO Check variable mutability
-			let addr = body.alloca(block.type_cache.make_pointer(elem_ty, true));
-			let offset = body.alloca(&Type::UInt64);
-			body.push_opcode(Opcode::StoreA(addr, value));
-			body.push_opcode(Opcode::StoreSize(offset, elem_ty));
-			body.push_opcode(Opcode::UMul(offset, index_vals[0], offset));
-			body.push_opcode(Opcode::UAdd(addr, offset, addr));
-			return Ok(ExpressionResult::Value(addr));
+			let lhs_v = compile_expression(lhs, None, block, builder)?;
+			let rhs_v = compile_expression(lhs, Some(lhs_v.ty()), block, builder)?;
+			unimplemented!("Use intrinsics until interfaces are implemented")
 		},
-		Expression::FunctionCall(call) => {
-			let func =
-				compile_expression(&call.func, None, block, body, reports)?.unwrap_function();
-			let mut params = vec![];
-			assert_eq!(call.params.len(), func.params().len());
-			for (expr, param) in call.params.iter().zip(func.params()) {
-				let value = compile_expression(expr, Some(param.ty()), block, body, reports)?;
-				let value = value.unwrap_value();
-				let val_ty = body.value_type(value).unwrap();
 
-				assert_type_eq(val_ty, param.ty(), expr.range(), reports)
-					.or(Err(INVALID_PARAMETER_TYPE))?;
+		Expression::FunctionCall(call) => match &**call {
+			FunctionCall {
+				func:
+					Expression::Literal(Literal::Id(Ident {
+						value:
+							name @ ("__bin_op_lt" | "__bin_op_eq" | "__bin_op_add" | "__bin_op_sub"
+							| "__bin_op_mul" | "__bin_op_div" | "__bin_op_rem"),
+						..
+					})),
+				params,
+				range,
+			} => {
+				let [lhs, rhs] = params.as_slice() else {
+					let mut report = block.report_data.new_error(range.start).with_label(
+						Label::new((block.report_data.file(), range.clone()))
+							.with_color(Color::Red)
+							.with_message(format!("Expected 2 parameters, got {}", params.len())),
+					);
 
-				params.push(value);
-			}
+					if params.len() > 2 {
+						let mut additional = params[2].range();
+						additional.end = additional.start;
+						additional.start = additional.start - 1;
+						report.add_label(
+							Label::new((block.report_data.file(), additional.clone()))
+								.with_message("Additional parameters start here"),
+						)
+					} else {
+						let mut additional = params[0].range();
+						additional.start = additional.end;
+						additional.end = additional.end + 1;
+						report.add_label(
+							Label::new((block.report_data.file(), additional.clone()))
+								.with_message("Additional parameters should start here"),
+						)
+					}
 
-			match func.ret_ty() {
-				Type::Void => {
-					body.push_opcode(Opcode::Call(func, params, None));
-					Ok(ExpressionResult::Void)
-				},
-				_ => {
-					let result = body.alloca(func.ret_ty());
-					body.push_opcode(Opcode::Call(func, params, Some(result)));
-					Ok(ExpressionResult::Value(result))
-				},
-			}
+					return Err((INVALID_PARAMETER_COUNT, report));
+				};
+				let mut lhs_v = compile_expression(lhs, None, block, builder)?;
+				let mut rhs_v = compile_expression(rhs, Some(lhs_v.ty()), block, builder)?;
+
+				if matches!(lhs_v.ty(), Type::Reference { ty, ..} if ty.is_integer()) {
+					lhs_v = builder.load(lhs_v).unwrap();
+				}
+				if matches!(rhs_v.ty(), Type::Reference { ty, ..} if ty.is_integer()) {
+					rhs_v = builder.load(rhs_v).unwrap();
+				}
+
+				let (lhs_v, rhs_v) = match (lhs_v.ty(), rhs_v.ty()) {
+					(lhs_t, rhs_t) if lhs_t.is_integer() && rhs_t.is_integer() => (lhs_v, rhs_v),
+					_ => {
+						return Err((
+							INVALID_PARAMETER_TYPE,
+							block.report_data.new_error(range.start).with_label(
+								Label::new((block.report_data.file(), range.clone()))
+									.with_color(Color::Red)
+									.with_message(format! {
+										"Invalid intrinsic invocation {}({}, {})",
+										name, lhs_v.ty(), rhs_v.ty()
+									}),
+							),
+						))
+					},
+				};
+
+				Ok(match *name {
+					"__bin_op_lt" => builder.lt(lhs_v, rhs_v).unwrap(),
+					"__bin_op_eq" => builder.eq(lhs_v, rhs_v).unwrap(),
+					"__bin_op_add" => builder.add(lhs_v, rhs_v).unwrap(),
+					"__bin_op_sub" => builder.sub(lhs_v, rhs_v).unwrap(),
+					"__bin_op_mul" => builder.mul(lhs_v, rhs_v).unwrap(),
+					"__bin_op_div" => builder.div(lhs_v, rhs_v).unwrap(),
+					"__bin_op_rem" => builder.rem(lhs_v, rhs_v).unwrap(),
+					_ => unreachable!(),
+				})
+			},
+
+			FunctionCall {
+				range,
+				func,
+				params,
+			} => {
+				// let func_v = compile_expression(func, None, block, builder)?;
+
+				Err((
+					NOT_IMPLEMENTED,
+					unsupported_report(block.report_data.file(), expr, None::<&str>),
+				))
+			},
 		},
-		_ => unimplemented!("{:#?}", expr),
+		_ => Err((
+			NOT_IMPLEMENTED,
+			unsupported_report(block.report_data.file(), expr, None::<&str>),
+		)),
 	}
 }
 
+#[allow(unused)]
 fn op_to_cmp(op: BinaryOperator) -> Comparison {
 	match op {
 		BinaryOperator::Eq => Comparison::Eq,

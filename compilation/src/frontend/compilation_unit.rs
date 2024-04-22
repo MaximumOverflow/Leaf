@@ -2,9 +2,12 @@ use std::collections::HashMap;
 use fxhash::FxHashMap;
 use std::path::Path;
 use std::sync::Arc;
+use ariadne::{Color, Label};
 
-use leaf_parsing::ast::{Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst};
-use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
+use leaf_parsing::ast::{
+	Symbol, CompilationUnit as Ast, Function as FunctionAst, Struct as StructAst, Ident,
+};
+use leaf_reflection::{Assembly, Field, Function, Parameter, SSABuilder, Type};
 use tracing::{debug, debug_span, error, info, instrument, Level, span, trace};
 use leaf_parsing::ErrMode;
 use leaf_parsing::lexer::{Token, TokenStream};
@@ -27,7 +30,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		path: &impl AsRef<Path>,
-	) -> Result<(), FrontEndError> {
+	) -> Result<(), (FrontEndError, Option<FrontEndReport>)> {
 		let path = path.as_ref();
 		let absolute_path = path
 			.canonicalize()
@@ -40,7 +43,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		debug_span!("compile_file", file = absolute_path).in_scope(|| {
 			info!("Compiling file `{}`", absolute_path);
 			let code = debug_span!("read_file").in_scope(|| {
-				std::fs::read_to_string(path).map_err(|_| COULD_NOT_RETRIEVE_SOURCE)
+				std::fs::read_to_string(path).map_err(|_| (COULD_NOT_RETRIEVE_SOURCE, None))
 			})?;
 			Self::compile_internal(type_cache, assembly, &code, &absolute_path)?;
 			debug!("File `{}` compiled successfully", absolute_path);
@@ -52,7 +55,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
-	) -> Result<(), FrontEndError> {
+	) -> Result<(), (FrontEndError, Option<FrontEndReport>)> {
 		debug_span!("compile_code").in_scope(|| {
 			info!("Compiling code");
 			Self::compile_internal(type_cache, assembly, code, "<dynamic_code>")?;
@@ -66,7 +69,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 		file: &str,
-	) -> Result<(), FrontEndError> {
+	) -> Result<(), (FrontEndError, Option<FrontEndReport>)> {
 		let span = debug_span!("parse_code");
 		let parse_code_span = span.enter();
 
@@ -76,12 +79,13 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		let tokens = match Token::lex_all(code) {
 			Ok(tokens) => tokens,
 			Err(err) => {
-				dump_report(err.to_report(file), file, code);
-				return Err(LEXER_ERROR);
+				return Err((LEXER_ERROR, Some(err.to_report(Arc::from(file)))));
 			},
 		};
 		let mut stream = TokenStream::new(file, &tokens);
 		drop(lex_span);
+
+		let mut reports = ReportData::new(file);
 
 		let span = debug_span!("parse");
 		let parse_span = span.enter();
@@ -89,31 +93,36 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		let ast = match Ast::parse(&mut stream) {
 			Ok(tokens) => tokens,
 			Err(ErrMode::Cut(err) | ErrMode::Backtrack(err)) => {
-				dump_report(err.to_report(file), file, code);
-				return Err(PARSER_ERROR);
+				let report = err.to_report(reports.file());
+				dump_report(&report, reports.file(), code);
+				return Err((PARSER_ERROR, Some(report)));
 			},
-			_ => return Err(PARSER_ERROR),
+			_ => return Err((PARSER_ERROR, None)),
 		};
 		drop(parse_span);
 		drop(parse_code_span);
 
-		let mut reports = ReportData::new(file);
-
 		let mut unit = Self::new(type_cache, assembly);
 		let symbols = match unit.declare_symbols(&ast, &mut reports) {
 			Ok(symbols) => symbols,
-			Err(err) => {
-				generate_and_dump_report(reports.errors, file, code, err);
-				return Err(err);
+			Err((err, report)) => {
+				return Err((
+					err,
+					Some(generate_and_dump_report(report, reports.file(), code, err)),
+				))
 			},
 		};
-		if let Err(err) = unit.compile_types(symbols.structs, &mut reports) {
-			generate_and_dump_report(reports.errors, file, code, err);
-			return Err(err);
+		if let Err((err, report)) = unit.compile_types(symbols.structs, &mut reports) {
+			return Err((
+				err,
+				Some(generate_and_dump_report(report, reports.file(), code, err)),
+			));
 		}
-		if let Err(err) = unit.compile_functions(symbols.functions, &mut reports) {
-			generate_and_dump_report(reports.errors, file, code, err);
-			return Err(err);
+		if let Err((err, report)) = unit.compile_functions(symbols.functions, &mut reports) {
+			return Err((
+				err,
+				Some(generate_and_dump_report(report, reports.file(), code, err)),
+			));
 		}
 		Ok(())
 	}
@@ -133,7 +142,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		&mut self,
 		ast: &'c Ast<'c>,
 		reports: &mut ReportData,
-	) -> Result<SymbolDeclarations<'l, 'c>, FrontEndError> {
+	) -> Result<SymbolDeclarations<'l, 'c>, (FrontEndError, FrontEndReportBuilder)> {
 		let mut symbols = SymbolDeclarations::default();
 		for decl in &ast.declarations {
 			let name = decl.name.value;
@@ -145,22 +154,27 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 					if self.types.contains_key(name) {
 						error!("Duplicate declaration");
-						reports.add_error_label(
-							decl.name.range.clone(),
-							format! {
-								"Duplicate declaration of `{}::{}`",
-								ast.namespace, name
-							},
+						let report = reports.new_error(decl.range.start).with_label(
+							Label::new((reports.file(), decl.name.range.clone()))
+								.with_color(Color::Red)
+								.with_message(format! {
+									"Duplicate declaration of `{}::{}`",
+									ast.namespace, name
+								}),
 						);
-						return Err(DUPLICATE_DECLARATION);
+						return Err((DUPLICATE_DECLARATION, report));
 					}
 
 					let ty = match self.assembly.create_struct(ast.namespace, name) {
 						Ok(func) => func,
 						Err(err) => {
 							error!("{}", err);
-							reports.add_error_label(decl.name.range.clone(), err);
-							return Err(DECLARATION_ERROR);
+							let report = reports.new_error(decl.range.start).with_label(
+								Label::new((reports.file(), decl.name.range.clone()))
+									.with_color(Color::Red)
+									.with_message(err),
+							);
+							return Err((DECLARATION_ERROR, report));
 						},
 					};
 
@@ -180,22 +194,27 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 
 			if self.functions.contains_key(name) {
 				error!("Duplicate declaration");
-				reports.add_error_label(
-					decl.name.range.clone(),
-					format! {
-						"Duplicate declaration of `{}::{}`",
-						ast.namespace, name
-					},
+				let report = reports.new_error(decl.range.start).with_label(
+					Label::new((reports.file(), decl.name.range.clone()))
+						.with_color(Color::Red)
+						.with_message(format! {
+							"Duplicate declaration of `{}::{}`",
+							ast.namespace, name
+						}),
 				);
-				return Err(DUPLICATE_DECLARATION);
+				return Err((DUPLICATE_DECLARATION, report));
 			}
 
 			let func = match self.assembly.create_function(ast.namespace, name) {
 				Ok(func) => func,
 				Err(err) => {
 					error!("{}", err);
-					reports.add_error_label(decl.name.range.clone(), err);
-					return Err(DECLARATION_ERROR);
+					let report = reports.new_error(decl.range.start).with_label(
+						Label::new((reports.file(), decl.name.range.clone()))
+							.with_color(Color::Red)
+							.with_message(err),
+					);
+					return Err((DECLARATION_ERROR, report));
 				},
 			};
 
@@ -211,14 +230,18 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			let mut params = Vec::with_capacity(func_decl.params.len());
 			for p in &func_decl.params {
 				let name = self.heaps.blob_heap().intern(p.name.value).0;
-				params.push(Parameter::new(name, self.resolve_type(&p.ty, reports)?));
+				params.push(Parameter::new(
+					name,
+					self.resolve_type(&p.ty, reports)?,
+					p.mutable,
+				));
 			}
 			func.set_params(params).unwrap();
 
 			self.functions.insert(func.name(), func);
 
 			if func_decl.block.is_some() {
-				symbols.functions.push((func, func_decl));
+				symbols.functions.push((func, func_decl, &decl.name));
 				debug!("Function `{}` declared successfully", func.id());
 			} else {
 				let Ok(_) = func.set_body(None) else {
@@ -235,7 +258,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		&mut self,
 		types: Vec<(&'l Type<'l>, &StructAst)>,
 		reports: &mut ReportData,
-	) -> Result<(), FrontEndError> {
+	) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
 		for (ty, decl) in types {
 			let span = span!(Level::DEBUG, "compile_type", name = ty.id().name());
 			let _span = span.enter();
@@ -258,17 +281,17 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(())
 	}
 
-	fn compile_functions(
+	fn compile_functions<'ast>(
 		&mut self,
-		funcs: Vec<(&'l Function<'l>, &FunctionAst)>,
-		reports: &mut ReportData,
-	) -> Result<(), FrontEndError> {
-		for (func, decl) in funcs {
+		funcs: Vec<(&'l Function<'l>, &'ast FunctionAst<'ast>, &'ast Ident<'ast>)>,
+		reports: &mut ReportData<'_, 'l, 'ast>,
+	) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
+		for (func, decl, ident) in funcs {
 			let span = span!(Level::DEBUG, "compile_function", id = func.name());
 			let _span = span.enter();
 			debug!("Compiling function `{}`", func.id());
 
-			let mut body = SSAContextBuilder::new(self.heaps.clone());
+			let mut body = SSABuilder::new(self.heaps.clone());
 			let mut block = Block {
 				func,
 				heaps: self.heaps.clone(),
@@ -276,16 +299,24 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				values: HashMap::default(),
 				types: self.types(),
 				functions: &self.functions,
+				report_data: reports.clone(),
 			};
 
 			for i in func.params() {
-				let idx = body.alloca(i.ty());
-				block.values.insert(i.name(), (idx, false));
+				let idx = body.alloca(i.ty(), i.mutable());
+				block.values.insert(i.name(), idx);
 			}
 
-			block.compile(decl.block.as_ref().unwrap(), &mut body, reports)?;
+			if let Err((err, mut report)) = block.compile(decl.block.as_ref().unwrap(), &mut body) {
+				report.add_label(
+					Label::new((reports.file(), ident.range.clone()))
+						.with_color(Color::Cyan)
+						.with_message(format!("In function `{}`", func.id())),
+				);
+				return Err((err, report));
+			}
 
-			let Ok(_) = func.set_body(Some(body.build())) else {
+			let Ok(_) = func.set_body(Some(body.build().unwrap())) else {
 				unreachable!()
 			};
 			debug!("Function `{}` compiled successfully", func.id());
@@ -311,5 +342,5 @@ impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
 #[derive(Default)]
 struct SymbolDeclarations<'l, 'a> {
 	structs: Vec<(&'l Type<'l>, &'a StructAst<'a>)>,
-	functions: Vec<(&'l Function<'l>, &'a FunctionAst<'a>)>,
+	functions: Vec<(&'l Function<'l>, &'a FunctionAst<'a>, &'a Ident<'a>)>,
 }

@@ -387,6 +387,7 @@ dependencies = [
  "ariadne",
  "fxhash",
  "half",
+ "leaf_derive",
  "leaf_parsing",
  "leaf_reflection",
  "tracing",

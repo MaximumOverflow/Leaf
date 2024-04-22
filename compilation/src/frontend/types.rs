@@ -2,19 +2,21 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
+use ariadne::{Color, Label};
 use fxhash::FxHashMap;
 use tracing::trace;
 
 use leaf_parsing::ast::{Expression, Ident, Integer, Literal, Node, Type as TypeNode};
 use leaf_reflection::heaps::{ArenaAllocator, BlobHeapScope};
 use leaf_reflection::serialization::{MetadataWrite, WriteRequirements};
-use leaf_reflection::Type;
+use leaf_reflection::{SSABuilder, Type, ValueRef};
 use crate::frontend::reports::*;
 
 pub struct TypeCache<'l> {
 	bump: &'l ArenaAllocator,
 	array_types: RefCell<HashMap<(&'l Type<'l>, usize), &'l Type<'l>>>,
 	pointer_types: RefCell<HashMap<(&'l Type<'l>, bool), &'l Type<'l>>>,
+	reference_types: RefCell<HashMap<(&'l Type<'l>, bool), &'l Type<'l>>>,
 }
 
 impl<'l> TypeCache<'l> {
@@ -23,6 +25,7 @@ impl<'l> TypeCache<'l> {
 			bump,
 			array_types: RefCell::default(),
 			pointer_types: RefCell::default(),
+			reference_types: RefCell::default(),
 		}
 	}
 
@@ -31,6 +34,13 @@ impl<'l> TypeCache<'l> {
 		pointers
 			.entry((base, mutable))
 			.or_insert_with(|| self.bump.alloc(Type::Pointer { ty: base, mutable }))
+	}
+
+	pub fn make_reference(&self, base: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
+		let mut pointers = self.pointer_types.borrow_mut();
+		pointers
+			.entry((base, mutable))
+			.or_insert_with(|| self.bump.alloc(Type::Reference { ty: base, mutable }))
 	}
 }
 
@@ -43,8 +53,8 @@ pub trait TypeResolver<'l> {
 	fn resolve_type(
 		&self,
 		ast: &TypeNode,
-		reports: &mut ReportData,
-	) -> Result<&'l Type<'l>, FrontEndError> {
+		reports: &ReportData,
+	) -> Result<&'l Type<'l>, (FrontEndError, FrontEndReportBuilder)> {
 		let ty: &Type = match ast {
 			TypeNode::Id(Ident { value: id, .. }) => {
 				trace!("Resolving type {id:?}");
@@ -66,11 +76,14 @@ pub trait TypeResolver<'l> {
 					_ => match self.types().get(id) {
 						Some(ty) => *ty,
 						None => {
-							reports.add_error_label(
-								ast.range(),
-								format!("Type `{id}` is not available in the current scope"),
+							let report = reports.new_error(ast.range().start).with_label(
+								Label::new((reports.file(), ast.range()))
+									.with_color(Color::Red)
+									.with_message(format!(
+										"Type `{id}` is not available in the current scope"
+									)),
 							);
-							return Err(TYPE_NOT_FOUND);
+							return Err((TYPE_NOT_FOUND, report));
 						},
 					},
 				}
@@ -127,24 +140,91 @@ pub trait TypeResolver<'l> {
 	}
 }
 
+pub fn try_apply_implicit_casts<'a, 'l>(
+	val: ValueRef<'a, 'l>,
+	expected: &'l Type<'l>,
+	builder: &mut SSABuilder<'a, 'l>,
+) -> ValueRef<'a, 'l> {
+	match val.ty() {
+		Type::Reference { ty, .. } if val.is_variable() && *ty == expected => {
+			builder.load(val).unwrap()
+		},
+		_ => val,
+	}
+}
+
 #[inline(always)]
 pub fn assert_type_eq<'l>(
-	ty: &Type<'l>,
-	expected: &Type<'l>,
+	ty: &'l Type<'l>,
+	expected: &'l Type<'l>,
 	range: Range<usize>,
-	reports: &mut ReportData,
-) -> Result<(), FrontEndError> {
+	reports: &ReportData,
+) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
 	match ty == expected {
 		true => Ok(()),
 		false => {
-			reports.add_error_label(
-				range,
-				format! {
-					"Expected type `{}`, found `{}`",
-					expected, ty,
-				},
+			let report = reports.new_error(range.start).with_label(
+				Label::new((reports.file(), range))
+					.with_color(Color::Red)
+					.with_message(format! {
+						"Expected type `{}`, found `{}`",
+						expected, ty,
+					}),
 			);
-			return Err(INVALID_TYPE);
+			return Err((INVALID_TYPE, report));
+		},
+	}
+}
+
+#[inline(always)]
+pub fn assert_value_type_eq<'l>(
+	val: ValueRef<'_, 'l>,
+	expected: &'l Type<'l>,
+	range: Range<usize>,
+	reports: &ReportData<'_, 'l, '_>,
+) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
+	match val.ty() == expected {
+		true => Ok(()),
+		false => {
+			let mut report = reports.new_error(range.start);
+
+			let ty = match reports.variable_info.get(&val) {
+				None => val.ty(),
+				Some((id, ty, expr)) => {
+					let Type::Reference { ty: base, .. } = val.ty() else {
+						unreachable!();
+					};
+
+					match ty {
+						Some(ty) => {
+							report.add_label(
+								Label::new((reports.file(), ty.range().clone())).with_message(
+									format!("Type `{}` explicitly specified here", base),
+								),
+							);
+						},
+						None => {
+							report.add_label(
+								Label::new((reports.file(), expr.range().clone())).with_message(
+									format!("This expression evaluates to `{}`", base),
+								),
+							);
+						},
+					}
+					base
+				},
+			};
+
+			report.add_label(
+				Label::new((reports.file(), range))
+					.with_color(Color::Red)
+					.with_message(format! {
+						"Expected type `{}`, found `{}`",
+						expected, ty,
+					}),
+			);
+
+			return Err((INVALID_TYPE, report));
 		},
 	}
 }

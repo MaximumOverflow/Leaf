@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Range;
 use std::slice::from_ref;
+use std::sync::Arc;
 
 use ariadne::{Color, Config, Label, Report, ReportKind};
 use winnow::combinator::{alt, delimited, opt, repeat, trace};
@@ -18,7 +19,7 @@ pub struct ParserError<'l> {
 	pub range: Range<usize>,
 	pub message: Option<String>,
 	pub err_tokens: &'l [TokenData<'l>],
-	pub labels: Vec<Label<(&'l str, Range<usize>)>>,
+	pub labels: Vec<Label<(Arc<str>, Range<usize>)>>,
 }
 
 impl<'l> ParserError<'l> {
@@ -26,9 +27,9 @@ impl<'l> ParserError<'l> {
 	const UNEXPECTED_EOF: &'static str = "P0002";
 	const UNEXPECTED_TOKEN: &'static str = "P0001";
 
-	pub fn to_report(self, file: &'l str) -> Report<'static, (&'l str, Range<usize>)> {
+	pub fn to_report(self, file: Arc<str>) -> Report<'static, (Arc<str>, Range<usize>)> {
 		let error = self.message.as_ref().map(|m| m.as_str()).unwrap_or("Parsing failed");
-		let mut builder = Report::build(ReportKind::Error, file, self.range.start)
+		let mut builder = Report::build(ReportKind::Error, file.clone(), self.range.start)
 			.with_config(Config::default().with_underlines(true))
 			.with_code(self.code)
 			.with_message(error);
@@ -266,11 +267,12 @@ impl<'l> Parse<'l> for Expression<'l> {
 impl<'l> Expression<'l> {
 	fn term(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		trace("Expression::term", |input: &mut TokenStream<'l>| {
+			let expr_start = input.start_char();
 			let mut expr = Self::factor(input)?;
 
 			loop {
-				let checkpoint = input.checkpoint();
 				let start = input.start_char();
+				let checkpoint = input.checkpoint();
 				let len = input.eof_offset();
 
 				let op = match one_of([
@@ -313,7 +315,7 @@ impl<'l> Expression<'l> {
 						expr = Self::FunctionCall(Box::new(FunctionCall {
 							func: expr,
 							params,
-							range: start..end,
+							range: expr_start..end,
 						}));
 					},
 					Token::OpenSquare => {
@@ -458,7 +460,7 @@ impl<'l> Parse<'l> for Type<'l> {
 				Err(err) => match err {
 					ErrMode::Backtrack(mut err) | ErrMode::Cut(mut err) => {
 						err.labels.push(
-							Label::new((input.file_name(), start..err.range.end))
+							Label::new((input.file_name().clone(), start..err.range.end))
 								.with_message("Invalid type")
 								.with_color(Color::Red),
 						);
@@ -507,7 +509,7 @@ impl<'l> Parse<'l> for Statement<'l> {
 					Expression::parse,
 					required(Token::SemiColon),
 				)
-					.map(|(lhs, _, rhs, _)| Statement::Assignment(lhs, rhs)),
+					.map(|(lhs, _, rhs, _)| Statement::Assignment { lhs, rhs }),
 				(Expression::parse, required(Token::SemiColon)).map(|v| Statement::Expression(v.0)),
 				(
 					Token::Return,
@@ -533,6 +535,7 @@ impl<'l> Parse<'l> for Statement<'l> {
 impl<'l> Parse<'l> for VarDecl<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		trace("VarDecl", |input: &mut TokenStream<'l>| {
+			let start = input.start_char();
 			Token::Let.parse_next(input)?;
 			let mutable = opt(Token::Mut).parse_next(input)?.is_some();
 			let name = required(Ident::parse).parse_next(input)?;
@@ -568,6 +571,7 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 				name,
 				mutable,
 				value,
+				range: start..input.start_char(),
 			})
 		})
 		.parse_next(input)
@@ -577,6 +581,7 @@ impl<'l> Parse<'l> for VarDecl<'l> {
 impl<'l> Parse<'l> for If<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		trace("If", |input: &mut TokenStream<'l>| {
+			let start = input.start_char();
 			Token::If.parse_next(input)?;
 
 			let condition = required(Expression::parse).parse_next(input)?;
@@ -592,6 +597,7 @@ impl<'l> Parse<'l> for If<'l> {
 				condition,
 				block,
 				r#else,
+				range: start..input.start_char(),
 			})
 		})
 		.parse_next(input)
@@ -601,10 +607,15 @@ impl<'l> Parse<'l> for If<'l> {
 impl<'l> Parse<'l> for While<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		trace("While", |input: &mut TokenStream<'l>| {
+			let start = input.start_char();
 			Token::While.parse_next(input)?;
 			let condition = required(Expression::parse).parse_next(input)?;
 			let block = required(Block::parse).parse_next(input)?;
-			Ok(Self { condition, block })
+			Ok(Self {
+				condition,
+				block,
+				range: start..input.start_char(),
+			})
 		})
 		.parse_next(input)
 	}
@@ -637,7 +648,7 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 			match &mut symbol {
 				Err(ErrMode::Backtrack(err) | ErrMode::Cut(err)) => {
 					err.labels.push(
-						Label::new((input.file_name(), name.range.clone()))
+						Label::new((input.file_name().clone(), name.range.clone()))
 							.with_message(format!("In symbol declaration `{name}`"))
 							.with_color(Color::Cyan),
 					);
@@ -712,8 +723,15 @@ impl<'l> Parse<'l> for Function<'l> {
 impl<'l> Parse<'l> for FunctionParameter<'l> {
 	fn parse(input: &mut TokenStream<'l>) -> PResult<Self, ParserError<'l>> {
 		trace("FunctionParameter", |input: &mut TokenStream<'l>| {
-			match (Ident::parse, required(Token::Colon), required(Type::parse)).parse_next(input) {
-				Ok((name, _, ty)) => Ok(Self { name, ty }),
+			match (
+				opt(Token::Mut).map(|m| m.is_some()),
+				Ident::parse,
+				required(Token::Colon),
+				required(Type::parse),
+			)
+				.parse_next(input)
+			{
+				Ok((mutable, name, _, ty)) => Ok(Self { name, ty, mutable }),
 				Err(err) => Err(err),
 			}
 		})
@@ -865,12 +883,14 @@ fn unexpected_eof<'l>(
 
 		message: Some("Unexpected end of stream".to_string()),
 		err_tokens: &[],
-		labels: vec![Label::new((stream.file_name(), range.end..range.end))
-			.with_message(match expected {
-				None => "Expected additional tokens here".to_string(),
-				Some(token) => format!("Expected token `{token}`, found EOF"),
-			})
-			.with_color(Color::Red)],
+		labels: vec![
+			Label::new((stream.file_name().clone(), range.end..range.end))
+				.with_message(match expected {
+					None => "Expected additional tokens here".to_string(),
+					Some(token) => format!("Expected token `{token}`, found EOF"),
+				})
+				.with_color(Color::Red),
+		],
 	};
 
 	match cut {
