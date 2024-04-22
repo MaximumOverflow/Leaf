@@ -59,7 +59,19 @@ pub fn unescape_char<'l>(lex: &mut Lexer<'l, Token<'l>>) -> Result<char, LexerEr
 		None => Err(LexerError {
 			code: "L0003",
 			range: lex.span(),
-			message: Some(format!("{} is not a valid character.", s)),
+			message: Some(format!("`{}` is not a valid character.", s)),
+		}),
+	}
+}
+
+pub fn unescape_char_u8<'l>(lex: &mut Lexer<'l, Token<'l>>) -> Result<u8, LexerError> {
+	let char = unescape_char(lex)?;
+	match char.try_into() {
+		Ok(v) => Ok(v),
+		Err(_) => Err(LexerError {
+			code: "L0004",
+			range: lex.span(),
+			message: Some(format!("'{}' cannot fit in a byte.", char)),
 		}),
 	}
 }
@@ -259,6 +271,7 @@ pub enum Token<'l> {
 	Int64(i64),
 	#[regex("[0-9]+u8", parse_token_skip_end_2)]
 	// #[regex("0x[0-9a-fA-F]+u8")]
+	#[regex("b'(\\.|[^\\'])'", unescape_char_u8)]
 	#[display("{}u8", _0)]
 	UInt8(u8),
 	#[regex("[0-9]+u16", parse_token_skip_end_3)]

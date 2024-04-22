@@ -24,6 +24,7 @@ pub enum Opcode<'l> {
 	Load(ValueIdx, ValueIdx) = 0x10,
 	Store(ValueIdx, ValueIdx) = 0x11,
 	StoreA(ValueIdx, ValueIdx) = 0x12,
+	StoreSize(ValueIdx, &'l Type<'l>) = 0x13,
 	Aggregate(Vec<ValueIdx>, ValueIdx) = 0x1A,
 
 	SAdd(ValueIdx, ValueIdx, ValueIdx) = 0x20,
@@ -283,7 +284,17 @@ mod build {
 
 	impl UseConst for bool {
 		fn use_const(self, builder: &mut SSAContextBuilder) -> ValueIdx {
-			(self as u8).use_const(builder)
+			let ty = &Type::Bool;
+			let bytes = (self as u8).to_le_bytes();
+			let (data, id) = builder.heaps.blob_heap().intern(bytes.as_ref());
+			*builder.consts.entry((ty, id)).or_insert_with(|| {
+				let idx = ValueIdx(builder.values.len());
+				builder.values.push(Value {
+					ty,
+					const_data: Some(data),
+				});
+				idx
+			})
 		}
 	}
 

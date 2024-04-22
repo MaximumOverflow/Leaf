@@ -18,20 +18,23 @@ pub const LEXER_ERROR: FrontEndError = FrontEndError(PARSING_ERROR.0, 0x1);
 pub const PARSER_ERROR: FrontEndError = FrontEndError(PARSING_ERROR.0, 0x2);
 pub const COULD_NOT_RETRIEVE_SOURCE: FrontEndError = FrontEndError(PARSING_ERROR.0, 0x3);
 
-pub const TYPE_ERROR: FrontEndError = FrontEndError(0b00000001, 0);
-pub const NOT_A_STRUCT: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x3);
-pub const INVALID_FIELD_TYPE: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x1);
-pub const INVALID_RETURN_TYPE: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x2);
-pub const INVALID_PARAMETER_TYPE: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x3);
+pub const INVALID_TYPE: FrontEndError = FrontEndError(0b00000001, 0);
+pub const INVALID_FIELD_TYPE: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x1);
+pub const INVALID_RETURN_TYPE: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x2);
+pub const INVALID_PARAMETER_TYPE: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x3);
+pub const NOT_A_STRUCT: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x4);
+pub const NOT_AN_ARRAY: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x5);
 
 pub const NOT_FOUND: FrontEndError = FrontEndError(0b00000010, 0);
 pub const MISSING_FIELD: FrontEndError = FrontEndError(NOT_FOUND.0, 0x04);
 pub const FIELD_NOT_FOUND: FrontEndError = FrontEndError(NOT_FOUND.0, 0x02);
 pub const VARIABLE_NOT_FOUND: FrontEndError = FrontEndError(NOT_FOUND.0, 0x03);
-pub const TYPE_NOT_FOUND: FrontEndError = FrontEndError(NOT_FOUND.0 | TYPE_ERROR.0, 0x01);
+pub const TYPE_NOT_FOUND: FrontEndError = FrontEndError(NOT_FOUND.0 | INVALID_TYPE.0, 0x01);
 
 pub const VALUE_ERROR: FrontEndError = FrontEndError(0b00000100, 0);
 pub const INVALID_INTEGER: FrontEndError = FrontEndError(VALUE_ERROR.0, 0x1);
+//TODO find a valid category for this
+pub const INVALID_PARAMETER_COUNT: FrontEndError = FrontEndError(VALUE_ERROR.0, 0x2);
 
 pub const DECLARATION_ERROR: FrontEndError = FrontEndError(0b00001000, 0);
 pub const DUPLICATE_DECLARATION: FrontEndError = FrontEndError(DECLARATION_ERROR.0, 0x1);
@@ -92,7 +95,7 @@ pub fn generate_and_dump_report<'l>(
 		separator = " | ";
 	}
 
-	if err.0 & TYPE_ERROR.0 != 0 {
+	if err.0 & INVALID_TYPE.0 != 0 {
 		write!(msg, "{separator}Type error");
 		separator = " | ";
 	}

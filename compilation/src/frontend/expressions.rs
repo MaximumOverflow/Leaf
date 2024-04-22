@@ -7,7 +7,7 @@ use leaf_reflection::{Comparison, Function, Opcode, SSAContextBuilder, Type, Val
 
 use crate::frontend::block::Block;
 use crate::frontend::reports::*;
-use crate::frontend::types::TypeResolver;
+use crate::frontend::types::{assert_type_eq, TypeResolver};
 
 pub enum ExpressionResult<'l> {
 	Void,
@@ -150,7 +150,7 @@ pub fn compile_expression<'a, 'l>(
 						"Type `{ty}` is not a struct"
 					},
 				);
-				return Err(NOT_A_STRUCT);
+				return Err(NOT_AN_ARRAY);
 			};
 
 			let mut exprs = BTreeMap::new();
@@ -187,15 +187,7 @@ pub fn compile_expression<'a, 'l>(
 				values[i] =
 					compile_expression(expr, Some(ty), block, body, reports)?.unwrap_value();
 				let val_ty = body.value_type(values[i]).unwrap();
-				if ty != val_ty {
-					reports.add_error_label(
-						expr.range(),
-						format! {
-							"Expected type `{ty}`, found `{val_ty}`"
-						},
-					);
-					return Err(INVALID_FIELD_TYPE);
-				}
+				assert_type_eq(val_ty, ty, expr.range(), reports).or(Err(INVALID_FIELD_TYPE))?;
 			}
 
 			let local = body.alloca(ty);
@@ -207,6 +199,9 @@ pub fn compile_expression<'a, 'l>(
 			let val_ty = body.value_type(val).unwrap();
 			match operator {
 				UnaryOperator::Neg => match val_ty {
+					_ => unimplemented!("{:#?}", operator),
+				},
+				UnaryOperator::Not => match val_ty {
 					Type::Bool => {
 						let local = body.alloca(&Type::Bool);
 						body.push_opcode(Opcode::LNot(val, local));
@@ -238,6 +233,17 @@ pub fn compile_expression<'a, 'l>(
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
 					},
+					(Type::UInt32, Type::UInt8) => {
+						let local = body.alloca(&Type::UInt32);
+						body.push_opcode(Opcode::UConv(rhs, local, 4));
+						body.push_opcode(Opcode::UAdd(lhs, local, local));
+						Ok(ExpressionResult::Value(local))
+					},
+					(Type::UInt32, Type::UInt32) => {
+						let local = body.alloca(&Type::UInt32);
+						body.push_opcode(Opcode::UAdd(lhs, rhs, local));
+						Ok(ExpressionResult::Value(local))
+					},
 					(Type::Pointer { .. }, Type::Int64) => {
 						let local = body.alloca(lhs_ty);
 						body.push_opcode(Opcode::SAdd(lhs, rhs, local));
@@ -256,6 +262,11 @@ pub fn compile_expression<'a, 'l>(
 						body.push_opcode(Opcode::SMod(lhs, rhs, local));
 						Ok(ExpressionResult::Value(local))
 					},
+					(Type::UInt32, Type::UInt32) => {
+						let local = body.alloca(&Type::UInt32);
+						body.push_opcode(Opcode::UMod(lhs, rhs, local));
+						Ok(ExpressionResult::Value(local))
+					},
 					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
 				},
 				| BinaryOperator::Eq
@@ -269,10 +280,60 @@ pub fn compile_expression<'a, 'l>(
 						body.push_opcode(Opcode::SCmp(lhs, rhs, local, op_to_cmp(*operator)));
 						Ok(ExpressionResult::Value(local))
 					},
+					(Type::UInt32, Type::UInt32) => {
+						let local = body.alloca(&Type::Bool);
+						body.push_opcode(Opcode::UCmp(lhs, rhs, local, op_to_cmp(*operator)));
+						Ok(ExpressionResult::Value(local))
+					},
 					_ => unimplemented!("{:?} {} {}", operator, lhs_ty, rhs_ty),
 				},
 				_ => unimplemented!("{:#?}", operator),
 			}
+		},
+		Expression::Indexing {
+			array,
+			indices,
+			range,
+		} => {
+			let value = compile_expression(array, None, block, body, reports)?.unwrap_value();
+			let value_ty = body.value_type(value).unwrap();
+			let Type::Array { count, ty: elem_ty } = value_ty else {
+				reports.add_error_label(
+					array.range(),
+					format! {
+						"Type `{value_ty}` is not an array type"
+					},
+				);
+				return Err(NOT_AN_ARRAY);
+			};
+
+			if indices.len() != 1 {
+				reports.add_error_label(
+					array.range(),
+					format! {
+						"Expected 1 index, found {}",
+						indices.len()
+					},
+				);
+				return Err(INVALID_PARAMETER_COUNT);
+			}
+
+			let mut index_vals = Vec::with_capacity(indices.len());
+			for expr in indices {
+				let value = compile_expression(expr, None, block, body, reports)?.unwrap_value();
+				let value_ty = body.value_type(value).unwrap();
+				assert_type_eq(value_ty, &Type::UInt64, expr.range(), reports)?;
+				index_vals.push(value);
+			}
+
+			//TODO Check variable mutability
+			let addr = body.alloca(block.type_cache.make_pointer(elem_ty, true));
+			let offset = body.alloca(&Type::UInt64);
+			body.push_opcode(Opcode::StoreA(addr, value));
+			body.push_opcode(Opcode::StoreSize(offset, elem_ty));
+			body.push_opcode(Opcode::UMul(offset, index_vals[0], offset));
+			body.push_opcode(Opcode::UAdd(addr, offset, addr));
+			return Ok(ExpressionResult::Value(addr));
 		},
 		Expression::FunctionCall(call) => {
 			let func =
@@ -283,16 +344,10 @@ pub fn compile_expression<'a, 'l>(
 				let value = compile_expression(expr, Some(param.ty()), block, body, reports)?;
 				let value = value.unwrap_value();
 				let val_ty = body.value_type(value).unwrap();
-				if param.ty() != val_ty {
-					reports.add_error_label(
-						expr.range(),
-						format! {
-							"Expected type `{}`, found `{}`",
-							param.ty(), val_ty,
-						},
-					);
-					return Err(INVALID_PARAMETER_TYPE);
-				}
+
+				assert_type_eq(val_ty, param.ty(), expr.range(), reports)
+					.or(Err(INVALID_PARAMETER_TYPE))?;
+
 				params.push(value);
 			}
 

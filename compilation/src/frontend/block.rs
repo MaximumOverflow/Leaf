@@ -8,7 +8,7 @@ use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 
 use crate::frontend::expressions::compile_expression;
 use crate::frontend::reports::{FrontEndError, INVALID_RETURN_TYPE, ReportData};
-use crate::frontend::types::{TypeCache, TypeResolver};
+use crate::frontend::types::{assert_type_eq, TypeCache, TypeResolver};
 
 pub struct Block<'a, 'l> {
 	pub heaps: HeapScopes<'l>,
@@ -42,37 +42,24 @@ impl<'a, 'l> Block<'a, 'l> {
 	) -> Result<(), FrontEndError> {
 		match statement {
 			Statement::Return { expr, range } => match expr {
-				None if self.func.ret_ty() == &Type::Void => {
-					body.push_opcode(Opcode::Ret(None));
-					Ok(())
-				},
 				Some(expr) => {
 					let value =
 						compile_expression(expr, Some(self.func.ret_ty()), self, body, reports)?;
 					let value = value.unwrap_value();
 					let value_ty = body.value_type(value).unwrap();
-					if value_ty != self.func.ret_ty() {
-						reports.add_error_label(
-							expr.range(),
-							format! {
-								"Expected type `{}`, found `{}`",
-								self.func.ret_ty(), value_ty,
-							},
-						);
-						return Err(INVALID_RETURN_TYPE);
-					}
+
+					assert_type_eq(value_ty, self.func.ret_ty(), expr.range(), reports)
+						.or(Err(INVALID_RETURN_TYPE))?;
+
 					body.push_opcode(Opcode::Ret(Some(value)));
 					Ok(())
 				},
 				None => {
-					reports.add_error_label(
-						range.clone(),
-						format! {
-							"Expected type `{}`, found `void`",
-							self.func.ret_ty(),
-						},
-					);
-					return Err(INVALID_RETURN_TYPE);
+					assert_type_eq(&Type::Void, self.func.ret_ty(), range.clone(), reports)
+						.or(Err(INVALID_RETURN_TYPE))?;
+
+					body.push_opcode(Opcode::Ret(None));
+					return Ok(());
 				},
 			},
 
@@ -143,6 +130,10 @@ impl<'a, 'l> Block<'a, 'l> {
 				let cond =
 					compile_expression(&stmt.condition, Some(&Type::Bool), self, body, reports)?
 						.unwrap_value();
+
+				let val_ty = body.value_type(cond).unwrap();
+				assert_type_eq(val_ty, &Type::Bool, stmt.condition.range(), reports)?;
+
 				match &stmt.r#else {
 					None => {
 						let true_case = body.create_block();

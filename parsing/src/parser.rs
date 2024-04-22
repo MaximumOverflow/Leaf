@@ -199,7 +199,6 @@ impl<'l> Parse<'l> for Expression<'l> {
 					Token::Le,
 					Token::Ge,
 				]);
-				let start = input.checkpoint();
 				let len = input.eof_offset();
 
 				match (ops, Self::term).parse_next(input) {
@@ -215,6 +214,12 @@ impl<'l> Parse<'l> for Expression<'l> {
 							Token::Eq => Expression::Binary {
 								range: expr.range().start..term.range().end,
 								operator: BinaryOperator::Eq,
+								lhs: expr.into(),
+								rhs: term.into(),
+							},
+							Token::Ne => Expression::Binary {
+								range: expr.range().start..term.range().end,
+								operator: BinaryOperator::Ne,
 								lhs: expr.into(),
 								rhs: term.into(),
 							},
@@ -242,7 +247,7 @@ impl<'l> Parse<'l> for Expression<'l> {
 								lhs: expr.into(),
 								rhs: term.into(),
 							},
-							_ => unreachable!(),
+							_ => unreachable!("{:?}", op.token),
 						}
 					},
 					Err(ErrMode::Backtrack(_)) => {
@@ -273,6 +278,7 @@ impl<'l> Expression<'l> {
 					Token::Div,
 					Token::Mod,
 					Token::OpenRound,
+					Token::OpenSquare,
 					Token::Period,
 					Token::DoubleColon,
 				])
@@ -309,6 +315,28 @@ impl<'l> Expression<'l> {
 							params,
 							range: start..end,
 						}));
+					},
+					Token::OpenSquare => {
+						let (indices, _) = trace(
+							"Indexing",
+							(
+								required(list(Token::Comma, Expression::parse)),
+								required(Token::CloseSquare),
+							),
+						)
+						.parse_next(input)?;
+
+						let end = input.start_char();
+						// infinite loop check: the parser must always consume
+						if input.eof_offset() == len {
+							unimplemented!()
+						}
+
+						expr = Self::Indexing {
+							array: Box::new(expr),
+							indices,
+							range: start..end,
+						};
 					},
 					_ => match Self::factor(input) {
 						Ok(term) => {
@@ -356,7 +384,11 @@ impl<'l> Expression<'l> {
 			alt((
 				NewStruct::parse.map(|v| Expression::NewStruct(v)),
 				Literal::parse.map(|l| Expression::Literal(l)),
-				(Token::Not, Expression::factor).map(|v| v.1),
+				(Token::Not, Expression::factor).map(|v| Expression::Unary {
+					operator: UnaryOperator::Not,
+					range: v.0.range.start..v.1.range().end,
+					expr: Box::new(v.1),
+				}),
 				delimited(Token::OpenRound, Expression::parse, Token::CloseRound),
 			)),
 		)

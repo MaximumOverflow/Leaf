@@ -162,6 +162,11 @@ pub enum Expression<'l> {
 		rhs: Box<Expression<'l>>,
 		range: Range<usize>,
 	},
+	Indexing {
+		array: Box<Expression<'l>>,
+		indices: Vec<Expression<'l>>,
+		range: Range<usize>,
+	},
 }
 
 impl<'l> Node for Expression<'l> {
@@ -174,6 +179,7 @@ impl<'l> Node for Expression<'l> {
 			Expression::FunctionCall(n) => n.range(),
 			Expression::Unary { range, .. } => range.clone(),
 			Expression::Binary { range, .. } => range.clone(),
+			Expression::Indexing { range, .. } => range.clone(),
 		}
 	}
 }

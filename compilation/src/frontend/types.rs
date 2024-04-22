@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Arc;
 use fxhash::FxHashMap;
 use tracing::trace;
@@ -8,7 +9,7 @@ use leaf_parsing::ast::{Expression, Ident, Integer, Literal, Node, Type as TypeN
 use leaf_reflection::heaps::{ArenaAllocator, BlobHeapScope};
 use leaf_reflection::serialization::{MetadataWrite, WriteRequirements};
 use leaf_reflection::Type;
-use crate::frontend::reports::{FrontEndError, ReportData, TYPE_NOT_FOUND};
+use crate::frontend::reports::*;
 
 pub struct TypeCache<'l> {
 	bump: &'l ArenaAllocator,
@@ -126,11 +127,24 @@ pub trait TypeResolver<'l> {
 	}
 }
 
-// #[allow(unused)]
-// pub fn invalid_type_err(expected: &Type, got: Option<&Type>) -> anyhow::Error {
-// 	use anyhow::anyhow;
-// 	match got {
-// 		None => anyhow!("Expected type '{}', got '?'", expected),
-// 		Some(ty) => anyhow!("Expected type '{}', got '{}'", expected, ty),
-// 	}
-// }
+#[inline(always)]
+pub fn assert_type_eq<'l>(
+	ty: &Type<'l>,
+	expected: &Type<'l>,
+	range: Range<usize>,
+	reports: &mut ReportData,
+) -> Result<(), FrontEndError> {
+	match ty == expected {
+		true => Ok(()),
+		false => {
+			reports.add_error_label(
+				range,
+				format! {
+					"Expected type `{}`, found `{}`",
+					expected, ty,
+				},
+			);
+			return Err(INVALID_TYPE);
+		},
+	}
+}
