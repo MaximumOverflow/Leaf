@@ -7,7 +7,8 @@ use leaf_parsing::ast::{Symbol, CompilationUnit as Ast, Function as FunctionAst,
 use leaf_reflection::{Assembly, Field, Function, Parameter, SSAContextBuilder, Type};
 use tracing::{debug, debug_span, error, info, instrument, Level, span, trace};
 use leaf_parsing::ErrMode;
-use leaf_parsing::parser::{Parse, Token, TokenStream};
+use leaf_parsing::lexer::{Token, TokenStream};
+use leaf_parsing::parser::Parse;
 use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
 use crate::frontend::block::Block;
 use crate::frontend::reports::*;
