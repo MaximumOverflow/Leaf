@@ -136,6 +136,8 @@ pub enum BinaryOperator {
 	Lt,
 	Ge,
 	Le,
+	Access,
+	StaticAccess,
 }
 
 #[derive(Debug, PartialEq)]

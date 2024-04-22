@@ -257,7 +257,7 @@ impl<'l> Expression<'l> {
 
 			let op = match one_of([
 				Token::Mul, Token::Div, Token::Mod,
-				Token::OpenRound,
+				Token::OpenRound, Token::Period, Token::DoubleColon,
 			]).parse_next(input) {
 				Ok(op) => op,
 				Err(ErrMode::Backtrack(_)) => {
@@ -295,6 +295,18 @@ impl<'l> Expression<'l> {
 							Token::Mul => expr * term,
 							Token::Div => expr / term,
 							Token::Mod => expr % term,
+							Token::Period => Expression::Binary {
+								operator: BinaryOperator::Access,
+								range: expr.range().start..term.range().end,
+								lhs: Box::new(expr),
+								rhs: Box::new(term),
+							},
+							Token::DoubleColon => Expression::Binary {
+								operator: BinaryOperator::StaticAccess,
+								range: expr.range().start..term.range().end,
+								lhs: Box::new(expr),
+								rhs: Box::new(term),
+							},
 							_ => unreachable!(),
 						}
 					}
