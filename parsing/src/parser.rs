@@ -157,7 +157,7 @@ impl<'l> Parse<'l> for Literal<'l> {
 				Token::Float64(_v) => unimplemented!(),
 				Token::CharLiteral(v) => Literal::Char { value: v, range: data.range.clone() },
 				Token::BoolLiteral(v) => Literal::Bool { value: v, range: data.range.clone() },
-				Token::StringLiteral(v) => Literal::String { value: v, range: data.range.clone() },
+				Token::StringLiteral(v) => Literal::String { value: &v[1..v.len() - 1], range: data.range.clone() },
 				_ => {
 					return Err(ErrMode::Backtrack(ParserError {
 						code: ParserError::UNEXPECTED_TOKEN,
