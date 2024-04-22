@@ -22,6 +22,7 @@ pub const TYPE_ERROR: FrontEndError = FrontEndError(0b00000001, 0);
 pub const NOT_A_STRUCT: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x3);
 pub const INVALID_FIELD_TYPE: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x1);
 pub const INVALID_RETURN_TYPE: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x2);
+pub const INVALID_PARAMETER_TYPE: FrontEndError = FrontEndError(TYPE_ERROR.0, 0x3);
 
 pub const NOT_FOUND: FrontEndError = FrontEndError(0b00000010, 0);
 pub const MISSING_FIELD: FrontEndError = FrontEndError(NOT_FOUND.0, 0x04);

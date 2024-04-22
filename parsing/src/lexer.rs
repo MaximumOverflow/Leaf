@@ -165,6 +165,9 @@ pub enum Token<'l> {
 	#[token("as")]
 	#[display("as")]
 	As,
+	#[token("new")]
+	#[display("new")]
+	New,
 	#[token("pub")]
 	#[display("pub")]
 	Pub,

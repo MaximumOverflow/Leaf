@@ -78,8 +78,10 @@ pub fn compile_expression<'a, 'l>(
 			value: Integer::UInt64(v),
 			..
 		}) => Ok(ExpressionResult::Value(body.use_const(*v))),
-		#[rustfmt::skip]
-		Expression::Literal(Literal::Integer { value: Integer::Any(v), range }) => {
+		Expression::Literal(Literal::Integer {
+			value: Integer::Any(v),
+			range,
+		}) => {
 			macro_rules! impl_int {
 				($v: expr, $([$ty: ty; $int: ident]),+) => {
 					match expected {
@@ -280,7 +282,17 @@ pub fn compile_expression<'a, 'l>(
 			for (expr, param) in call.params.iter().zip(func.params()) {
 				let value = compile_expression(expr, Some(param.ty()), block, body, reports)?;
 				let value = value.unwrap_value();
-				assert_eq!(Some(param.ty()), body.value_type(value));
+				let val_ty = body.value_type(value).unwrap();
+				if param.ty() != val_ty {
+					reports.add_error_label(
+						expr.range(),
+						format! {
+							"Expected type `{}`, found `{}`",
+							param.ty(), val_ty,
+						},
+					);
+					return Err(INVALID_PARAMETER_TYPE);
+				}
 				params.push(value);
 			}
 

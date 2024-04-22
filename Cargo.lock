@@ -408,6 +408,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "derive_more",
+ "log",
  "logos",
  "unescape",
  "winnow",
