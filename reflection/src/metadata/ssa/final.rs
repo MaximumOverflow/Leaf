@@ -1,20 +1,28 @@
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
+#[allow(unused_imports)]
+use std::io::{Error, ErrorKind, Read, Write};
+use std::usize;
 
 use derivative::Derivative;
 
 use leaf_derive::Metadata;
 
-use crate::Type;
+use crate::{Function, Type};
 
 #[repr(u8)]
 #[rustfmt::skip]
-#[derive(Debug, Default, Copy, Clone, Metadata)]
+#[derive(Default, Copy, Clone, Derivative, Metadata)]
+#[derivative(Debug)]
 #[metadata(lifetimes(val = "l"))]
 pub enum OpCode<'l> {
 	#[default]
 	Nop = 0x00,
 	Alloca { ty: &'l Type<'l> } = 0x01,
 	Const { ty: &'l Type<'l>, value: &'l [u8] } = 0x02,
+	Func {
+		#[derivative(Debug(format_with="debug_func_ref"))]
+		func: &'l Function<'l>,
+	} = 0x03,
 
 	Add { lhs: ValueIndex, rhs: ValueIndex } = 0x10,
 	Sub { lhs: ValueIndex, rhs: ValueIndex } = 0x11,
@@ -28,6 +36,13 @@ pub enum OpCode<'l> {
 	Load { value: ValueIndex } = 0x20,
 	Store { val: ValueIndex, dst: ValueIndex } = 0x21,
 
+	Call {
+		#[derivative(Debug(format_with="debug_func_ref"))]
+		func: &'l Function<'l>,
+		params: &'l [ValueIndex],
+	} = 0x22,
+	CallInd { func: ValueIndex, params: &'l [ValueIndex] } = 0x23,
+
 	Ret { value: Option<ValueIndex> } = 0x30,
 	Jp { target: ValueIndex } = 0x31,
 	Br {
@@ -39,6 +54,37 @@ pub enum OpCode<'l> {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Metadata)]
 pub struct ValueIndex(pub usize);
+
+#[cfg(feature = "read")]
+impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val [ValueIndex] {
+	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
+		let req = req.into();
+		let len = usize::read(stream, ())?;
+		let mut vec = Vec::with_capacity(len);
+		for _ in 0..len {
+			vec.push(ValueIndex::read(stream, req)?);
+		}
+		Ok(req.blobs.arena_allocator().alloc_slice_copy(&vec))
+	}
+}
+
+#[cfg(feature = "write")]
+impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val [ValueIndex] {
+	type Requirements = &'req crate::serialization::WriteRequirements<'val>;
+	fn write<S: Write>(
+		&self,
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<(), Error> {
+		let req = req.into();
+		self.len().write(stream, ())?;
+		for element in self.iter() {
+			element.write(stream, req)?;
+		}
+		Ok(())
+	}
+}
 
 #[repr(u8)]
 #[derive(Debug, Default, Copy, Clone, Metadata)]
@@ -58,6 +104,10 @@ pub enum Comparison {
 pub struct SSAData<'l> {
 	#[derivative(Debug(format_with = "debug_opcodes"))]
 	pub(super) opcodes: Vec<OpCode<'l>>,
+}
+
+fn debug_func_ref(func: &Function, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	write!(fmt, "`{}`", func.id())
 }
 
 fn debug_opcodes(v: &Vec<OpCode>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {

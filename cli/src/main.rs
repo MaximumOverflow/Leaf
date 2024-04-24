@@ -14,7 +14,7 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
 
-use leaf_compilation::frontend::{CompilationUnit, TypeCache};
+use leaf_compilation::frontend::{CompilationUnit};
 use leaf_compilation::reflection::{Assembly, Version};
 use leaf_compilation::reflection::heaps::{ArenaAllocator, Heaps};
 use leaf_compilation::reflection::serialization::{MetadataRead, MetadataWrite};
@@ -90,14 +90,13 @@ fn main() {
 
 	match args {
 		Args::Interpret(InterpretArgs { file, .. }) => {
-			let mut time = SystemTime::now();
+			let time = SystemTime::now();
 
 			let bump = ArenaAllocator::default();
 			let heaps = Heaps::new(&bump);
-			let type_cache = TypeCache::new(&bump);
 
 			let mut assembly = Assembly::new("interpreter::tmp", Version::default(), &heaps);
-			if let Err(err) = CompilationUnit::compile_file(&type_cache, &mut assembly, &file) {
+			if let Err(err) = CompilationUnit::compile_file(&mut assembly, &file) {
 				return println!("{:#}", err.0);
 			}
 			let comp_time = time.elapsed().unwrap();
@@ -169,10 +168,8 @@ fn main() {
 
 			let bump = ArenaAllocator::default();
 			let heaps = Heaps::new(&bump);
-			let type_cache = TypeCache::new(&bump);
-
 			let mut assembly = Assembly::new("compiler::tmp", Version::default(), &heaps);
-			if let Err(err) = CompilationUnit::compile_file(&type_cache, &mut assembly, &file) {
+			if let Err(err) = CompilationUnit::compile_file(&mut assembly, &file) {
 				return println!("{:#}", err.0);
 			}
 			let mut delta = time.elapsed().unwrap();

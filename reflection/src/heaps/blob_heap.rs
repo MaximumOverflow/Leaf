@@ -32,6 +32,7 @@ impl<'l> BlobHeap<'l> {
 
 	pub fn make_scope(heap: &Arc<BlobHeap<'l>>) -> Arc<BlobHeapScope<'l>> {
 		let scope = BlobHeapScope {
+			bump: heap.buf,
 			heap: heap.clone(),
 			map: RwLock::default(),
 			vec: RwLock::default(),
@@ -57,6 +58,7 @@ impl<'l> BlobHeap<'l> {
 }
 
 pub struct BlobHeapScope<'l> {
+	bump: &'l ArenaAllocator,
 	heap: Arc<BlobHeap<'l>>,
 	vec: RwLock<Vec<&'l [u8]>>,
 	map: RwLock<FxHashMap<&'l [u8], usize>>,
@@ -79,6 +81,10 @@ impl<'l> BlobHeapScope<'l> {
 
 	pub fn get_str_at_index(&self, idx: usize) -> Option<&'l str> {
 		std::str::from_utf8(self.vec.read().unwrap().get(idx)?).ok()
+	}
+
+	pub fn arena_allocator(&self) -> &'l ArenaAllocator {
+		self.bump
 	}
 }
 

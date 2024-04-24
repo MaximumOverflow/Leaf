@@ -12,60 +12,52 @@ use tracing::{debug, debug_span, error, info, instrument, Level, span, trace};
 use leaf_parsing::ErrMode;
 use leaf_parsing::lexer::{Token, TokenStream};
 use leaf_parsing::parser::Parse;
-use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
+use leaf_reflection::heaps::{BlobHeapScope, HeapScopes, TypeHeap};
 use crate::frontend::block::Block;
 use crate::frontend::reports::*;
-use crate::frontend::types::{TypeCache, TypeResolver};
+use crate::frontend::types::{TypeResolver};
 
 pub struct CompilationUnit<'a, 'l> {
 	heaps: HeapScopes<'l>,
-	type_cache: &'a TypeCache<'l>,
 	assembly: &'a mut Assembly<'l>,
 	types: FxHashMap<&'l str, &'l Type<'l>>,
 	functions: FxHashMap<&'l str, &'l Function<'l>>,
 }
 
 impl<'a, 'l> CompilationUnit<'a, 'l> {
+	#[inline(never)]
+	#[tracing::instrument(skip_all)]
 	pub fn compile_file(
-		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		path: &impl AsRef<Path>,
 	) -> Result<(), (FrontEndError, Option<FrontEndReport>)> {
 		let path = path.as_ref();
-		let absolute_path = path
-			.canonicalize()
-			.unwrap()
-			.to_str()
-			.unwrap()
-			.replace("\\\\?\\", "")
-			.replace('\\', "/");
+		let file = path.as_os_str().to_str().unwrap();
+		info!("Compiling file `{}`", file);
 
-		debug_span!("compile_file", file = absolute_path).in_scope(|| {
-			info!("Compiling file `{}`", absolute_path);
-			let code = debug_span!("read_file").in_scope(|| {
-				std::fs::read_to_string(path).map_err(|_| (COULD_NOT_RETRIEVE_SOURCE, None))
-			})?;
-			Self::compile_internal(type_cache, assembly, &code, &absolute_path)?;
-			debug!("File `{}` compiled successfully", absolute_path);
-			Ok(())
-		})
+		let code = debug_span!("read_file").in_scope(|| {
+			std::fs::read_to_string(path).map_err(|_| (COULD_NOT_RETRIEVE_SOURCE, None))
+		})?;
+
+		Self::compile_internal(assembly, &code, &file)?;
+		debug!("File `{}` compiled successfully", file);
+		Ok(())
 	}
 
+	#[inline(never)]
 	pub fn compile_code(
-		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 	) -> Result<(), (FrontEndError, Option<FrontEndReport>)> {
 		debug_span!("compile_code").in_scope(|| {
 			info!("Compiling code");
-			Self::compile_internal(type_cache, assembly, code, "<dynamic_code>")?;
+			Self::compile_internal(assembly, code, "<dynamic_code>")?;
 			debug!("Code compiled successfully");
 			Ok(())
 		})
 	}
 
 	fn compile_internal(
-		type_cache: &'a TypeCache<'l>,
 		assembly: &'a mut Assembly<'l>,
 		code: &str,
 		file: &str,
@@ -102,7 +94,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		drop(parse_span);
 		drop(parse_code_span);
 
-		let mut unit = Self::new(type_cache, assembly);
+		let mut unit = Self::new(assembly);
 		let symbols = match unit.declare_symbols(&ast, &mut reports) {
 			Ok(symbols) => symbols,
 			Err((err, report)) => {
@@ -127,9 +119,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 		Ok(())
 	}
 
-	fn new(type_cache: &'a TypeCache<'l>, assembly: &'a mut Assembly<'l>) -> Self {
+	fn new(assembly: &'a mut Assembly<'l>) -> Self {
 		Self {
-			type_cache,
 			heaps: assembly.heaps(),
 			assembly,
 			types: HashMap::default(),
@@ -295,7 +286,6 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			let mut block = Block {
 				func,
 				heaps: self.heaps.clone(),
-				type_cache: self.type_cache,
 				values: HashMap::default(),
 				types: self.types(),
 				functions: &self.functions,
@@ -326,8 +316,8 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 }
 
 impl<'l> TypeResolver<'l> for CompilationUnit<'_, 'l> {
-	fn type_cache(&self) -> &TypeCache<'l> {
-		self.type_cache
+	fn type_heap(&self) -> &TypeHeap<'l> {
+		self.heaps.type_heap()
 	}
 
 	fn blob_heap(&self) -> &Arc<BlobHeapScope<'l>> {

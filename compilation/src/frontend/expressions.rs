@@ -5,6 +5,7 @@ use leaf_reflection::{Comparison, SSABuilder, Type, ValueRef};
 
 use crate::frontend::block::Block;
 use crate::frontend::reports::*;
+use crate::frontend::types::assert_value_type_eq;
 
 #[tracing::instrument(skip_all)]
 pub fn compile_expression<'a, 'b, 'l>(
@@ -68,9 +69,10 @@ pub fn compile_expression<'a, 'b, 'l>(
 
 		Expression::Literal(Literal::Bool { value, .. }) => Ok(builder.constant(*value)),
 		Expression::Literal(Literal::String { value, .. }) => Ok(builder.constant(unescape(value))),
+		Expression::Literal(Literal::Uninit { .. }) => Ok(builder.uninit()),
 
-		Expression::Literal(Literal::Id(Ident { value, range })) => {
-			if let Some(val) = block.values.get(value) {
+		Expression::Literal(Literal::Id(Ident { value: id, range })) => {
+			if let Some(val) = block.values.get(id) {
 				return match val.ty() {
 					Type::Reference { ty, .. } if val.is_variable() && Some(*ty) == expected => {
 						Ok(builder.load(*val).unwrap())
@@ -79,7 +81,11 @@ pub fn compile_expression<'a, 'b, 'l>(
 				};
 			}
 
-			let err_label = format!("Identifier `{value}` does not exist in the current scope");
+			if let Some(func) = block.functions.get(id) {
+				return Ok(builder.function(func));
+			}
+
+			let err_label = format!("Identifier `{id}` does not exist in the current scope");
 			return Err((
 				VARIABLE_NOT_FOUND,
 				block.report_data.new_error(range.start).with_label(
@@ -90,6 +96,7 @@ pub fn compile_expression<'a, 'b, 'l>(
 			));
 		},
 
+		#[allow(unused)]
 		Expression::Binary {
 			operator,
 			lhs,
@@ -114,31 +121,12 @@ pub fn compile_expression<'a, 'b, 'l>(
 				range,
 			} => {
 				let [lhs, rhs] = params.as_slice() else {
-					let mut report = block.report_data.new_error(range.start).with_label(
-						Label::new((block.report_data.file(), range.clone()))
-							.with_color(Color::Red)
-							.with_message(format!("Expected 2 parameters, got {}", params.len())),
-					);
-
-					if params.len() > 2 {
-						let mut additional = params[2].range();
-						additional.end = additional.start;
-						additional.start = additional.start - 1;
-						report.add_label(
-							Label::new((block.report_data.file(), additional.clone()))
-								.with_message("Additional parameters start here"),
-						)
-					} else {
-						let mut additional = params[0].range();
-						additional.start = additional.end;
-						additional.end = additional.end + 1;
-						report.add_label(
-							Label::new((block.report_data.file(), additional.clone()))
-								.with_message("Additional parameters should start here"),
-						)
-					}
-
-					return Err((INVALID_PARAMETER_COUNT, report));
+					return Err(invalid_parameter_count(
+						2,
+						params,
+						call.range.clone(),
+						&block.report_data,
+					));
 				};
 				let mut lhs_v = compile_expression(lhs, None, block, builder)?;
 				let mut rhs_v = compile_expression(rhs, Some(lhs_v.ty()), block, builder)?;
@@ -184,12 +172,36 @@ pub fn compile_expression<'a, 'b, 'l>(
 				func,
 				params,
 			} => {
-				// let func_v = compile_expression(func, None, block, builder)?;
+				let func_v = compile_expression(func, None, block, builder)?;
+				let Type::FunctionPointer { param_tys, .. } = func_v.ty() else {
+					let range = func.range();
+					return Err((
+						NOT_A_FUNCTION,
+						block.report_data.new_error(range.start).with_label(
+							Label::new((block.report_data.file(), range))
+								.with_color(Color::Red)
+								.with_message("Expression does not evaluate to a function"),
+						),
+					));
+				};
 
-				Err((
-					NOT_IMPLEMENTED,
-					unsupported_report(block.report_data.file(), expr, None::<&str>),
-				))
+				if params.len() != param_tys.len() {
+					return Err(invalid_parameter_count(
+						param_tys.len(),
+						params,
+						range.clone(),
+						&block.report_data,
+					));
+				}
+
+				let mut params_v = Vec::with_capacity(params.len());
+				for (expr, expected) in params.iter().zip(*param_tys) {
+					let val = compile_expression(expr, Some(expected), block, builder)?;
+					assert_value_type_eq(val, expected, expr.range(), &block.report_data)?;
+					params_v.push(val);
+				}
+
+				Ok(builder.call(func_v, &params_v).unwrap())
 			},
 		},
 		_ => Err((

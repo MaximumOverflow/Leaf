@@ -33,9 +33,22 @@ pub enum Type<'l> {
 	Float64 = 0x22,
 
 	Struct(&'l Struct<'l>) = 0x40,
-	Array { count: usize, ty: &'l Type<'l> } = 0x41,
-	Pointer { mutable: bool, ty: &'l Type<'l> } = 0x42,
-	Reference { mutable: bool, ty: &'l Type<'l> } = 0x43,
+	Array {
+		count: usize,
+		ty: &'l Type<'l>,
+	} = 0x41,
+	Pointer {
+		mutable: bool,
+		ty: &'l Type<'l>,
+	} = 0x42,
+	Reference {
+		mutable: bool,
+		ty: &'l Type<'l>,
+	} = 0x43,
+	FunctionPointer {
+		ret_ty: &'l Type<'l>,
+		param_tys: &'l [&'l Type<'l>],
+	} = 0x44,
 }
 
 impl Eq for Type<'_> {}
@@ -97,6 +110,15 @@ impl Display for Type<'_> {
 			Type::Reference { mutable, ty } => match *mutable {
 				false => write!(f, "&{}", ty),
 				true => write!(f, "&mut {}", ty),
+			},
+			Type::FunctionPointer { ret_ty, param_tys } => {
+				let mut separator = "";
+				write!(f, "(")?;
+				for param in *param_tys {
+					write!(f, "{separator}{param}")?;
+					separator = ", ";
+				}
+				write!(f, ") -> {ret_ty}")
 			},
 		}
 	}
@@ -177,10 +199,11 @@ impl Type<'_> {
 				name: "f64",
 			},
 			Type::Struct(data) => data.id,
+			Type::Uninit => unreachable!(),
 			Type::Array { .. } => unreachable!(),
 			Type::Pointer { .. } => unreachable!(),
 			Type::Reference { .. } => unreachable!(),
-			Type::Uninit => unreachable!(),
+			Type::FunctionPointer { .. } => unreachable!(),
 		}
 	}
 
@@ -373,9 +396,10 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 			Type::Float32 => Ok(&Type::Float32),
 			Type::Float64 => Ok(&Type::Float64),
 			Type::Struct(data) => Ok(req.type_heap.struct_ref(data)),
-			Type::Array { .. } => unimplemented!(),
+			Type::Array { ty, count } => Ok(req.type_heap.array(ty, count)),
 			Type::Pointer { mutable, ty } => Ok(req.type_heap.pointer(ty, mutable)),
 			Type::Reference { mutable, ty } => Ok(req.type_heap.reference(ty, mutable)),
+			Type::FunctionPointer { .. } => unimplemented!(),
 		}
 	}
 }
@@ -398,6 +422,42 @@ impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req> for &'val
 			));
 		};
 		idx.write(stream, ())
+	}
+}
+
+#[cfg(feature = "read")]
+impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req>
+	for &'val [&'val Type<'val>]
+{
+	type Requirements = &'req crate::serialization::ReadRequirements<'val>;
+	fn read<S: Read>(stream: &mut S, req: impl Into<Self::Requirements>) -> Result<Self, Error> {
+		let req = req.into();
+		let len = usize::read(stream, ())?;
+		let mut types = Vec::with_capacity(len);
+		for _ in 0..len {
+			let ty = <&'val Type<'val>>::read(stream, req)?;
+			types.push(ty);
+		}
+		Ok(req.blobs.arena_allocator().alloc_slice_copy(&types))
+	}
+}
+
+#[cfg(feature = "write")]
+impl<'val: 'req, 'req> crate::serialization::MetadataWrite<'val, 'req>
+	for &'val [&'val Type<'val>]
+{
+	type Requirements = &'req crate::serialization::WriteRequirements<'val>;
+	fn write<S: Write>(
+		&self,
+		stream: &mut S,
+		req: impl Into<Self::Requirements>,
+	) -> Result<(), Error> {
+		let req = req.into();
+		self.len().write(stream, ())?;
+		for ty in self.iter() {
+			<&'val Type<'val>>::write(ty, stream, req)?;
+		}
+		Ok(())
 	}
 }
 

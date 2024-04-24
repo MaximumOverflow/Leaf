@@ -1,27 +1,29 @@
 use crate::heaps::general_purpose_heap::ArenaAllocator;
 use std::collections::{HashMap, HashSet};
-use crate::{Struct, Type};
 use std::cell::{RefCell, UnsafeCell};
+use crate::{Struct, Type};
 
 pub struct TypeHeap<'l> {
 	bump: &'l ArenaAllocator,
 	set: RefCell<HashSet<usize>>,
-	drops: RefCell<Vec<DropHelper>>,
+	arrays: RefCell<HashMap<(usize, usize), &'l Type<'l>>>,
 	pointers: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
 	references: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
 	structs: RefCell<HashMap<usize, (&'l Type<'l>, &'l Struct<'l>)>>,
+	function_types: RefCell<HashMap<(&'l Type<'l>, &'l [&'l Type<'l>]), &'l Type<'l>>>,
 }
 
 #[rustfmt::skip]
 impl<'l> TypeHeap<'l> {
 	pub fn new(bump: &'l ArenaAllocator) -> Self {
 		Self {
-			references: Default::default(),
+			bump,
+			set: Default::default(),
+			arrays: Default::default(),
 			structs: Default::default(),
 			pointers: Default::default(),
-			drops: Default::default(),
-			set: Default::default(),
-			bump,
+			references: Default::default(),
+			function_types: RefCell::new(Default::default()),
 		}
 	}
 }
@@ -49,10 +51,10 @@ impl<'l> TypeHeap<'l> {
 		}
 
 		for field in ty.fields() {
-			assert!(set.contains(&as_key(field.ty())), "One or more field types don't belong to this TypeHeap");
+			Self::assert_type_in_heap(field.ty(), &set);
 		}
 
-		let ty_ref = self.alloc(Type::Struct(ty));
+		let ty_ref = self.bump.alloc(Type::Struct(ty));
 		set.insert(as_key(ty_ref));
 		structs.insert(key, (ty_ref, ty));
 		ty_ref
@@ -67,27 +69,9 @@ impl<'l> TypeHeap<'l> {
 			return *ty;
 		}
 
-		if !set.contains(&key.0) {
-			match ty {
-				| Type::Void
-				| Type::Char
-				| Type::Bool
-				| Type::Int8
-				| Type::Int16
-				| Type::Int32
-				| Type::Int64
-				| Type::UInt8
-				| Type::UInt16
-				| Type::UInt32
-				| Type::UInt64
-				| Type::Float16
-				| Type::Float32
-				| Type::Float64 => {}
-				_ => panic!("Type `{ty}` does not belong to this TypeHeap")
-			}
-		}
+		Self::assert_type_in_heap(ty, &set);
 
-		let ty = self.alloc(Type::Pointer { ty, mutable });
+		let ty = self.bump.alloc(Type::Pointer { ty, mutable });
 		set.insert(as_key(ty));
 		pointers.insert(key, ty);
 		ty
@@ -102,66 +86,76 @@ impl<'l> TypeHeap<'l> {
 			return *ty;
 		}
 
-		if !set.contains(&key.0) {
-			match ty {
-				| Type::Void
-				| Type::Char
-				| Type::Bool
-				| Type::Int8
-				| Type::Int16
-				| Type::Int32
-				| Type::Int64
-				| Type::UInt8
-				| Type::UInt16
-				| Type::UInt32
-				| Type::UInt64
-				| Type::Float16
-				| Type::Float32
-				| Type::Float64 => {}
-				_ => panic!("Type `{ty}` does not belong to this TypeHeap")
-			}
-		}
+		Self::assert_type_in_heap(ty, &set);
 
-		let ty = self.alloc(Type::Reference { ty, mutable });
+		let ty = self.bump.alloc(Type::Reference { ty, mutable });
 		set.insert(as_key(ty));
 		references.insert(key, ty);
 		ty
 	}
 
-	fn alloc<T: 'l + Send>(&self, value: T) -> &'l T {
-		let value = self.bump.alloc(value);
-		if let Some(helper) = DropHelper::new(value as _) {
-			self.drops.borrow_mut().push(helper);
+	pub fn array(&self, elem_ty: &'l Type<'l>, count: usize) -> &'l Type<'l> {
+		let key = (as_key(elem_ty), count);
+		let mut arrays = self.arrays.borrow_mut();
+		if let Some(ty) = arrays.get(&key) {
+			return *ty;
 		}
-		value
+
+		let mut set = self.set.borrow_mut();
+		Self::assert_type_in_heap(elem_ty, &set);
+		let ty = self.bump.alloc(Type::Array { count, ty: elem_ty });
+		set.insert(as_key(ty));
+		arrays.insert(key, ty);
+		ty
 	}
-}
 
-struct DropHelper {
-	ptr: *mut u8,
-	drop_fn: fn(*mut u8),
-}
+	pub fn function_ptr(
+		&self,
+		ret_ty: &'l Type<'l>,
+		param_tys: &[&'l Type<'l>],
+	) -> &'l Type<'l> {
+		let mut functions = self.function_types.borrow_mut();
+		if let Some(ty) = functions.get(&(ret_ty, param_tys)) {
+			return ty;
+		}
 
-impl DropHelper {
-	fn new<T>(ptr: *mut T) -> Option<Self> {
-		unsafe {
-			match std::mem::needs_drop::<T>() {
-				false => None,
-				true => Some(Self {
-					ptr: ptr as *mut u8,
-					drop_fn: |ptr| std::ptr::drop_in_place(ptr as *mut T),
-				}),
+		let mut set = self.set.borrow_mut();
+		Self::assert_type_in_heap(ret_ty, &set);
+		for param in param_tys {
+			Self::assert_type_in_heap(param, &set);
+		}
+
+		let param_tys = self.bump.alloc_slice_copy(param_tys);
+		let ty = self.bump.alloc(Type::FunctionPointer { ret_ty, param_tys });
+		set.insert(as_key(ty));
+		functions.insert((ret_ty, param_tys), ty);
+		ty
+	}
+
+	fn assert_type_in_heap(ty: &Type, set: &HashSet<usize>) {
+		match ty {
+			| Type::Void
+			| Type::Char
+			| Type::Bool
+			| Type::Int8
+			| Type::Int16
+			| Type::Int32
+			| Type::Int64
+			| Type::UInt8
+			| Type::UInt16
+			| Type::UInt32
+			| Type::UInt64
+			| Type::Float16
+			| Type::Float32
+			| Type::Float64 => {}
+			_ => {
+				assert!(set.contains(&as_key(ty)), "Type `{ty}` does not belong to this TypeHeap")
 			}
 		}
 	}
 }
 
-impl Drop for DropHelper {
-	fn drop(&mut self) {
-		(self.drop_fn)(self.ptr);
-	}
-}
-
+#[inline(always)]
 fn as_key(ty: &Type) -> usize {
 	ty as *const _ as usize
 }

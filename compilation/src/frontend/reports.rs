@@ -35,6 +35,7 @@ pub const INVALID_PARAMETER_TYPE: FrontEndError =
 	FrontEndError(INVALID_TYPE.0, 0x3, "Invalid parameter type");
 pub const NOT_A_STRUCT: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x4, "Not a struct");
 pub const NOT_AN_ARRAY: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x5, "Not an array");
+pub const NOT_A_FUNCTION: FrontEndError = FrontEndError(INVALID_TYPE.0, 0x6, "Not a function");
 
 pub const NOT_FOUND: FrontEndError = FrontEndError(0b00000010, 0, "Identifier not found");
 pub const MISSING_FIELD: FrontEndError = FrontEndError(NOT_FOUND.0, 0x04, "Missing field");
@@ -158,4 +159,45 @@ pub fn unsupported_report(
 			.with_color(Color::Red),
 		Some(message) => Label::new((file, range)).with_message(message).with_color(Color::Red),
 	})
+}
+
+pub fn invalid_parameter_count(
+	expected: usize,
+	got: &[impl Node],
+	range: Range<usize>,
+	report_data: &ReportData,
+) -> (FrontEndError, FrontEndReportBuilder) {
+	let mut report = report_data.new_error(range.start).with_label(
+		Label::new((report_data.file(), range.clone()))
+			.with_color(Color::Red)
+			.with_message(format!(
+				"Expected {} {}, got {}",
+				expected,
+				match expected {
+					1 => "parameter",
+					_ => "parameters",
+				},
+				got.len()
+			)),
+	);
+
+	if got.len() > expected {
+		let mut additional = got[expected].range();
+		additional.end = additional.start;
+		additional.start = additional.start;
+		report.add_label(
+			Label::new((report_data.file(), additional.clone()))
+				.with_message("Additional parameters start here"),
+		);
+	} else if got.len() != 0 {
+		let mut additional = got[0].range();
+		additional.start = additional.end;
+		additional.end = additional.end + 1;
+		report.add_label(
+			Label::new((report_data.file(), additional.clone()))
+				.with_message("Additional parameters should start here"),
+		);
+	}
+
+	(INVALID_PARAMETER_COUNT, report)
 }

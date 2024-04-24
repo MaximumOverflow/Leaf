@@ -6,15 +6,14 @@ use tracing::instrument;
 
 use leaf_parsing::ast::{Block as BlockAst, If, Node, Statement, VarDecl, While};
 use leaf_reflection::{Function, SSABuilder, Type, ValueRef};
-use leaf_reflection::heaps::{BlobHeapScope, HeapScopes};
+use leaf_reflection::heaps::{BlobHeapScope, HeapScopes, TypeHeap};
 
 use crate::frontend::expressions::compile_expression;
 use crate::frontend::reports::*;
-use crate::frontend::types::{assert_type_eq, assert_value_type_eq, TypeCache, TypeResolver};
+use crate::frontend::types::{assert_type_eq, assert_value_type_eq, TypeResolver};
 
 pub struct Block<'a, 'b, 'l> {
 	pub heaps: HeapScopes<'l>,
-	pub type_cache: &'a TypeCache<'l>,
 	pub func: &'l Function<'l>,
 	pub values: FxHashMap<&'a str, ValueRef<'b, 'l>>,
 	pub types: &'a FxHashMap<&'l str, &'l Type<'l>>,
@@ -99,7 +98,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 				condition: cond,
 				block: do_block_ast,
 				r#else: Option::None,
-				range,
+				..
 			}) => {
 				let val = compile_expression(cond, Some(&Type::Bool), self, builder)?;
 				assert_value_type_eq(val, &Type::Bool, cond.range(), &self.report_data)?;
@@ -119,7 +118,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 			Statement::While(While {
 				condition: cond,
 				block: do_block_ast,
-				range,
+				..
 			}) => {
 				let check_block = builder.create_block();
 				builder.jp(check_block).unwrap();
@@ -166,7 +165,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 			} => {
 				let value = compile_expression(expr, Some(self.func.ret_ty()), self, builder)?;
 
-				if let Err((_, mut report)) =
+				if let Err((_, report)) =
 					assert_value_type_eq(value, self.func.ret_ty(), expr.range(), &self.report_data)
 				{
 					return Err((INVALID_RETURN_TYPE, report));
@@ -185,7 +184,6 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 	pub fn create_child(&self) -> Block<'a, 'b, 'l> {
 		Block {
 			heaps: self.heaps.clone(),
-			type_cache: self.type_cache,
 			func: self.func,
 			values: self.values.clone(),
 			types: self.types,
@@ -196,8 +194,8 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 }
 
 impl<'l> TypeResolver<'l> for Block<'_, '_, 'l> {
-	fn type_cache(&self) -> &TypeCache<'l> {
-		self.type_cache
+	fn type_heap(&self) -> &TypeHeap<'l> {
+		self.heaps.type_heap()
 	}
 
 	fn blob_heap(&self) -> &Arc<BlobHeapScope<'l>> {

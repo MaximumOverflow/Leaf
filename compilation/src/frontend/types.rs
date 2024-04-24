@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 use ariadne::{Color, Label};
@@ -7,45 +5,13 @@ use fxhash::FxHashMap;
 use tracing::trace;
 
 use leaf_parsing::ast::{Expression, Ident, Integer, Literal, Node, Type as TypeNode};
-use leaf_reflection::heaps::{ArenaAllocator, BlobHeapScope};
+use leaf_reflection::heaps::{BlobHeapScope, TypeHeap};
 use leaf_reflection::serialization::{MetadataWrite, WriteRequirements};
 use leaf_reflection::{SSABuilder, Type, ValueRef};
 use crate::frontend::reports::*;
 
-pub struct TypeCache<'l> {
-	bump: &'l ArenaAllocator,
-	array_types: RefCell<HashMap<(&'l Type<'l>, usize), &'l Type<'l>>>,
-	pointer_types: RefCell<HashMap<(&'l Type<'l>, bool), &'l Type<'l>>>,
-	reference_types: RefCell<HashMap<(&'l Type<'l>, bool), &'l Type<'l>>>,
-}
-
-impl<'l> TypeCache<'l> {
-	pub fn new(bump: &'l ArenaAllocator) -> Self {
-		Self {
-			bump,
-			array_types: RefCell::default(),
-			pointer_types: RefCell::default(),
-			reference_types: RefCell::default(),
-		}
-	}
-
-	pub fn make_pointer(&self, base: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
-		let mut pointers = self.pointer_types.borrow_mut();
-		pointers
-			.entry((base, mutable))
-			.or_insert_with(|| self.bump.alloc(Type::Pointer { ty: base, mutable }))
-	}
-
-	pub fn make_reference(&self, base: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
-		let mut pointers = self.pointer_types.borrow_mut();
-		pointers
-			.entry((base, mutable))
-			.or_insert_with(|| self.bump.alloc(Type::Reference { ty: base, mutable }))
-	}
-}
-
 pub trait TypeResolver<'l> {
-	fn type_cache(&self) -> &TypeCache<'l>;
+	fn type_heap(&self) -> &TypeHeap<'l>;
 	fn blob_heap(&self) -> &Arc<BlobHeapScope<'l>>;
 	fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>>;
 
@@ -91,7 +57,7 @@ pub trait TypeResolver<'l> {
 			TypeNode::Pointer(base, mutable) => {
 				trace!("Resolving pointer type");
 				let base = self.resolve_type(base, reports)?;
-				self.type_cache().make_pointer(base, *mutable)
+				self.type_heap().pointer(base, *mutable)
 			},
 			TypeNode::Array { base, length } => match length.as_ref().map(|b| &**b) {
 				Some(Expression::Literal(Literal::Integer { value: length, .. })) => {
@@ -109,17 +75,7 @@ pub trait TypeResolver<'l> {
 					};
 
 					let base = self.resolve_type(base, reports)?;
-					let cache = self.type_cache();
-					let mut arrays = cache.array_types.borrow_mut();
-
-					let ty = arrays.entry((base, length)).or_insert_with(|| {
-						cache.bump.alloc(Type::Array {
-							ty: base,
-							count: length,
-						})
-					});
-
-					ty
+					self.type_heap().array(base, length)
 				},
 				_ => unimplemented!(),
 			},
@@ -140,6 +96,7 @@ pub trait TypeResolver<'l> {
 	}
 }
 
+#[allow(unused)]
 pub fn try_apply_implicit_casts<'a, 'l>(
 	val: ValueRef<'a, 'l>,
 	expected: &'l Type<'l>,
@@ -190,7 +147,7 @@ pub fn assert_value_type_eq<'l>(
 
 			let ty = match reports.variable_info.get(&val) {
 				None => val.ty(),
-				Some((id, ty, expr)) => {
+				Some((_, ty, expr)) => {
 					let Type::Reference { ty: base, .. } = val.ty() else {
 						unreachable!();
 					};

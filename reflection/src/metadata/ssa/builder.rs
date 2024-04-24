@@ -8,7 +8,7 @@ use fxhash::FxHashMap;
 use nohash_hasher::BuildNoHashHasher;
 use crate::heaps::HeapScopes;
 
-use crate::{Comparison, SSAData, Type, ValueIndex};
+use crate::{Comparison, Function, SSAData, Type, ValueIndex};
 
 #[derive(Debug, Copy, Clone, Hash)]
 pub struct ValueRef<'a, 'l> {
@@ -40,6 +40,7 @@ pub struct SSABuilder<'a, 'l> {
 	heaps: HeapScopes<'l>,
 	insert_block: BlockIndex,
 	blocks: Vec<Block<'a, 'l>>,
+	functions: FxHashMap<usize, ValueRef<'a, 'l>>,
 	constants: FxHashMap<(&'l Type<'l>, usize), ValueRef<'a, 'l>>,
 }
 
@@ -61,6 +62,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 				out_transitions: BlockTransitions::None,
 				used_values: Default::default(),
 			}],
+			functions: Default::default(),
 			constants: Default::default(),
 		}
 	}
@@ -85,6 +87,26 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 	#[allow(private_bounds)]
 	pub fn constant<T: UseConst>(&mut self, value: T) -> ValueRef<'a, 'l> {
 		value.use_const(self)
+	}
+
+	pub fn uninit(&mut self) -> ValueRef<'a, 'l> {
+		ValueRef {
+			ty: &Type::Uninit,
+			op: self.push_opcode(OpCode::Nop),
+		}
+	}
+
+	pub fn function(&mut self, func: &'l Function<'l>) -> ValueRef<'a, 'l> {
+		let key = func as *const _ as usize;
+		if let Some(func) = self.functions.get(&key) {
+			return *func;
+		}
+		let param_tys: Vec<_> = func.params().iter().map(|i| i.ty()).collect();
+		let op = self.push_opcode(OpCode::Func { func });
+		*self.functions.entry(key).or_insert_with(|| ValueRef {
+			ty: self.heaps.type_heap().function_ptr(func.ret_ty(), &param_tys),
+			op,
+		})
 	}
 
 	pub fn alloca(&mut self, ty: &'l Type<'l>, mutable: bool) -> ValueRef<'a, 'l> {
@@ -127,6 +149,41 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			},
 			_ => unsupported_operation!("Load {}", dst.ty),
 		}
+	}
+
+	pub fn call(
+		&mut self,
+		func: ValueRef<'a, 'l>,
+		params: &[ValueRef<'a, 'l>],
+	) -> Result<ValueRef<'a, 'l>, String> {
+		let Type::FunctionPointer { ret_ty, param_tys } = func.ty else {
+			return Err(format!("Type `{}` is not a function pointer", func.ty));
+		};
+
+		if params.len() != param_tys.len() {
+			return Err(format!(
+				"Expected {} parameters, found {}",
+				param_tys.len(),
+				params.len()
+			));
+		}
+
+		for (i, (val, expected)) in params.iter().zip(*param_tys).enumerate() {
+			if val.ty != *expected {
+				return Err(format! {
+					"Invalid parameter at position {i}. Expected type `{}`, found {}",
+					expected, val.ty,
+				});
+			}
+		}
+
+		let params = unsafe { std::mem::transmute(self.bump.alloc_slice_copy(params)) };
+		let op = self.push_opcode(match func.op {
+			OpCode::Func { func } => OpCode::Call { func, params },
+			_ => OpCode::CallInd { func, params },
+		});
+
+		Ok(ValueRef { op, ty: ret_ty })
 	}
 
 	pub fn cmp(
@@ -454,6 +511,7 @@ enum OpCode<'a, 'l> {
 	#[default]
 	Nop,
 	Alloca { ty: &'l Type<'l> },
+	Func { func: &'l Function<'l> },
 	Const { ty: &'l Type<'l>, value: &'l [u8] },
 	Add { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
 	Sub { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
@@ -466,6 +524,8 @@ enum OpCode<'a, 'l> {
 
 	Load { value: ValueRef<'a, 'l> },
 	Store { val: ValueRef<'a, 'l>, dst: ValueRef<'a, 'l> },
+	Call { func: &'l Function<'l>, params: &'a [ValueRef<'a, 'l>] },
+	CallInd { func: ValueRef<'a, 'l>, params: &'a [ValueRef<'a, 'l>] },
 
 	Ret { value: Option<ValueRef<'a, 'l>> },
 	Jp { target: BlockIndex },
@@ -497,6 +557,7 @@ impl<'a, 'l> From<ValueRef<'a, 'l>> for &'a OpCode<'a, 'l> {
 }
 
 impl<'a, 'l> SSABuilder<'a, 'l> {
+	#[tracing::instrument(skip_all)]
 	pub fn build(self) -> Result<SSAData<'l>, String> {
 		type Hasher = BuildNoHashHasher<usize>;
 		use super::r#final::OpCode as FOpCode;
@@ -536,9 +597,10 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			for opcode in block.opcodes {
 				let _idx = index_of(opcode);
 				opcodes.push(match opcode {
-					OpCode::Nop => FOpCode::Nop,
+					OpCode::Nop => continue,
 					OpCode::Alloca { ty } => FOpCode::Alloca { ty },
 					OpCode::Const { ty, value } => FOpCode::Const { ty, value },
+					OpCode::Func { func } => FOpCode::Func { func },
 					OpCode::Add { lhs, rhs } => {
 						debug_assert_eq!(lhs.ty, rhs.ty);
 						FOpCode::Add {
@@ -621,6 +683,20 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 						FOpCode::Store {
 							val: index_of(val.op),
 							dst: index_of(dst.op),
+						}
+					},
+					OpCode::Call { func, params } => {
+						let params: Vec<_> = params.iter().map(|v| index_of(v.op)).collect();
+						FOpCode::Call {
+							func,
+							params: self.heaps.bump().alloc_slice_copy(&params),
+						}
+					},
+					OpCode::CallInd { func, params } => {
+						let params: Vec<_> = params.iter().map(|v| index_of(v.op)).collect();
+						FOpCode::CallInd {
+							func: index_of(func.op),
+							params: self.heaps.bump().alloc_slice_copy(&params),
 						}
 					},
 					OpCode::Ret { value } => {
