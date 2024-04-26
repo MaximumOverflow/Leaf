@@ -184,15 +184,14 @@ pub fn invalid_parameter_count(
 	if got.len() > expected {
 		let mut additional = got[expected].range();
 		additional.end = additional.start;
-		additional.start = additional.start;
 		report.add_label(
 			Label::new((report_data.file(), additional.clone()))
 				.with_message("Additional parameters start here"),
 		);
-	} else if got.len() != 0 {
+	} else if !got.is_empty() {
 		let mut additional = got[0].range();
 		additional.start = additional.end;
-		additional.end = additional.end + 1;
+		additional.end += 1;
 		report.add_label(
 			Label::new((report_data.file(), additional.clone()))
 				.with_message("Additional parameters should start here"),

@@ -11,7 +11,7 @@ pub struct ArenaAllocator {
 }
 
 impl ArenaAllocator {
-	pub fn alloc<T: Sized + Send>(&self, val: T) -> &mut T {
+	pub fn alloc<T: Sized + Send>(&self, val: T) -> &T {
 		unsafe {
 			let bump = self.bump.lock().unwrap();
 			let val = bump.alloc(val);
@@ -20,7 +20,7 @@ impl ArenaAllocator {
 		}
 	}
 
-	pub fn alloc_str(&self, str: &str) -> &mut str {
+	pub fn alloc_str(&self, str: &str) -> &str {
 		unsafe {
 			let bump = self.bump.lock().unwrap();
 			let str = bump.alloc_str(str);
@@ -28,7 +28,7 @@ impl ArenaAllocator {
 		}
 	}
 
-	pub fn alloc_slice_copy<T: Copy + Sized + Send>(&self, slice: &[T]) -> &mut [T] {
+	pub fn alloc_slice_copy<T: Copy + Sized + Send>(&self, slice: &[T]) -> &[T] {
 		unsafe {
 			let bump = self.bump.lock().unwrap();
 			let slice = bump.alloc_slice_copy(slice);
@@ -37,7 +37,7 @@ impl ArenaAllocator {
 		}
 	}
 
-	pub fn alloc_slice_clone<T: Clone + Sized + Send>(&self, slice: &[T]) -> &mut [T] {
+	pub fn alloc_slice_clone<T: Clone + Sized + Send>(&self, slice: &[T]) -> &[T] {
 		unsafe {
 			let bump = self.bump.lock().unwrap();
 			let slice = bump.alloc_slice_clone(slice);

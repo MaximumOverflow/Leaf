@@ -47,7 +47,7 @@ impl<'l> TypeHeap<'l> {
 
 		let key = ty as *const _ as usize;
 		if let Some((ty, _)) = structs.get(&key) {
-			return *ty;
+			return ty;
 		}
 
 		for field in ty.fields() {
@@ -66,7 +66,7 @@ impl<'l> TypeHeap<'l> {
 
 		let key = (as_key(ty), mutable);
 		if let Some(ty) = pointers.get(&key) {
-			return *ty;
+			return ty;
 		}
 
 		Self::assert_type_in_heap(ty, &set);
@@ -83,7 +83,7 @@ impl<'l> TypeHeap<'l> {
 
 		let key = (as_key(ty), mutable);
 		if let Some(ty) = references.get(&key) {
-			return *ty;
+			return ty;
 		}
 
 		Self::assert_type_in_heap(ty, &set);
@@ -98,7 +98,7 @@ impl<'l> TypeHeap<'l> {
 		let key = (as_key(elem_ty), count);
 		let mut arrays = self.arrays.borrow_mut();
 		if let Some(ty) = arrays.get(&key) {
-			return *ty;
+			return ty;
 		}
 
 		let mut set = self.set.borrow_mut();

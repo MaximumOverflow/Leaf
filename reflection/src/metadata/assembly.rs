@@ -30,6 +30,10 @@ pub struct Assembly<'l> {
 }
 
 impl<'l> Assembly<'l> {
+	pub fn name(&self) -> &str {
+		&self.name
+	}
+
 	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}

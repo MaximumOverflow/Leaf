@@ -271,7 +271,7 @@ impl<'l> Struct<'l> {
 	}
 
 	pub fn name(&self) -> &str {
-		&self.name
+		self.name
 	}
 
 	pub fn namespace(&self) -> &'l str {
@@ -286,9 +286,9 @@ impl<'l> Struct<'l> {
 	}
 }
 
-impl<'l> Into<Type<'l>> for &'l Struct<'l> {
-	fn into(self) -> Type<'l> {
-		Type::Struct(self)
+impl<'l> From<&'l Struct<'l>> for Type<'l> {
+	fn from(val: &'l Struct<'l>) -> Self {
+		Type::Struct(val)
 	}
 }
 

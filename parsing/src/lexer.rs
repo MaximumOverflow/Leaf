@@ -334,7 +334,7 @@ impl<'l> Token<'l> {
 }
 
 impl LexerError {
-	pub fn to_report<'l>(self, file: Arc<str>) -> Report<'static, (Arc<str>, Range<usize>)> {
+	pub fn to_report(self, file: Arc<str>) -> Report<'static, (Arc<str>, Range<usize>)> {
 		Report::build(ReportKind::Error, file.clone(), self.range.start)
 			.with_code(self.code)
 			.with_message("Lexing failed")

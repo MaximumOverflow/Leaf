@@ -1,14 +1,15 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
 
 use bumpalo::Bump;
 use fxhash::FxHashMap;
 use nohash_hasher::BuildNoHashHasher;
-use crate::heaps::HeapScopes;
 
 use crate::{Comparison, Function, SSAData, Type, ValueIndex};
+use crate::heaps::HeapScopes;
 
 #[derive(Debug, Copy, Clone, Hash)]
 pub struct ValueRef<'a, 'l> {
@@ -25,6 +26,10 @@ impl<'l> ValueRef<'_, 'l> {
 	#[inline(always)]
 	pub fn is_variable(&self) -> bool {
 		matches!(self.op, OpCode::Alloca { .. })
+	}
+
+	pub unsafe fn set_ty(&mut self, ty: &'l Type<'l>) {
+		self.ty = ty;
 	}
 }
 
@@ -89,13 +94,6 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		value.use_const(self)
 	}
 
-	pub fn uninit(&mut self) -> ValueRef<'a, 'l> {
-		ValueRef {
-			ty: &Type::Uninit,
-			op: self.push_opcode(OpCode::Nop),
-		}
-	}
-
 	pub fn function(&mut self, func: &'l Function<'l>) -> ValueRef<'a, 'l> {
 		let key = func as *const _ as usize;
 		if let Some(func) = self.functions.get(&key) {
@@ -117,17 +115,54 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		}
 	}
 
+	pub fn size_of(&mut self, ty: &'l Type<'l>) -> ValueRef<'a, 'l> {
+		ValueRef {
+			ty: &Type::UInt64,
+			op: self.push_opcode(OpCode::SizeOf { ty }),
+		}
+	}
+
 	pub fn load(&mut self, value: ValueRef<'a, 'l>) -> Result<ValueRef<'a, 'l>, String> {
 		match value.ty {
 			Type::Pointer { ty, .. } | Type::Reference { ty, .. } => {
 				self.use_value(value);
 				Ok(ValueRef {
 					ty,
-					op: self.push_opcode(OpCode::Load { value }),
+					op: self.push_opcode(OpCode::Load { val: value }),
 				})
 			},
 			_ => unsupported_operation!("Load {}", value.ty),
 		}
+	}
+
+	pub fn gep(
+		&mut self,
+		array: ValueRef<'a, 'l>,
+		index: ValueRef<'a, 'l>,
+		mutable: bool,
+	) -> Result<ValueRef<'a, 'l>, String> {
+		if !index.ty.is_integer() {
+			return Err(format!("Expected integer index, found `{}`", index.ty));
+		}
+		let Type::Reference {
+			ty: Type::Array { ty, .. },
+			mutable: is_mut,
+		} = array.ty
+		else {
+			return Err(format!("Type `{}` cannot be indexed", array.ty));
+		};
+
+		if mutable && !is_mut {
+			return Err(format!("Type `{}` cannot be indexed mutably", array.ty));
+		}
+
+		Ok(ValueRef {
+			ty: self.heaps.type_heap().reference(ty, mutable),
+			op: self.push_opcode(OpCode::GEP {
+				val: array,
+				idx: index,
+			}),
+		})
 	}
 
 	pub fn store(
@@ -206,7 +241,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		self.current_block_ref().out_transitions = BlockTransitions::Terminal;
 		Ok(ValueRef {
 			ty: &Type::Void,
-			op: self.push_opcode(OpCode::Ret { value }),
+			op: self.push_opcode(OpCode::Ret { val: value }),
 		})
 	}
 
@@ -256,6 +291,37 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		})
 	}
 
+	pub fn not(&mut self, value: ValueRef<'a, 'l>) -> Result<ValueRef<'a, 'l>, String> {
+		if value.ty != &Type::Bool {
+			return Err(format!("Expected type `bool`, found `{}`", value.ty));
+		}
+		self.use_value(value);
+		Ok(ValueRef {
+			ty: value.ty,
+			op: self.push_opcode(OpCode::Not { val: value }),
+		})
+	}
+
+	pub fn trunc(
+		&mut self,
+		ty: &'l Type<'l>,
+		value: ValueRef<'a, 'l>,
+	) -> Result<ValueRef<'a, 'l>, String> {
+		'supported_operations: {
+			return match (value.ty.integer_size(), ty.integer_size()) {
+				(Some(size), Some(ty_size)) if size > ty_size => {
+					self.use_value(value);
+					Ok(ValueRef {
+						ty,
+						op: self.push_opcode(OpCode::Trunc { ty, value }),
+					})
+				},
+				_ => break 'supported_operations,
+			};
+		}
+		unsupported_operation!("Trunc {} -> {}", value.ty, ty)
+	}
+
 	pub fn equalize_integer_types(
 		&mut self,
 		lhs: ValueRef<'a, 'l>,
@@ -267,23 +333,28 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		let Some(rhs_size) = rhs.ty.integer_size() else {
 			return Err(format!("Type `{}` (rhs) is not an integer", rhs.ty));
 		};
-
 		Ok(match lhs_size.cmp(&rhs_size) {
 			Ordering::Equal => (lhs, rhs),
-			Ordering::Less => (
-				match lhs.ty.is_signed_integer().unwrap() {
-					true => self.sext(rhs.ty, lhs)?,
-					false => self.zext(rhs.ty, lhs)?,
-				},
-				rhs,
-			),
-			Ordering::Greater => (
-				lhs,
-				match rhs.ty.is_signed_integer().unwrap() {
-					true => self.sext(lhs.ty, rhs)?,
-					false => self.zext(lhs.ty, rhs)?,
-				},
-			),
+			Ordering::Less => {
+				self.use_value(lhs);
+				(
+					match lhs.ty.is_signed_integer().unwrap() {
+						true => self.sext(rhs.ty, lhs)?,
+						false => self.zext(rhs.ty, lhs)?,
+					},
+					rhs,
+				)
+			},
+			Ordering::Greater => {
+				self.use_value(rhs);
+				(
+					lhs,
+					match rhs.ty.is_signed_integer().unwrap() {
+						true => self.sext(lhs.ty, rhs)?,
+						false => self.zext(lhs.ty, rhs)?,
+					},
+				)
+			},
 		})
 	}
 
@@ -330,10 +401,13 @@ macro_rules! impl_int_ext {
 								.cmp(&value.ty.integer_size().unwrap())
 							{
 								Ordering::Equal => Ok(value),
-								Ordering::Greater => Ok(ValueRef {
-									ty,
-									op: self.push_opcode(OpCode::$op { ty, value }),
-								}),
+								Ordering::Greater => {
+									self.use_value(value);
+									Ok(ValueRef {
+										ty,
+										op: self.push_opcode(OpCode::$op { ty, value }),
+									})
+								},
 								Ordering::Less => break 'supported_operations,
 							}
 						},
@@ -349,11 +423,14 @@ macro_rules! impl_int_ext {
 macro_rules! impl_binary_operators {
     ($(($name: ident, $op: ident, $map: expr $(, { $($id: ident: $val: expr),* })?)),+) => {
 		impl<'a, 'l> SSABuilder<'a, 'l> {$(
+			#[allow(clippy::redundant_closure_call)]
 			pub fn $name(&mut self, lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l>) -> Result<ValueRef<'a, 'l>, String> {
 				'supported_operations: {
 					match (lhs.ty.is_integer(), rhs.ty.is_integer()) {
 						(true, true) => {
 							let (lhs, rhs) = self.equalize_integer_types(lhs, rhs)?;
+							self.use_value(lhs);
+							self.use_value(rhs);
 							return Ok(ValueRef {
 								ty: ($map)(&lhs.ty),
 								op: self.push_opcode(OpCode::$op {
@@ -401,7 +478,11 @@ impl_binary_operators![
 	(div, Div, |ty| ty),
 	(rem, Rem, |ty| ty),
 	(eq, Cmp, |_| &Type::Bool, { cmp: Comparison::Eq }),
-	(lt, Cmp, |_| &Type::Bool, { cmp: Comparison::Lt })
+	(ne, Cmp, |_| &Type::Bool, { cmp: Comparison::Ne }),
+	(lt, Cmp, |_| &Type::Bool, { cmp: Comparison::Lt }),
+	(gt, Cmp, |_| &Type::Bool, { cmp: Comparison::Gt }),
+	(le, Cmp, |_| &Type::Bool, { cmp: Comparison::Le }),
+	(ge, Cmp, |_| &Type::Bool, { cmp: Comparison::Ge })
 ];
 
 impl_const! {
@@ -506,10 +587,9 @@ impl Hash for Block<'_, '_> {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 enum OpCode<'a, 'l> {
-	#[default]
-	Nop,
+	SizeOf { ty: &'l Type<'l> },
 	Alloca { ty: &'l Type<'l> },
 	Func { func: &'l Function<'l> },
 	Const { ty: &'l Type<'l>, value: &'l [u8] },
@@ -519,15 +599,18 @@ enum OpCode<'a, 'l> {
 	Div { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
 	Rem { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
 	Cmp { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l>, cmp: Comparison, },
+	Not { val: ValueRef<'a, 'l> },
 	SExt { ty: &'l Type<'l>, value: ValueRef<'a, 'l> },
 	ZExt { ty: &'l Type<'l>, value: ValueRef<'a, 'l> },
+	Trunc { ty: &'l Type<'l>, value: ValueRef<'a, 'l> },
 
-	Load { value: ValueRef<'a, 'l> },
+	Load { val: ValueRef<'a, 'l> },
+	GEP { val: ValueRef<'a, 'l>, idx: ValueRef<'a, 'l> },
 	Store { val: ValueRef<'a, 'l>, dst: ValueRef<'a, 'l> },
 	Call { func: &'l Function<'l>, params: &'a [ValueRef<'a, 'l>] },
 	CallInd { func: ValueRef<'a, 'l>, params: &'a [ValueRef<'a, 'l>] },
 
-	Ret { value: Option<ValueRef<'a, 'l>> },
+	Ret { val: Option<ValueRef<'a, 'l>> },
 	Jp { target: BlockIndex },
 	Br {
 		condition: ValueRef<'a, 'l>,
@@ -566,11 +649,11 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		let mut block_offsets = vec![0; self.blocks.len()];
 		for (i, block) in self.blocks.iter().enumerate() {
 			if discriminant(&block.in_transitions) == discriminant(&BlockTransitions::None) {
-				dbg!(self.blocks);
+				dbg!(block);
 				return Err(format!("Block {i} has no predecessors"));
 			}
 			if discriminant(&block.out_transitions) == discriminant(&BlockTransitions::None) {
-				dbg!(self.blocks);
+				dbg!(block);
 				return Err(format!("Block {i} has no terminator"));
 			}
 			block_offsets[i] = offset;
@@ -597,10 +680,10 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			for opcode in block.opcodes {
 				let _idx = index_of(opcode);
 				opcodes.push(match opcode {
-					OpCode::Nop => continue,
 					OpCode::Alloca { ty } => FOpCode::Alloca { ty },
 					OpCode::Const { ty, value } => FOpCode::Const { ty, value },
 					OpCode::Func { func } => FOpCode::Func { func },
+					OpCode::SizeOf { ty } => FOpCode::SizeOf { ty },
 					OpCode::Add { lhs, rhs } => {
 						debug_assert_eq!(lhs.ty, rhs.ty);
 						FOpCode::Add {
@@ -644,6 +727,12 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 							cmp: *cmp,
 						}
 					},
+					OpCode::Not { val } => {
+						debug_assert_eq!(val.ty, &Type::Bool);
+						FOpCode::Not {
+							val: index_of(val.op),
+						}
+					},
 					OpCode::SExt { ty, value } => {
 						debug_assert_eq!(ty.is_signed_integer(), Some(true));
 						debug_assert!(value.ty.is_integer());
@@ -660,7 +749,15 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 							value: index_of(value.op),
 						}
 					},
-					OpCode::Load { value } => {
+					OpCode::Trunc { ty, value } => {
+						debug_assert_eq!(ty.is_signed_integer(), Some(false));
+						debug_assert!(value.ty.is_integer());
+						FOpCode::Trunc {
+							ty,
+							value: index_of(value.op),
+						}
+					},
+					OpCode::Load { val: value } => {
 						debug_assert!(matches!(
 							value.ty,
 							Type::Pointer { .. } | Type::Reference { .. }
@@ -670,19 +767,33 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 						}
 					},
 					OpCode::Store { val, dst } => {
-						debug_assert!(
+						debug_assert! {
 							matches! {
 								dst.ty,
-								| Type::Pointer { mutable: true, ty }
-								| Type::Reference { mutable: true, ty } if *ty == val.ty,
+								| Type::Pointer { ty, .. }
+								| Type::Reference { ty, .. } if *ty == val.ty,
 							},
-							"{} -> {}",
+							"Invalid Store {}, {}",
 							val.ty,
 							dst.ty
-						);
+						};
 						FOpCode::Store {
 							val: index_of(val.op),
 							dst: index_of(dst.op),
+						}
+					},
+					OpCode::GEP { val, idx } => {
+						debug_assert! {
+							matches! {
+								val.ty,
+								Type::Reference { ty: Type::Array { .. }, .. },
+							},
+							"Invalid GEP {}, {}",
+							val.ty, idx.ty
+						};
+						FOpCode::GEP {
+							val: index_of(val.op),
+							idx: index_of(idx.op),
 						}
 					},
 					OpCode::Call { func, params } => {
@@ -699,7 +810,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 							params: self.heaps.bump().alloc_slice_copy(&params),
 						}
 					},
-					OpCode::Ret { value } => {
+					OpCode::Ret { val: value } => {
 						//TODO Add validation
 						FOpCode::Ret {
 							value: value.map(|v| index_of(v.op)),
@@ -717,7 +828,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 						true_case: ValueIndex(block_offsets[true_case.0]),
 						false_case: ValueIndex(block_offsets[false_case.0]),
 					},
-				})
+				});
 			}
 		}
 

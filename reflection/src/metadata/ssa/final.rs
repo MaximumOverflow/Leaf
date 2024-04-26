@@ -23,6 +23,7 @@ pub enum OpCode<'l> {
 		#[derivative(Debug(format_with="debug_func_ref"))]
 		func: &'l Function<'l>,
 	} = 0x03,
+	SizeOf { ty: &'l Type<'l> } = 0x4,
 
 	Add { lhs: ValueIndex, rhs: ValueIndex } = 0x10,
 	Sub { lhs: ValueIndex, rhs: ValueIndex } = 0x11,
@@ -30,18 +31,21 @@ pub enum OpCode<'l> {
 	Div { lhs: ValueIndex, rhs: ValueIndex } = 0x13,
 	Rem { lhs: ValueIndex, rhs: ValueIndex } = 0x14,
 	Cmp { lhs: ValueIndex, rhs: ValueIndex, cmp: Comparison } = 0x15,
-	SExt { ty: &'l Type<'l>, value: ValueIndex } = 0x1E,
-	ZExt { ty: &'l Type<'l>, value: ValueIndex } = 0x1F,
+	Not { val: ValueIndex } = 0x16,
+	SExt { ty: &'l Type<'l>, value: ValueIndex } = 0x1D,
+	ZExt { ty: &'l Type<'l>, value: ValueIndex } = 0x1E,
+	Trunc { ty: &'l Type<'l>, value: ValueIndex } = 0x1F,
 
 	Load { value: ValueIndex } = 0x20,
 	Store { val: ValueIndex, dst: ValueIndex } = 0x21,
+	GEP { val: ValueIndex, idx: ValueIndex } = 0x22,
 
 	Call {
 		#[derivative(Debug(format_with="debug_func_ref"))]
 		func: &'l Function<'l>,
 		params: &'l [ValueIndex],
-	} = 0x22,
-	CallInd { func: ValueIndex, params: &'l [ValueIndex] } = 0x23,
+	} = 0x2A,
+	CallInd { func: ValueIndex, params: &'l [ValueIndex] } = 0x2B,
 
 	Ret { value: Option<ValueIndex> } = 0x30,
 	Jp { target: ValueIndex } = 0x31,
@@ -106,11 +110,17 @@ pub struct SSAData<'l> {
 	pub(super) opcodes: Vec<OpCode<'l>>,
 }
 
+impl<'l> SSAData<'l> {
+	pub fn opcodes(&self) -> &[OpCode<'l>] {
+		&self.opcodes
+	}
+}
+
 fn debug_func_ref(func: &Function, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
 	write!(fmt, "`{}`", func.id())
 }
 
-fn debug_opcodes(v: &Vec<OpCode>, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+fn debug_opcodes(v: &[OpCode], fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
 	let mut list = fmt.debug_list();
 	for (i, opcode) in v.iter().enumerate() {
 		list.entry(&format_args!("{i}: {:?}", opcode));

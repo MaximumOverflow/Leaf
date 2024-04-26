@@ -13,6 +13,8 @@ use tracing_flame::FlameLayer;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
+use leaf_compilation::backends::CompilationBackend;
+use leaf_compilation::backends::x86_64::X86_64_Backend;
 
 use leaf_compilation::frontend::{CompilationUnit};
 use leaf_compilation::reflection::{Assembly, Version};
@@ -180,7 +182,6 @@ fn main() {
 			assembly.write(&mut bytes, ()).unwrap();
 			delta = time.elapsed().unwrap();
 			info!("Serialization time: {:?}", delta);
-			// std::fs::write("out.llib", &bytes).unwrap();
 
 			time = SystemTime::now();
 			let bump = ArenaAllocator::default();
@@ -190,7 +191,12 @@ fn main() {
 			delta = time.elapsed().unwrap();
 			info!("Deserialization time: {:?}", delta);
 
-			dbg!(read_assembly);
+			dbg!(&read_assembly);
+
+			let backend = X86_64_Backend;
+			let obj = backend.compile(&read_assembly).unwrap();
+			let obj = obj.write().unwrap();
+			std::fs::write("out.o", obj).unwrap()
 		},
 	}
 }

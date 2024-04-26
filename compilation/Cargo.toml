@@ -10,6 +10,13 @@ half = "2.3.1"
 tracing = "0.1.40"
 ariadne = "0.4.0"
 fxhash = "0.2.1"
+nohash-hasher = "0.2.0"
 leaf_parsing = { path = "../parsing" }
 leaf_derive = { path = "../derive", features = ["operators"] }
 leaf_reflection = { path = "../reflection", features = ["build", "read", "write"] }
+
+object = { version = "0.35.0", features = ["build", "write"] }
+iced-x86 = { version = "1.21.0", features = ["code_asm"], optional = true }
+
+[features]
+backend-x86_64 = ["dep:iced-x86"]

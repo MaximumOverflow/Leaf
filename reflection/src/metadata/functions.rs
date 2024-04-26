@@ -1,14 +1,15 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::OnceLock;
-use bitflags::bitflags;
-
-use crate::metadata::ssa::SSAData;
-use crate::{Type, UniqueIdentifier};
-
 #[allow(unused_imports)]
-use std::io::{Read, Write, Error, ErrorKind};
+use std::io::{Error, ErrorKind, Read, Write};
+use std::sync::OnceLock;
+
+use bitflags::bitflags;
 use derivative::Derivative;
+
 use leaf_derive::Metadata;
+
+use crate::{Type, UniqueIdentifier};
+use crate::metadata::ssa::SSAData;
 
 #[derive(Derivative, Metadata)]
 #[metadata(lifetimes(val = "l"))]
@@ -82,8 +83,8 @@ bitflags! {
 mod build {
 	use std::sync::OnceLock;
 
-	use crate::metadata::functions::{Function, Parameter};
 	use crate::{FunctionBody, Type, UniqueIdentifier};
+	use crate::metadata::functions::{Function, Parameter};
 
 	impl<'l> Function<'l> {
 		pub(crate) fn new(id: UniqueIdentifier<'l>, name: &'l str) -> Self {

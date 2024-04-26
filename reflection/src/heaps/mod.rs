@@ -7,10 +7,11 @@ pub use type_heap::*;
 pub use blob_heap::*;
 pub use general_purpose_heap::*;
 
+#[derive(Clone)]
 pub struct Heaps<'l> {
+	bump: &'l ArenaAllocator,
 	type_heap: Arc<TypeHeap<'l>>,
 	blob_heap: Arc<BlobHeap<'l>>,
-	bump: &'l ArenaAllocator,
 }
 
 impl<'l> Heaps<'l> {

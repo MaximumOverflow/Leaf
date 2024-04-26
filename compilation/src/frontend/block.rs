@@ -4,7 +4,9 @@ use ariadne::Label;
 use fxhash::FxHashMap;
 use tracing::instrument;
 
-use leaf_parsing::ast::{Block as BlockAst, If, Node, Statement, VarDecl, While};
+use leaf_parsing::ast::{
+	Block as BlockAst, Else, Expression, If, Literal, Node, Statement, VarDecl, While,
+};
 use leaf_reflection::{Function, SSABuilder, Type, ValueRef};
 use leaf_reflection::heaps::{BlobHeapScope, HeapScopes, TypeHeap};
 
@@ -12,13 +14,13 @@ use crate::frontend::expressions::compile_expression;
 use crate::frontend::reports::*;
 use crate::frontend::types::{assert_type_eq, assert_value_type_eq, TypeResolver};
 
-pub struct Block<'a, 'b, 'l> {
-	pub heaps: HeapScopes<'l>,
-	pub func: &'l Function<'l>,
-	pub values: FxHashMap<&'a str, ValueRef<'b, 'l>>,
-	pub types: &'a FxHashMap<&'l str, &'l Type<'l>>,
-	pub functions: &'a FxHashMap<&'l str, &'l Function<'l>>,
-	pub report_data: ReportData<'b, 'l, 'a>,
+pub struct Block<'blk, 'func, 'ctx> {
+	pub heaps: HeapScopes<'ctx>,
+	pub func: &'ctx Function<'ctx>,
+	pub values: FxHashMap<&'blk str, ValueRef<'func, 'ctx>>,
+	pub types: &'blk FxHashMap<&'ctx str, &'ctx Type<'ctx>>,
+	pub functions: &'blk FxHashMap<&'ctx str, &'ctx Function<'ctx>>,
+	pub report_data: ReportData<'func, 'ctx, 'blk>,
 }
 
 impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
@@ -27,11 +29,12 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 		&mut self,
 		ast: &'a BlockAst<'a>,
 		builder: &mut SSABuilder<'b, 'l>,
-	) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
+	) -> Result<bool, (FrontEndError, FrontEndReportBuilder)> {
+		let mut has_termination = false;
 		for statement in &ast.statements {
-			self.compile_statement(statement, builder)?;
+			has_termination = self.compile_statement(statement, builder)?;
 		}
-		Ok(())
+		Ok(has_termination)
 	}
 
 	#[instrument(skip_all)]
@@ -39,7 +42,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 		&mut self,
 		statement: &'a Statement<'a>,
 		builder: &mut SSABuilder<'b, 'l>,
-	) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
+	) -> Result<bool, (FrontEndError, FrontEndReportBuilder)> {
 		match statement {
 			Statement::VarDecl(VarDecl {
 				name,
@@ -52,10 +55,13 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 					None => None,
 					Some(ty) => Some(self.resolve_type(ty, &self.report_data)?),
 				};
-				let value = compile_expression(expr, expected_ty, self, builder)?;
-				let local = match value.ty() {
-					Type::Uninit => builder.alloca(expected_ty.unwrap(), *mutable),
+
+				let local = match expr {
+					Expression::Literal(Literal::Uninit { .. }) => {
+						builder.alloca(expected_ty.unwrap(), *mutable)
+					},
 					_ => {
+						let value = compile_expression(expr, expected_ty, self, builder)?;
 						let expected_ty = expected_ty.unwrap_or(value.ty());
 						assert_value_type_eq(value, expected_ty, expr.range(), &self.report_data)?;
 						let local = builder.alloca(expected_ty, *mutable);
@@ -63,9 +69,10 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 						local
 					},
 				};
+
 				self.values.insert(name.value, local);
 				self.report_data.variable_info.insert(local, (name, ty.as_ref(), expr));
-				Ok(())
+				Ok(false)
 			},
 
 			Statement::Assignment { lhs, rhs } => {
@@ -81,7 +88,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 					)),
 					Type::Reference { ty, mutable: true } if *ty == val.ty() => {
 						builder.store(val, dst).unwrap();
-						Ok(())
+						Ok(false)
 					},
 					_ => Err((
 						INVALID_TYPE,
@@ -94,26 +101,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 				}
 			},
 
-			Statement::If(If {
-				condition: cond,
-				block: do_block_ast,
-				r#else: Option::None,
-				..
-			}) => {
-				let val = compile_expression(cond, Some(&Type::Bool), self, builder)?;
-				assert_value_type_eq(val, &Type::Bool, cond.range(), &self.report_data)?;
-
-				let do_block = builder.create_block();
-				let continue_block = builder.create_block();
-				builder.br(val, do_block, continue_block).unwrap();
-
-				builder.set_current_block(do_block).unwrap();
-				let mut block = self.create_child();
-				block.compile(do_block_ast, builder)?;
-				builder.jp(continue_block).unwrap();
-				builder.set_current_block(continue_block).unwrap();
-				Ok(())
-			},
+			Statement::If(statement) => self.compile_if(statement, builder),
 
 			Statement::While(While {
 				condition: cond,
@@ -133,15 +121,16 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 
 				builder.set_current_block(do_block).unwrap();
 				let mut block = self.create_child();
-				block.compile(do_block_ast, builder)?;
-				builder.jp(check_block).unwrap();
+				if !block.compile(do_block_ast, builder)? {
+					builder.jp(check_block).unwrap();
+				}
 				builder.set_current_block(continue_block).unwrap();
-				Ok(())
+				Ok(false)
 			},
 
 			Statement::Expression(expr) => {
 				compile_expression(expr, None, self, builder)?;
-				Ok(())
+				Ok(false)
 			},
 
 			Statement::Return {
@@ -157,7 +146,7 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 					return Err((INVALID_RETURN_TYPE, report));
 				}
 				builder.ret(None).unwrap();
-				Ok(())
+				Ok(true)
 			},
 
 			Statement::Return {
@@ -171,9 +160,10 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 					return Err((INVALID_RETURN_TYPE, report));
 				}
 				builder.ret(Some(value)).unwrap();
-				Ok(())
+				Ok(true)
 			},
 
+			#[allow(unreachable_patterns)]
 			_ => Err((
 				NOT_IMPLEMENTED,
 				unsupported_report(self.report_data.file(), statement, None::<&str>),
@@ -189,6 +179,75 @@ impl<'a: 'b, 'b, 'l> Block<'a, 'b, 'l> {
 			types: self.types,
 			functions: self.functions,
 			report_data: self.report_data.clone(),
+		}
+	}
+
+	fn compile_if(
+		&mut self,
+		statement: &'a If<'a>,
+		builder: &mut SSABuilder<'b, 'l>,
+	) -> Result<bool, (FrontEndError, FrontEndReportBuilder)> {
+		let If {
+			condition: cond,
+			block: do_block_ast,
+			r#else,
+			..
+		} = statement;
+
+		match &r#else {
+			None => {
+				let val = compile_expression(cond, Some(&Type::Bool), self, builder)?;
+				assert_value_type_eq(val, &Type::Bool, cond.range(), &self.report_data)?;
+
+				let do_block = builder.create_block();
+				let continue_block = builder.create_block();
+				builder.br(val, do_block, continue_block).unwrap();
+
+				builder.set_current_block(do_block).unwrap();
+				let mut block = self.create_child();
+				if !block.compile(do_block_ast, builder)? {
+					builder.jp(continue_block).unwrap();
+				};
+				builder.set_current_block(continue_block).unwrap();
+				Ok(false)
+			},
+			Some(r#else) => {
+				let val = compile_expression(cond, Some(&Type::Bool), self, builder)?;
+				assert_value_type_eq(val, &Type::Bool, cond.range(), &self.report_data)?;
+
+				let mut then_block = builder.create_block();
+				let mut else_block = builder.create_block();
+				builder.br(val, then_block, else_block).unwrap();
+
+				builder.set_current_block(then_block).unwrap();
+				let mut block = self.create_child();
+				let then_term = block.compile(do_block_ast, builder)?;
+				then_block = builder.current_block();
+
+				builder.set_current_block(else_block).unwrap();
+				block = self.create_child();
+				let else_term = match r#else {
+					Else::If(statement) => block.compile_if(statement, builder)?,
+					Else::Block(else_block_ast) => block.compile(else_block_ast, builder)?,
+				};
+				else_block = builder.current_block();
+
+				if !matches!((then_term, else_term), (true, true)) {
+					let continue_block = builder.create_block();
+					if !then_term {
+						builder.set_current_block(then_block).unwrap();
+						builder.jp(continue_block).unwrap();
+					}
+					if !else_term {
+						builder.set_current_block(else_block).unwrap();
+						builder.jp(continue_block).unwrap();
+					}
+
+					builder.set_current_block(continue_block).unwrap();
+				}
+
+				Ok(then_term & else_term)
+			},
 		}
 	}
 }

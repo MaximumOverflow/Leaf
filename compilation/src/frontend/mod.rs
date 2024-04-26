@@ -5,3 +5,4 @@ mod compilation_unit;
 mod block;
 mod expressions;
 mod reports;
+mod intrinsics;

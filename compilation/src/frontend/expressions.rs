@@ -4,16 +4,17 @@ use leaf_parsing::ast::{BinaryOperator, Expression, FunctionCall, Ident, Integer
 use leaf_reflection::{Comparison, SSABuilder, Type, ValueRef};
 
 use crate::frontend::block::Block;
+use crate::frontend::intrinsics::dispatch_intrinsic;
 use crate::frontend::reports::*;
-use crate::frontend::types::assert_value_type_eq;
+use crate::frontend::types::{assert_value_type_eq, try_apply_implicit_casts};
 
 #[tracing::instrument(skip_all)]
-pub fn compile_expression<'a, 'b, 'l>(
+pub fn compile_expression<'blk, 'func, 'ctx>(
 	expr: &Expression,
-	expected: Option<&'l Type<'l>>,
-	block: &'a Block<'a, 'b, 'l>,
-	builder: &mut SSABuilder<'b, 'l>,
-) -> Result<ValueRef<'b, 'l>, (FrontEndError, FrontEndReportBuilder)> {
+	expected: Option<&'ctx Type<'ctx>>,
+	block: &'blk Block<'blk, 'func, 'ctx>,
+	builder: &mut SSABuilder<'func, 'ctx>,
+) -> Result<ValueRef<'func, 'ctx>, (FrontEndError, FrontEndReportBuilder)> {
 	match expr {
 		Expression::Literal(Literal::Integer { value, range }) => match value {
 			Integer::Int8(v) => Ok(builder.constant(*v)),
@@ -69,7 +70,6 @@ pub fn compile_expression<'a, 'b, 'l>(
 
 		Expression::Literal(Literal::Bool { value, .. }) => Ok(builder.constant(*value)),
 		Expression::Literal(Literal::String { value, .. }) => Ok(builder.constant(unescape(value))),
-		Expression::Literal(Literal::Uninit { .. }) => Ok(builder.uninit()),
 
 		Expression::Literal(Literal::Id(Ident { value: id, range })) => {
 			if let Some(val) = block.values.get(id) {
@@ -108,101 +108,52 @@ pub fn compile_expression<'a, 'b, 'l>(
 			unimplemented!("Use intrinsics until interfaces are implemented")
 		},
 
-		Expression::FunctionCall(call) => match &**call {
-			FunctionCall {
-				func:
-					Expression::Literal(Literal::Id(Ident {
-						value:
-							name @ ("__bin_op_lt" | "__bin_op_eq" | "__bin_op_add" | "__bin_op_sub"
-							| "__bin_op_mul" | "__bin_op_div" | "__bin_op_rem"),
-						..
-					})),
-				params,
-				range,
-			} => {
-				let [lhs, rhs] = params.as_slice() else {
-					return Err(invalid_parameter_count(
-						2,
-						params,
-						call.range.clone(),
-						&block.report_data,
-					));
-				};
-				let mut lhs_v = compile_expression(lhs, None, block, builder)?;
-				let mut rhs_v = compile_expression(rhs, Some(lhs_v.ty()), block, builder)?;
-
-				if matches!(lhs_v.ty(), Type::Reference { ty, ..} if ty.is_integer()) {
-					lhs_v = builder.load(lhs_v).unwrap();
-				}
-				if matches!(rhs_v.ty(), Type::Reference { ty, ..} if ty.is_integer()) {
-					rhs_v = builder.load(rhs_v).unwrap();
-				}
-
-				let (lhs_v, rhs_v) = match (lhs_v.ty(), rhs_v.ty()) {
-					(lhs_t, rhs_t) if lhs_t.is_integer() && rhs_t.is_integer() => (lhs_v, rhs_v),
-					_ => {
-						return Err((
-							INVALID_PARAMETER_TYPE,
-							block.report_data.new_error(range.start).with_label(
-								Label::new((block.report_data.file(), range.clone()))
-									.with_color(Color::Red)
-									.with_message(format! {
-										"Invalid intrinsic invocation {}({}, {})",
-										name, lhs_v.ty(), rhs_v.ty()
-									}),
-							),
-						))
-					},
-				};
-
-				Ok(match *name {
-					"__bin_op_lt" => builder.lt(lhs_v, rhs_v).unwrap(),
-					"__bin_op_eq" => builder.eq(lhs_v, rhs_v).unwrap(),
-					"__bin_op_add" => builder.add(lhs_v, rhs_v).unwrap(),
-					"__bin_op_sub" => builder.sub(lhs_v, rhs_v).unwrap(),
-					"__bin_op_mul" => builder.mul(lhs_v, rhs_v).unwrap(),
-					"__bin_op_div" => builder.div(lhs_v, rhs_v).unwrap(),
-					"__bin_op_rem" => builder.rem(lhs_v, rhs_v).unwrap(),
-					_ => unreachable!(),
-				})
-			},
-
-			FunctionCall {
+		Expression::FunctionCall(call) => {
+			let FunctionCall {
 				range,
 				func,
 				params,
-			} => {
-				let func_v = compile_expression(func, None, block, builder)?;
-				let Type::FunctionPointer { param_tys, .. } = func_v.ty() else {
-					let range = func.range();
-					return Err((
-						NOT_A_FUNCTION,
-						block.report_data.new_error(range.start).with_label(
-							Label::new((block.report_data.file(), range))
-								.with_color(Color::Red)
-								.with_message("Expression does not evaluate to a function"),
-						),
-					));
-				};
+			} = &**call;
 
-				if params.len() != param_tys.len() {
-					return Err(invalid_parameter_count(
-						param_tys.len(),
-						params,
-						range.clone(),
-						&block.report_data,
-					));
+			if let Expression::Literal(Literal::Id(id)) = func {
+				if let Some(result) =
+					dispatch_intrinsic(id.value, range.clone(), params, block, builder)
+				{
+					return result;
 				}
+			}
 
-				let mut params_v = Vec::with_capacity(params.len());
-				for (expr, expected) in params.iter().zip(*param_tys) {
-					let val = compile_expression(expr, Some(expected), block, builder)?;
-					assert_value_type_eq(val, expected, expr.range(), &block.report_data)?;
-					params_v.push(val);
-				}
+			let func_v = compile_expression(func, None, block, builder)?;
+			let Type::FunctionPointer { param_tys, .. } = func_v.ty() else {
+				let range = func.range();
+				return Err((
+					NOT_A_FUNCTION,
+					block.report_data.new_error(range.start).with_label(
+						Label::new((block.report_data.file(), range))
+							.with_color(Color::Red)
+							.with_message("Expression does not evaluate to a function"),
+					),
+				));
+			};
 
-				Ok(builder.call(func_v, &params_v).unwrap())
-			},
+			if params.len() != param_tys.len() {
+				return Err(invalid_parameter_count(
+					param_tys.len(),
+					params,
+					range.clone(),
+					&block.report_data,
+				));
+			}
+
+			let mut params_v = Vec::with_capacity(params.len());
+			for (expr, expected) in params.iter().zip(*param_tys) {
+				let mut val = compile_expression(expr, Some(expected), block, builder)?;
+				val = try_apply_implicit_casts(val, expected, builder);
+				assert_value_type_eq(val, expected, expr.range(), &block.report_data)?;
+				params_v.push(val);
+			}
+
+			Ok(builder.call(func_v, &params_v).unwrap())
 		},
 		_ => Err((
 			NOT_IMPLEMENTED,

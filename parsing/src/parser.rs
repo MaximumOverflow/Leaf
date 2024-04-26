@@ -28,7 +28,7 @@ impl<'l> ParserError<'l> {
 	const UNEXPECTED_TOKEN: &'static str = "P0001";
 
 	pub fn to_report(self, file: Arc<str>) -> Report<'static, (Arc<str>, Range<usize>)> {
-		let error = self.message.as_ref().map(|m| m.as_str()).unwrap_or("Parsing failed");
+		let error = self.message.as_deref().unwrap_or("Parsing failed");
 		let mut builder = Report::build(ReportKind::Error, file.clone(), self.range.start)
 			.with_config(Config::default().with_underlines(true))
 			.with_code(self.code)
@@ -384,8 +384,8 @@ impl<'l> Expression<'l> {
 		trace(
 			"Expression::factor",
 			alt((
-				NewStruct::parse.map(|v| Expression::NewStruct(v)),
-				Literal::parse.map(|l| Expression::Literal(l)),
+				NewStruct::parse.map(Expression::NewStruct),
+				Literal::parse.map(Expression::Literal),
 				(Token::Not, Expression::factor).map(|v| Expression::Unary {
 					operator: UnaryOperator::Not,
 					range: v.0.range.start..v.1.range().end,
@@ -451,7 +451,7 @@ impl<'l> Parse<'l> for Type<'l> {
 					base: ty.into(),
 					length: Some(exp.into()),
 				}),
-				required(Ident::parse).map(|id| Type::Id(id)),
+				required(Ident::parse).map(Type::Id),
 			))
 			.parse_next(input);
 
@@ -501,8 +501,8 @@ impl<'l> Parse<'l> for Statement<'l> {
 			"Statement",
 			alt((
 				(VarDecl::parse, required(Token::SemiColon)).map(|(v, _)| Statement::VarDecl(v)),
-				If::parse.map(|v| Statement::If(v)),
-				While::parse.map(|v| Statement::While(v)),
+				If::parse.map(Statement::If),
+				While::parse.map(Statement::While),
 				(
 					Expression::parse,
 					Token::Equal,
@@ -629,32 +629,30 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 			let (name, _) = (required(Ident::parse), required(Token::Colon)).parse_next(input)?;
 
 			let mut symbol = alt((
-				Struct::parse.map(|s| Symbol::Struct(s)),
-				Function::parse.map(|f| Symbol::Function(f)),
+				Struct::parse.map(Symbol::Struct),
+				Function::parse.map(Symbol::Function),
 			))
 			.parse_next(input);
 			let end = input.start_char();
 
-			if symbol.is_ok() {
+			if let Ok(symbol) = symbol {
 				return Ok(Self {
 					public,
 					name,
-					symbol: symbol.unwrap(),
+					symbol,
 					attributes: vec![],
 					range: start..end,
 				});
 			}
 
-			match &mut symbol {
-				Err(ErrMode::Backtrack(err) | ErrMode::Cut(err)) => {
-					err.labels.push(
-						Label::new((input.file_name().clone(), name.range.clone()))
-							.with_message(format!("In symbol declaration `{name}`"))
-							.with_color(Color::Cyan),
-					);
-				},
-				_ => {},
+			if let Err(ErrMode::Backtrack(err) | ErrMode::Cut(err)) = &mut symbol {
+				err.labels.push(
+					Label::new((input.file_name().clone(), name.range.clone()))
+						.with_message(format!("In symbol declaration `{name}`"))
+						.with_color(Color::Cyan),
+				);
 			}
+
 			Err(symbol.unwrap_err())
 		})
 		.parse_next(input)
@@ -706,7 +704,7 @@ impl<'l> Parse<'l> for Function<'l> {
 
 			let block = alt((
 				Token::SemiColon.map(|_| None),
-				required(Block::parse).map(|b| Some(b)),
+				required(Block::parse).map(Some),
 			))
 			.parse_next(input)?;
 

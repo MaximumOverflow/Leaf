@@ -170,12 +170,12 @@ mod intern {
 		type Interned = &'l str;
 		fn intern(self, heap: &BlobHeap<'l>) -> (Self::Interned, bool) {
 			let (blob, added) = self.as_bytes().intern(heap);
-			(unsafe { std::str::from_utf8_unchecked(&blob) }, added)
+			(unsafe { std::str::from_utf8_unchecked(blob) }, added)
 		}
 
 		fn intern_in_scope(self, heap: &BlobHeapScope<'l>) -> (Self::Interned, usize) {
 			let (blob, idx) = self.as_bytes().intern_in_scope(heap);
-			(unsafe { std::str::from_utf8_unchecked(&blob) }, idx)
+			(unsafe { std::str::from_utf8_unchecked(blob) }, idx)
 		}
 	}
 

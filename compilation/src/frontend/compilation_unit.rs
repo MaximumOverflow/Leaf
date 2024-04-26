@@ -39,7 +39,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			std::fs::read_to_string(path).map_err(|_| (COULD_NOT_RETRIEVE_SOURCE, None))
 		})?;
 
-		Self::compile_internal(assembly, &code, &file)?;
+		Self::compile_internal(assembly, &code, file)?;
 		debug!("File `{}` compiled successfully", file);
 		Ok(())
 	}

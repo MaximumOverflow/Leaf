@@ -133,6 +133,7 @@ impl MetadataWrite<'_, '_> for bool {
 #[cfg(feature = "read")]
 impl MetadataRead<'_, '_> for String {
 	type Requirements = ();
+	#[allow(clippy::uninit_vec)]
 	fn read<S: Read>(stream: &mut S, _: impl Into<Self::Requirements>) -> Result<Self, Error> {
 		let len = usize::read(stream, ())?;
 		let mut buffer = Vec::with_capacity(len);
@@ -364,8 +365,8 @@ pub struct ReadRequirements<'l> {
 	pub functions: *const HashMap<UniqueIdentifier<'l>, &'l UnsafeCell<Function<'l>>>,
 }
 
-impl Into<()> for &ReadRequirements<'_> {
-	fn into(self) {}
+impl From<&ReadRequirements<'_>> for () {
+	fn from(_: &ReadRequirements<'_>) {}
 }
 
 #[cfg(feature = "write")]
@@ -373,6 +374,6 @@ pub struct WriteRequirements<'l> {
 	pub blobs: Arc<BlobHeapScope<'l>>,
 }
 
-impl Into<()> for &WriteRequirements<'_> {
-	fn into(self) {}
+impl From<&WriteRequirements<'_>> for () {
+	fn from(_: &WriteRequirements<'_>) {}
 }

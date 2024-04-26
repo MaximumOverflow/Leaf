@@ -216,7 +216,7 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 		},
 	};
 
-	return quote! {
+	quote! {
 		#[cfg(feature = "read")]
 		impl<'__val: '__req, '__req> crate::serialization::MetadataRead<'__val, '__req> for #name #generics {
 			type Requirements = &'__req crate::serialization::ReadRequirements<'__val>;
@@ -232,5 +232,5 @@ pub fn derive(ast: DeriveInput) -> TokenStream {
 				#write_impl
 			}
 		}
-	}.into();
+	}.into()
 }

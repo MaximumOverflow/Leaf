@@ -40,7 +40,7 @@ pub trait TypeResolver<'l> {
 					"f32" => &Type::Float32,
 					"f64" => &Type::Float64,
 					_ => match self.types().get(id) {
-						Some(ty) => *ty,
+						Some(ty) => ty,
 						None => {
 							let report = reports.new_error(ast.range().start).with_label(
 								Label::new((reports.file(), ast.range()))
@@ -68,8 +68,8 @@ pub trait TypeResolver<'l> {
 						Integer::Int16(i) => (*i).try_into().unwrap(),
 						Integer::Int32(i) => (*i).try_into().unwrap(),
 						Integer::Int64(i) => (*i).try_into().unwrap(),
-						Integer::UInt8(i) => (*i).try_into().unwrap(),
-						Integer::UInt16(i) => (*i).try_into().unwrap(),
+						Integer::UInt8(i) => (*i).into(),
+						Integer::UInt16(i) => (*i).into(),
 						Integer::UInt32(i) => (*i).try_into().unwrap(),
 						Integer::UInt64(i) => (*i).try_into().unwrap(),
 					};
@@ -98,16 +98,52 @@ pub trait TypeResolver<'l> {
 
 #[allow(unused)]
 pub fn try_apply_implicit_casts<'a, 'l>(
-	val: ValueRef<'a, 'l>,
+	mut val: ValueRef<'a, 'l>,
 	expected: &'l Type<'l>,
 	builder: &mut SSABuilder<'a, 'l>,
 ) -> ValueRef<'a, 'l> {
 	match val.ty() {
 		Type::Reference { ty, .. } if val.is_variable() && *ty == expected => {
-			builder.load(val).unwrap()
+			return builder.load(val).unwrap()
 		},
-		_ => val,
+		_ => {},
 	}
+
+	match (val.ty(), expected) {
+		(
+			Type::Reference { ty, mutable: true },
+			Type::Reference {
+				ty: expected_ty,
+				mutable: false,
+			},
+		) if ty == expected_ty => unsafe {
+			val.set_ty(expected);
+			return val;
+		},
+		(
+			Type::Reference { ty, mutable: false },
+			Type::Pointer {
+				ty: expected_ty,
+				mutable: false,
+			},
+		) if ty == expected_ty => unsafe {
+			val.set_ty(expected);
+			return val;
+		},
+		(
+			Type::Pointer { ty, mutable: true },
+			Type::Pointer {
+				ty: expected_ty,
+				mutable: false,
+			},
+		) if ty == expected_ty => unsafe {
+			val.set_ty(expected);
+			return val;
+		},
+		_ => {},
+	}
+
+	val
 }
 
 #[inline(always)]
@@ -128,7 +164,7 @@ pub fn assert_type_eq<'l>(
 						expected, ty,
 					}),
 			);
-			return Err((INVALID_TYPE, report));
+			Err((INVALID_TYPE, report))
 		},
 	}
 }
@@ -181,7 +217,7 @@ pub fn assert_value_type_eq<'l>(
 					}),
 			);
 
-			return Err((INVALID_TYPE, report));
+			Err((INVALID_TYPE, report))
 		},
 	}
 }
