@@ -282,7 +282,7 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 			let _span = span.enter();
 			debug!("Compiling function `{}`", func.id());
 
-			let mut body = SSABuilder::new(self.heaps.clone());
+			let mut body = SSABuilder::new(self.heaps.clone(), func.params());
 			let mut block = Block {
 				func,
 				heaps: self.heaps.clone(),
@@ -292,9 +292,9 @@ impl<'a, 'l> CompilationUnit<'a, 'l> {
 				report_data: reports.clone(),
 			};
 
-			for i in func.params() {
-				let idx = body.alloca(i.ty(), i.mutable());
-				block.values.insert(i.name(), idx);
+			for (i, p) in func.params().iter().enumerate() {
+				let idx = body.param(i).unwrap();
+				block.values.insert(p.name(), idx);
 			}
 
 			if let Err((err, mut report)) = block.compile(decl.block.as_ref().unwrap(), &mut body) {

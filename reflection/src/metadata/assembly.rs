@@ -10,7 +10,6 @@ use derivative::Derivative;
 use crate::{Struct, Type, UniqueIdentifier};
 use crate::heaps::{ArenaAllocator, BlobHeapScope, Heaps, TypeHeap};
 use crate::metadata::functions::Function;
-use crate::serialization::{ReadRequirements, WriteRequirements};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -162,7 +161,7 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for Assemb
 
 		let blob_heap = Arc::<BlobHeapScope>::read(stream, req.blob_heap())?;
 
-		let mut requirements = ReadRequirements {
+		let mut requirements = crate::serialization::ReadRequirements {
 			blobs: blob_heap.clone(),
 			type_heap: req.type_heap().clone(),
 			structs: null(),
@@ -235,7 +234,7 @@ impl<'val> crate::serialization::MetadataWrite<'val, '_> for Assembly<'val> {
 
 		self.blob_heap.write(stream, ())?;
 
-		let requirements = WriteRequirements {
+		let requirements = crate::serialization::WriteRequirements {
 			blobs: self.blob_heap.clone(),
 		};
 

@@ -139,9 +139,9 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val 
 		let req = req.into();
 		unsafe {
 			assert!(!req.functions.is_null());
-			let structs = &*req.functions;
+			let functions = &*req.functions;
 			let id = UniqueIdentifier::read(stream, req)?;
-			match structs.get(&id) {
+			match functions.get(&id) {
 				Some(cell) => Ok(&*cell.get()),
 				None => Err(Error::new(
 					ErrorKind::NotFound,

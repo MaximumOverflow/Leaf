@@ -5,6 +5,7 @@ members = [
     "parsing",
     "reflection",
     "compilation",
+    "interpreter",
 ]
 resolver = "2"
 

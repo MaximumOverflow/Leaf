@@ -1,14 +1,14 @@
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
+use std::cmp::Ordering;
+use std::fmt::Debug;
 
 use bumpalo::Bump;
 use fxhash::FxHashMap;
 use nohash_hasher::BuildNoHashHasher;
 
-use crate::{Comparison, Function, SSAData, Type, ValueIndex};
+use crate::{Comparison, ConstantRef, Function, Parameter, SSAData, Type, ValueIndex};
 use crate::heaps::HeapScopes;
 
 #[derive(Debug, Copy, Clone, Hash)]
@@ -45,6 +45,7 @@ pub struct SSABuilder<'a, 'l> {
 	heaps: HeapScopes<'l>,
 	insert_block: BlockIndex,
 	blocks: Vec<Block<'a, 'l>>,
+	params: &'a [Parameter<'l>],
 	functions: FxHashMap<usize, ValueRef<'a, 'l>>,
 	constants: FxHashMap<(&'l Type<'l>, usize), ValueRef<'a, 'l>>,
 }
@@ -56,19 +57,26 @@ macro_rules! unsupported_operation {
 }
 
 impl<'a, 'l> SSABuilder<'a, 'l> {
-	pub fn new(heaps: HeapScopes<'l>) -> Self {
+	pub fn new(heaps: HeapScopes<'l>, params: &'a [Parameter<'l>]) -> Self {
+		let bump = Bump::new();
 		Self {
 			heaps,
-			bump: Default::default(),
+			params,
 			insert_block: BlockIndex(0),
 			blocks: vec![Block {
-				opcodes: vec![],
+				opcodes: params
+					.iter()
+					.map(|p| unsafe {
+						std::mem::transmute(bump.alloc(OpCode::Param { ty: p.ty() }))
+					})
+					.collect(),
 				in_transitions: BlockTransitions::Terminal,
 				out_transitions: BlockTransitions::None,
 				used_values: Default::default(),
 			}],
 			functions: Default::default(),
 			constants: Default::default(),
+			bump,
 		}
 	}
 
@@ -113,6 +121,13 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			ty: ref_ty,
 			op: self.push_opcode(OpCode::Alloca { ty }),
 		}
+	}
+
+	pub fn param(&mut self, idx: usize) -> Option<ValueRef<'a, 'l>> {
+		Some(ValueRef {
+			ty: self.params.get(idx)?.ty(),
+			op: self.blocks[0].opcodes[idx],
+		})
 	}
 
 	pub fn size_of(&mut self, ty: &'l Type<'l>) -> ValueRef<'a, 'l> {
@@ -589,10 +604,11 @@ impl Hash for Block<'_, '_> {
 #[rustfmt::skip]
 #[derive(Debug, Copy, Clone)]
 enum OpCode<'a, 'l> {
-	SizeOf { ty: &'l Type<'l> },
-	Alloca { ty: &'l Type<'l> },
+	Param { ty: &'l Type<'l> },
 	Func { func: &'l Function<'l> },
 	Const { ty: &'l Type<'l>, value: &'l [u8] },
+	SizeOf { ty: &'l Type<'l> },
+	Alloca { ty: &'l Type<'l> },
 	Add { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
 	Sub { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
 	Mul { lhs: ValueRef<'a, 'l>, rhs: ValueRef<'a, 'l> },
@@ -646,6 +662,8 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 		use super::r#final::OpCode as FOpCode;
 
 		let mut offset = 0;
+		let mut referenced_constants: Vec<ConstantRef<'l>> = vec![];
+		let mut referenced_functions: Vec<&'l Function<'l>> = vec![];
 		let mut block_offsets = vec![0; self.blocks.len()];
 		for (i, block) in self.blocks.iter().enumerate() {
 			if discriminant(&block.in_transitions) == discriminant(&BlockTransitions::None) {
@@ -664,12 +682,44 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			type ValueMap<'a, 'l> = HashMap<&'a OpCode<'a, 'l>, ValueIndex, Hasher>;
 			let mut map: ValueMap<'a, 'l> = HashMap::default();
 			let mut idx = 0usize;
-
+			let mut param = 0usize;
+			let referenced_constants = &mut referenced_constants;
+			let referenced_functions = &mut referenced_functions;
 			move |op: &'a OpCode<'a, 'l>| -> ValueIndex {
-				*map.entry(op).or_insert_with(|| {
-					let new_idx = idx + 1;
-					let idx = std::mem::replace(&mut idx, new_idx);
-					ValueIndex(idx)
+				*map.entry(op).or_insert_with(|| match op {
+					OpCode::Param { .. } => {
+						let new_param = param + 1;
+						let param = std::mem::replace(&mut param, new_param);
+						ValueIndex::parameter(param)
+					},
+					OpCode::Const { value, ty } => {
+						match referenced_constants
+							.iter()
+							.position(|i| i.data.as_ptr() == value.as_ptr())
+						{
+							Some(i) => ValueIndex::constant(i),
+							None => {
+								let idx = ValueIndex::constant(referenced_constants.len());
+								referenced_constants.push(ConstantRef { data: value, ty });
+								idx
+							},
+						}
+					},
+					OpCode::Func { func, .. } => {
+						match referenced_functions.iter().position(|i| std::ptr::eq(*i, *func)) {
+							Some(i) => ValueIndex::function(i),
+							None => {
+								let idx = ValueIndex::function(referenced_constants.len());
+								referenced_functions.push(*func);
+								idx
+							},
+						}
+					},
+					_ => {
+						let new_idx = idx + 1;
+						let idx = std::mem::replace(&mut idx, new_idx);
+						ValueIndex::local(idx)
+					},
 				})
 			}
 		};
@@ -680,9 +730,10 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			for opcode in block.opcodes {
 				let _idx = index_of(opcode);
 				opcodes.push(match opcode {
+					OpCode::Param { .. } | OpCode::Const { .. } | OpCode::Func { .. } => {
+						continue;
+					},
 					OpCode::Alloca { ty } => FOpCode::Alloca { ty },
-					OpCode::Const { ty, value } => FOpCode::Const { ty, value },
-					OpCode::Func { func } => FOpCode::Func { func },
 					OpCode::SizeOf { ty } => FOpCode::SizeOf { ty },
 					OpCode::Add { lhs, rhs } => {
 						debug_assert_eq!(lhs.ty, rhs.ty);
@@ -799,8 +850,8 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 					OpCode::Call { func, params } => {
 						let params: Vec<_> = params.iter().map(|v| index_of(v.op)).collect();
 						FOpCode::Call {
-							func,
 							params: self.heaps.bump().alloc_slice_copy(&params),
+							func: index_of(self.functions[&(*func as *const _ as usize)].op),
 						}
 					},
 					OpCode::CallInd { func, params } => {
@@ -817,7 +868,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 						}
 					},
 					OpCode::Jp { target } => FOpCode::Jp {
-						target: ValueIndex(block_offsets[target.0]),
+						target: ValueIndex::local(block_offsets[target.0]),
 					},
 					OpCode::Br {
 						condition,
@@ -825,13 +876,17 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 						false_case,
 					} => FOpCode::Br {
 						condition: index_of(condition.op),
-						true_case: ValueIndex(block_offsets[true_case.0]),
-						false_case: ValueIndex(block_offsets[false_case.0]),
+						true_case: ValueIndex::local(block_offsets[true_case.0]),
+						false_case: ValueIndex::local(block_offsets[false_case.0]),
 					},
 				});
 			}
 		}
 
-		Ok(SSAData { opcodes })
+		Ok(SSAData {
+			opcodes,
+			referenced_constants,
+			referenced_functions,
+		})
 	}
 }

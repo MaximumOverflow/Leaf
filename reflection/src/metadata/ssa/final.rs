@@ -1,12 +1,10 @@
-use std::fmt::{Debug, Formatter};
 #[allow(unused_imports)]
 use std::io::{Error, ErrorKind, Read, Write};
+use std::fmt::{Debug, Formatter};
 use std::usize;
 
 use derivative::Derivative;
-
 use leaf_derive::Metadata;
-
 use crate::{Function, Type};
 
 #[repr(u8)]
@@ -18,12 +16,7 @@ pub enum OpCode<'l> {
 	#[default]
 	Nop = 0x00,
 	Alloca { ty: &'l Type<'l> } = 0x01,
-	Const { ty: &'l Type<'l>, value: &'l [u8] } = 0x02,
-	Func {
-		#[derivative(Debug(format_with="debug_func_ref"))]
-		func: &'l Function<'l>,
-	} = 0x03,
-	SizeOf { ty: &'l Type<'l> } = 0x4,
+	SizeOf { ty: &'l Type<'l> } = 0x2,
 
 	Add { lhs: ValueIndex, rhs: ValueIndex } = 0x10,
 	Sub { lhs: ValueIndex, rhs: ValueIndex } = 0x11,
@@ -41,8 +34,7 @@ pub enum OpCode<'l> {
 	GEP { val: ValueIndex, idx: ValueIndex } = 0x22,
 
 	Call {
-		#[derivative(Debug(format_with="debug_func_ref"))]
-		func: &'l Function<'l>,
+		func: ValueIndex,
 		params: &'l [ValueIndex],
 	} = 0x2A,
 	CallInd { func: ValueIndex, params: &'l [ValueIndex] } = 0x2B,
@@ -56,8 +48,57 @@ pub enum OpCode<'l> {
 	} = 0x32,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Metadata)]
-pub struct ValueIndex(pub usize);
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Metadata)]
+pub struct ValueIndex(u64);
+
+#[repr(usize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum ValueIndexKind {
+	Local = 0b00,
+	Parameter = 0b01,
+	Constant = 0b10,
+	Function = 0b11,
+}
+
+impl ValueIndex {
+	#[inline(always)]
+	pub fn local(idx: usize) -> Self {
+		Self(ValueIndexKind::Local.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+	}
+	#[inline(always)]
+	pub fn constant(idx: usize) -> Self {
+		Self(ValueIndexKind::Constant.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+	}
+	#[inline(always)]
+	pub fn function(idx: usize) -> Self {
+		Self(ValueIndexKind::Function.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+	}
+	#[inline(always)]
+	pub fn parameter(idx: usize) -> Self {
+		Self(ValueIndexKind::Parameter.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+	}
+	#[inline(always)]
+	pub fn kind(&self) -> ValueIndexKind {
+		unsafe { std::mem::transmute(self.0.overflowing_shr(62).0 as usize) }
+	}
+	#[inline(always)]
+	pub fn index(&self) -> usize {
+		(self.0 & 0x3FFFFFFFFFFFFFFF) as usize
+	}
+}
+
+impl ValueIndexKind {
+	#[inline(always)]
+	fn as_tag(self) -> u64 {
+		(self as u64) << 62
+	}
+}
+
+impl Debug for ValueIndex {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		write!(f, "ValueIndex::{:?}({})", self.kind(), self.index())
+	}
+}
 
 #[cfg(feature = "read")]
 impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for &'val [ValueIndex] {
@@ -102,28 +143,83 @@ pub enum Comparison {
 	Ge = 0x5,
 }
 
+#[derive(Copy, Clone, Derivative, Metadata)]
+#[metadata(lifetimes(val = "l"))]
+#[derivative(Debug)]
+pub struct ConstantRef<'l> {
+	#[derivative(Debug(format_with = "std::fmt::Display::fmt"))]
+	pub(super) ty: &'l Type<'l>,
+	#[derivative(Debug(format_with = "debug_slice_ref"))]
+	pub(super) data: &'l [u8],
+}
+
+impl<'l> ConstantRef<'l> {
+	#[inline(always)]
+	pub fn ty(&self) -> &'l Type<'l> {
+		self.ty
+	}
+	#[inline(always)]
+	pub fn data(&self) -> &'l [u8] {
+		self.data
+	}
+}
+
 #[derive(Derivative, Metadata)]
 #[metadata(lifetimes(val = "l"))]
 #[derivative(Debug)]
 pub struct SSAData<'l> {
 	#[derivative(Debug(format_with = "debug_opcodes"))]
 	pub(super) opcodes: Vec<OpCode<'l>>,
+	#[derivative(Debug(format_with = "debug_functions"))]
+	pub(super) referenced_functions: Vec<&'l Function<'l>>,
+	#[derivative(Debug(format_with = "debug_constants"))]
+	pub(super) referenced_constants: Vec<ConstantRef<'l>>,
 }
 
 impl<'l> SSAData<'l> {
+	#[inline(always)]
 	pub fn opcodes(&self) -> &[OpCode<'l>] {
 		&self.opcodes
 	}
+	#[inline(always)]
+	pub fn referenced_constants(&self) -> &[ConstantRef<'l>] {
+		&self.referenced_constants
+	}
+	#[inline(always)]
+	pub fn referenced_functions(&self) -> &[&'l Function<'l>] {
+		&self.referenced_functions
+	}
 }
 
-fn debug_func_ref(func: &Function, fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
-	write!(fmt, "`{}`", func.id())
+#[inline]
+fn debug_slice_ref(data: &[u8], fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	write!(fmt, "[u8; {}] @ {:#?}", data.len(), data.as_ptr())
 }
 
 fn debug_opcodes(v: &[OpCode], fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
 	let mut list = fmt.debug_list();
 	for (i, opcode) in v.iter().enumerate() {
 		list.entry(&format_args!("{i}: {:?}", opcode));
+	}
+	list.finish()
+}
+
+fn debug_constants(v: &[ConstantRef], fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	let mut list = fmt.debug_list();
+	for (i, ConstantRef { ty, data }) in v.iter().enumerate() {
+		list.entry(&format_args!(
+			"{i}: {ty} | [u8; {}] @ {:#?}",
+			data.len(),
+			data.as_ptr(),
+		));
+	}
+	list.finish()
+}
+
+fn debug_functions(v: &[&Function], fmt: &mut Formatter) -> Result<(), std::fmt::Error> {
+	let mut list = fmt.debug_list();
+	for (i, function) in v.iter().enumerate() {
+		list.entry(&format_args!("{i}: {}", function.id()));
 	}
 	list.finish()
 }

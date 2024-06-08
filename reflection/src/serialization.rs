@@ -365,6 +365,7 @@ pub struct ReadRequirements<'l> {
 	pub functions: *const HashMap<UniqueIdentifier<'l>, &'l UnsafeCell<Function<'l>>>,
 }
 
+#[cfg(feature = "read")]
 impl From<&ReadRequirements<'_>> for () {
 	fn from(_: &ReadRequirements<'_>) {}
 }
@@ -374,6 +375,7 @@ pub struct WriteRequirements<'l> {
 	pub blobs: Arc<BlobHeapScope<'l>>,
 }
 
+#[cfg(feature = "write")]
 impl From<&WriteRequirements<'_>> for () {
 	fn from(_: &WriteRequirements<'_>) {}
 }

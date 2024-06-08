@@ -17,5 +17,5 @@ tracing = "0.1.40"
 
 [features]
 build = []
-read = ["dep:bytemuck"]
 write = ["dep:bytemuck"]
+read = ["dep:bytemuck", "build"]

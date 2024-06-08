@@ -103,67 +103,11 @@ fn main() {
 			}
 			let comp_time = time.elapsed().unwrap();
 
-			// println!("{:#?}", assembly);
 			info!("Compilation time: {:?}", comp_time);
-
-			// let namespace = {
-			// 	let start = code.find("namespace ").unwrap() + 10;
-			// 	let end = start + code[start..].find(';').unwrap();
-			// 	&code[start..end]
-			// };
-
 			let Some(_main) = assembly.functions().find(|f| f.name() == "main") else {
 				eprintln!("Could not find entry point `main`");
 				return;
 			};
-
-			// time = SystemTime::now();
-			unimplemented!()
-			// let mut interpreter = Interpreter::new();
-			// unsafe {
-			// 	interpreter.register_extern_fn("core/test/print", |fmt: usize| {
-			// 		let mut len = 0;
-			// 		let mut ptr = fmt as *const c_char;
-			// 		while *ptr != 0 {
-			// 			len += 1;
-			// 			ptr = ptr.add(1);
-			// 		}
-			// 		let slice = std::slice::from_raw_parts(fmt as *const u8, len);
-			// 		let str = std::str::from_utf8(slice).unwrap();
-			// 		print!("{}", str);
-			// 	});
-			// 	interpreter.register_extern_fn("core/test/alloc", |info: [usize; 2]| {
-			// 		let [size, align] = info;
-			// 		let layout = Layout::from_size_align_unchecked(size, align);
-			// 		let ptr = std::alloc::alloc(layout);
-			// 		trace!("Allocated buffer at {ptr:#?} with {layout:?}");
-			// 		ptr as usize
-			// 	});
-			// 	interpreter.register_extern_fn(
-			// 		"core/test/dealloc",
-			// 		|info: (*const u8, usize, usize)| {
-			// 			let (ptr, size, align) = info;
-			// 			let layout = Layout::from_size_align_unchecked(size, align);
-			// 			let ptr = ptr as *mut u8;
-			// 			std::alloc::dealloc(ptr, layout);
-			// 			trace!("Deallocated buffer at {ptr:#?} with {layout:?}");
-			// 		},
-			// 	);
-			// }
-			//
-			// match interpreter.call_as_main(main) {
-			// 	Ok(value) => {
-			// 		let interp_time = time.elapsed().unwrap();
-			//
-			// 		// println!("Stack dump: {:#?}", interpreter.stack());
-			// 		info!("Result: {:#?}", value);
-			// 		info!("Interpretation time: {:?}", interp_time);
-			// 	},
-			// 	Err(err) => {
-			// 		// println!("Stack dump: {:#?}", interpreter.stack());
-			// 		println!("Error: {}", err);
-			// 	},
-			// };
 		},
 		Args::Compile(CompileArgs { file, .. }) => {
 			let mut time = SystemTime::now();
@@ -182,6 +126,7 @@ fn main() {
 			assembly.write(&mut bytes, ()).unwrap();
 			delta = time.elapsed().unwrap();
 			info!("Serialization time: {:?}", delta);
+			std::fs::write("out.llib", &bytes).unwrap();
 
 			time = SystemTime::now();
 			let bump = ArenaAllocator::default();
@@ -193,10 +138,10 @@ fn main() {
 
 			dbg!(&read_assembly);
 
-			let backend = X86_64_Backend;
-			let obj = backend.compile(&read_assembly).unwrap();
-			let obj = obj.write().unwrap();
-			std::fs::write("out.o", obj).unwrap()
+			// let backend = X86_64_Backend;
+			// let obj = backend.compile(&read_assembly).unwrap();
+			// let obj = obj.write().unwrap();
+			// std::fs::write("out.o", obj).unwrap()
 		},
 	}
 }

@@ -11,7 +11,7 @@ use std::io::{Read, Write, Error, ErrorKind};
 use std::io::Cursor;
 
 #[repr(u8)]
-#[derive(Clone, Hash, Metadata)]
+#[derive(Copy, Clone, Hash, Metadata)]
 #[metadata(lifetimes(val = "l"))]
 pub enum Type<'l> {
 	Uninit = 0x00,
@@ -64,6 +64,7 @@ impl PartialEq<Self> for Type<'_> {
 		}
 
 		match (self, other) {
+			(Type::Struct(a), Type::Struct(b)) => std::ptr::eq(*a, *b),
 			(Type::Array { count: ca, ty: ta }, Type::Array { count: cb, ty: tb }) => {
 				ca == cb && ta == tb
 			},
@@ -77,7 +78,26 @@ impl PartialEq<Self> for Type<'_> {
 					ty: tb,
 				},
 			) => ma == mb && ta == tb,
-			(Type::Struct(a), Type::Struct(b)) => std::ptr::eq(*a, *b),
+			(
+				Type::Reference {
+					mutable: ma,
+					ty: ta,
+				},
+				Type::Reference {
+					mutable: mb,
+					ty: tb,
+				},
+			) => ma == mb && ta == tb,
+			(
+				Type::FunctionPointer {
+					ret_ty: ra,
+					param_tys: pa,
+				},
+				Type::FunctionPointer {
+					ret_ty: rb,
+					param_tys: pb,
+				},
+			) => ra == rb && pa == pb,
 			_ => std::mem::discriminant(self) == std::mem::discriminant(other),
 		}
 	}
