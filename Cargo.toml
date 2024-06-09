@@ -5,18 +5,18 @@ members = [
     "parsing",
     "reflection",
     "compilation",
-    "interpreter",
 ]
 resolver = "2"
 
 [profile.dev.package."*"]
-opt-level = 3
+opt-level = "z"
+debug = "limited"
 
 [profile.release_with_debug_symbols]
 inherits = "release"
 debug = true
 
-[profile.production]
+[profile.lto]
 inherits = "release"
 panic = "abort"
 strip = true

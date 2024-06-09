@@ -1,10 +1,14 @@
-use leaf_reflection::Assembly;
-use object::write::Object;
 use std::error::Error;
+
+use leaf_reflection::Assembly;
 
 #[cfg(feature = "backend-x86_64")]
 pub mod x86_64;
 
-pub trait CompilationBackend {
-	fn compile<'l>(&self, assembly: &'l Assembly<'l>) -> Result<Object, Box<dyn Error>>;
+#[cfg(feature = "backend-llvm")]
+pub mod llvm;
+
+pub trait CompilationBackend<'l, 'a> {
+	type Output;
+	fn compile(&self, assembly: &'a Assembly<'a>) -> Result<Self::Output, Box<dyn Error>>;
 }

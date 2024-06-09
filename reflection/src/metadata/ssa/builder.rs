@@ -675,7 +675,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 				return Err(format!("Block {i} has no terminator"));
 			}
 			block_offsets[i] = offset;
-			offset += block.opcodes.len();
+			offset += block.opcodes.len().saturating_sub(1);
 		}
 
 		let mut index_of = {

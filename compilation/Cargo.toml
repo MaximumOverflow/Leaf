@@ -15,8 +15,11 @@ leaf_parsing = { path = "../parsing" }
 leaf_derive = { path = "../derive", features = ["operators"] }
 leaf_reflection = { path = "../reflection", features = ["build", "read", "write"] }
 
-object = { version = "0.35.0", features = ["build", "write"] }
+inkwell = { version = "0.4.0", default-features = false, optional = true }
 iced-x86 = { version = "1.21.0", features = ["code_asm"], optional = true }
+object = { version = "0.36", features = ["build", "write"], optional = true }
 
 [features]
-backend-x86_64 = ["dep:iced-x86"]
+backend-llvm = ["dep:inkwell"]
+backend-x86_64 = ["dep:iced-x86", "dep:object"]
+llvm-force-dynamic = ["backend-llvm", "inkwell/llvm17-0-force-dynamic"]

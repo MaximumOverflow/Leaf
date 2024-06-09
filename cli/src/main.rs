@@ -3,8 +3,9 @@
 use std::alloc::Layout;
 use std::ffi::c_char;
 use std::fs::File;
-use std::io::{BufWriter, Cursor};
+use std::io::{BufWriter, Cursor, Write};
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::time::SystemTime;
 
 use clap::Parser;
@@ -14,7 +15,7 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
 use leaf_compilation::backends::CompilationBackend;
-use leaf_compilation::backends::x86_64::X86_64_Backend;
+use leaf_compilation::backends::llvm::{LLVM_Backend, LLVMContext, OptimizationLevel};
 
 use leaf_compilation::frontend::{CompilationUnit};
 use leaf_compilation::reflection::{Assembly, Version};
@@ -138,10 +139,26 @@ fn main() {
 
 			dbg!(&read_assembly);
 
-			// let backend = X86_64_Backend;
-			// let obj = backend.compile(&read_assembly).unwrap();
-			// let obj = obj.write().unwrap();
-			// std::fs::write("out.o", obj).unwrap()
+			let ctx = LLVMContext::create();
+			let backend = LLVM_Backend::new(&ctx, OptimizationLevel::Default);
+			let module = backend.compile(&read_assembly).unwrap();
+			module.print_to_stderr();
+
+			let bitcode = module.write_bitcode_to_memory();
+
+			let mut clang = std::process::Command::new("clang")
+				.args(["-x", "ir", "-O3", "-o", "a.out", "-"])
+				.stdin(Stdio::piped())
+				.stdout(Stdio::piped())
+				.spawn()
+				.unwrap();
+
+			let mut stdin = clang.stdin.take().unwrap();
+			stdin.write_all(bitcode.as_slice()).unwrap();
+			drop(stdin);
+
+			let output = clang.wait_with_output().unwrap();
+			println!("{}", String::from_utf8(output.stdout).unwrap());
 		},
 	}
 }
