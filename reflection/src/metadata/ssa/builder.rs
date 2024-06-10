@@ -46,6 +46,7 @@ pub struct SSABuilder<'a, 'l> {
 	insert_block: BlockIndex,
 	blocks: Vec<Block<'a, 'l>>,
 	params: &'a [Parameter<'l>],
+	param_vals: &'a [ValueRef<'a, 'l>],
 	functions: FxHashMap<usize, ValueRef<'a, 'l>>,
 	constants: FxHashMap<(&'l Type<'l>, usize), ValueRef<'a, 'l>>,
 }
@@ -64,18 +65,19 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			params,
 			insert_block: BlockIndex(0),
 			blocks: vec![Block {
-				opcodes: params
-					.iter()
-					.map(|p| unsafe {
-						std::mem::transmute(bump.alloc(OpCode::Param { ty: p.ty() }))
-					})
-					.collect(),
+				opcodes: vec![],
 				in_transitions: BlockTransitions::Terminal,
 				out_transitions: BlockTransitions::None,
 				used_values: Default::default(),
 			}],
 			functions: Default::default(),
 			constants: Default::default(),
+			param_vals: unsafe {
+				std::mem::transmute(bump.alloc_slice_fill_iter(params.iter().map(|p| ValueRef {
+					ty: p.ty(),
+					op: bump.alloc(OpCode::Param { ty: p.ty() }),
+				})))
+			},
 			bump,
 		}
 	}
@@ -108,7 +110,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 			return *func;
 		}
 		let param_tys: Vec<_> = func.params().iter().map(|i| i.ty()).collect();
-		let op = self.push_opcode(OpCode::Func { func });
+		let op = unsafe { std::mem::transmute(self.bump.alloc(OpCode::Func { func })) };
 		*self.functions.entry(key).or_insert_with(|| ValueRef {
 			ty: self.heaps.type_heap().function_ptr(func.ret_ty(), &param_tys),
 			op,
@@ -124,10 +126,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 	}
 
 	pub fn param(&mut self, idx: usize) -> Option<ValueRef<'a, 'l>> {
-		Some(ValueRef {
-			ty: self.params.get(idx)?.ty(),
-			op: self.blocks[0].opcodes[idx],
-		})
+		self.param_vals.get(idx).cloned()
 	}
 
 	pub fn size_of(&mut self, ty: &'l Type<'l>) -> ValueRef<'a, 'l> {
@@ -477,7 +476,10 @@ macro_rules! impl_const {
 					return *value;
 				}
 
-				let value = ValueRef { ty, op: builder.push_opcode(OpCode::Const { ty, value: data }) };
+				let value = ValueRef {
+					ty,
+					op: unsafe { std::mem::transmute(builder.bump.alloc(OpCode::Const { ty, value: data }) ) }
+				};
 				builder.constants.insert(key, value);
 				value
 			}
@@ -526,7 +528,9 @@ impl UseConst for bool {
 
 		let value = ValueRef {
 			ty,
-			op: builder.push_opcode(OpCode::Const { ty, value: data }),
+			op: unsafe {
+				std::mem::transmute(builder.bump.alloc(OpCode::Const { ty, value: data }))
+			},
 		};
 		builder.constants.insert(key, value);
 		value
@@ -561,7 +565,9 @@ impl UseConst for Vec<u8> {
 		}
 		let value = ValueRef {
 			ty,
-			op: builder.push_opcode(OpCode::Const { ty, value: data }),
+			op: unsafe {
+				std::mem::transmute(builder.bump.alloc(OpCode::Const { ty, value: data }))
+			},
 		};
 		builder.constants.insert(key, value);
 		value
@@ -675,7 +681,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 				return Err(format!("Block {i} has no terminator"));
 			}
 			block_offsets[i] = offset;
-			offset += block.opcodes.len().saturating_sub(1);
+			offset += block.opcodes.len();
 		}
 
 		let mut index_of = {
@@ -709,7 +715,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 						match referenced_functions.iter().position(|i| std::ptr::eq(*i, *func)) {
 							Some(i) => ValueIndex::function(i),
 							None => {
-								let idx = ValueIndex::function(referenced_constants.len());
+								let idx = ValueIndex::function(referenced_functions.len());
 								referenced_functions.push(*func);
 								idx
 							},
@@ -731,7 +737,7 @@ impl<'a, 'l> SSABuilder<'a, 'l> {
 				let _idx = index_of(opcode);
 				opcodes.push(match opcode {
 					OpCode::Param { .. } | OpCode::Const { .. } | OpCode::Func { .. } => {
-						continue;
+						unreachable!("{:?}", opcode);
 					},
 					OpCode::Alloca { ty } => FOpCode::Alloca { ty },
 					OpCode::SizeOf { ty } => FOpCode::SizeOf { ty },

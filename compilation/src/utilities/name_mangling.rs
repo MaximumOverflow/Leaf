@@ -45,7 +45,14 @@ impl MangleCpp for Type<'_> {
 			Type::UInt32 => write!(symbol, "j"),
 			Type::UInt64 => write!(symbol, "m"),
 			Type::Struct(ty) => ty.id().mangle(symbol, args),
-			_ => unimplemented!(),
+			Type::Pointer { ty, mutable } => {
+				match mutable {
+					true => write!(symbol, "P"),
+					false => write!(symbol, "PK"),
+				}?;
+				ty.mangle(symbol, args)
+			},
+			_ => unimplemented!("{}", self),
 		}
 	}
 }
