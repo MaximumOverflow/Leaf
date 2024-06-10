@@ -6,17 +6,20 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-half = "2.3.1"
+half = "2.4"
+rust_search = "2.1"
 tracing = "0.1.40"
-ariadne = "0.4.0"
-fxhash = "0.2.1"
-nohash-hasher = "0.2.0"
+ariadne = "0.4"
+fxhash = "0.2"
+nohash-hasher = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+
 leaf_parsing = { path = "../parsing" }
 leaf_derive = { path = "../derive", features = ["operators"] }
 leaf_reflection = { path = "../reflection", features = ["build", "read", "write"] }
 
-inkwell = { version = "0.4.0", default-features = false, optional = true }
-iced-x86 = { version = "1.21.0", features = ["code_asm"], optional = true }
+inkwell = { version = "0.4", default-features = false, optional = true }
+iced-x86 = { version = "1.21", features = ["code_asm"], optional = true }
 object = { version = "0.36", features = ["build", "write"], optional = true }
 
 [features]

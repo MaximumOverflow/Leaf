@@ -460,7 +460,7 @@ impl<'l> Parse<'l> for Type<'l> {
 				Err(err) => match err {
 					ErrMode::Backtrack(mut err) | ErrMode::Cut(mut err) => {
 						err.labels.push(
-							Label::new((input.file_name().clone(), start..err.range.end))
+							Label::new((input.file().clone(), start..err.range.end))
 								.with_message("Invalid type")
 								.with_color(Color::Red),
 						);
@@ -647,7 +647,7 @@ impl<'l> Parse<'l> for SymbolDeclaration<'l> {
 
 			if let Err(ErrMode::Backtrack(err) | ErrMode::Cut(err)) = &mut symbol {
 				err.labels.push(
-					Label::new((input.file_name().clone(), name.range.clone()))
+					Label::new((input.file().clone(), name.range.clone()))
 						.with_message(format!("In symbol declaration `{name}`"))
 						.with_color(Color::Cyan),
 				);
@@ -881,14 +881,12 @@ fn unexpected_eof<'l>(
 
 		message: Some("Unexpected end of stream".to_string()),
 		err_tokens: &[],
-		labels: vec![
-			Label::new((stream.file_name().clone(), range.end..range.end))
-				.with_message(match expected {
-					None => "Expected additional tokens here".to_string(),
-					Some(token) => format!("Expected token `{token}`, found EOF"),
-				})
-				.with_color(Color::Red),
-		],
+		labels: vec![Label::new((stream.file().clone(), range.end..range.end))
+			.with_message(match expected {
+				None => "Expected additional tokens here".to_string(),
+				Some(token) => format!("Expected token `{token}`, found EOF"),
+			})
+			.with_color(Color::Red)],
 	};
 
 	match cut {

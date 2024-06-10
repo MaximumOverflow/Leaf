@@ -2,10 +2,12 @@
 
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
-use ariadne::{Color, Label, Report, ReportBuilder, ReportKind, Source};
+use ariadne::{Cache, Color, Label, Report, ReportBuilder, ReportKind, Source};
+use fxhash::FxHashMap;
 use leaf_parsing::ast::{Expression, Ident, Node, Type};
 use leaf_reflection::ValueRef;
 
@@ -126,6 +128,24 @@ impl ReportData<'_, '_, '_> {
 
 	pub fn file(&self) -> Arc<str> {
 		self.file.clone()
+	}
+}
+
+#[derive(Default)]
+pub struct ReportCache<'l>(pub FxHashMap<Arc<str>, Source<&'l str>>);
+
+impl<'l> Cache<Arc<str>> for ReportCache<'l> {
+	type Storage = &'l str;
+
+	fn fetch(&mut self, id: &Arc<str>) -> Result<&Source<Self::Storage>, Box<dyn Debug + '_>> {
+		match self.0.get(id) {
+			Some(source) => Ok(source),
+			None => unreachable!(),
+		}
+	}
+
+	fn display<'a>(&self, id: &'a Arc<str>) -> Option<Box<dyn Display + 'a>> {
+		Some(Box::new(id.clone()))
 	}
 }
 

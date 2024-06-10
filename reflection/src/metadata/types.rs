@@ -14,10 +14,9 @@ use std::io::Cursor;
 #[derive(Copy, Clone, Hash, Metadata)]
 #[metadata(lifetimes(val = "l"))]
 pub enum Type<'l> {
-	Uninit = 0x00,
-	Void = 0x01,
-	Char = 0x02,
-	Bool = 0x03,
+	Void = 0x00,
+	Char = 0x01,
+	Bool = 0x02,
 
 	Int8 = 0x10,
 	Int16 = 0x11,
@@ -49,6 +48,9 @@ pub enum Type<'l> {
 		ret_ty: &'l Type<'l>,
 		param_tys: &'l [&'l Type<'l>],
 	} = 0x44,
+
+	// For internal use only
+	Uninit = 0xFF,
 }
 
 impl Eq for Type<'_> {}

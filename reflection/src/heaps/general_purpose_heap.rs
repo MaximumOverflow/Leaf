@@ -1,20 +1,20 @@
+use std::cell::RefCell;
 use std::mem::{needs_drop, transmute};
-use std::slice::{from_raw_parts_mut, from_ref};
 use std::ptr::drop_in_place;
-use std::sync::Mutex;
+use std::slice::{from_raw_parts_mut, from_ref};
+
 use bumpalo::Bump;
 
 #[derive(Default)]
 pub struct ArenaAllocator {
-	bump: Mutex<Bump>,
-	drops: Mutex<Vec<(*mut u8, usize, fn(*mut u8, usize))>>,
+	bump: Bump,
+	drops: RefCell<Vec<(*mut u8, usize, fn(*mut u8, usize))>>,
 }
 
 impl ArenaAllocator {
-	pub fn alloc<T: Sized + Send>(&self, val: T) -> &T {
+	pub fn alloc<T: Sized>(&self, val: T) -> &mut T {
 		unsafe {
-			let bump = self.bump.lock().unwrap();
-			let val = bump.alloc(val);
+			let val = self.bump.alloc(val);
 			self.push_drop(from_ref(val));
 			transmute(val)
 		}
@@ -22,25 +22,22 @@ impl ArenaAllocator {
 
 	pub fn alloc_str(&self, str: &str) -> &str {
 		unsafe {
-			let bump = self.bump.lock().unwrap();
-			let str = bump.alloc_str(str);
+			let str = self.bump.alloc_str(str);
 			transmute(str)
 		}
 	}
 
-	pub fn alloc_slice_copy<T: Copy + Sized + Send>(&self, slice: &[T]) -> &[T] {
+	pub fn alloc_slice_copy<T: Copy + Sized>(&self, slice: &[T]) -> &[T] {
 		unsafe {
-			let bump = self.bump.lock().unwrap();
-			let slice = bump.alloc_slice_copy(slice);
+			let slice = self.bump.alloc_slice_copy(slice);
 			self.push_drop(slice);
 			transmute(slice)
 		}
 	}
 
-	pub fn alloc_slice_clone<T: Clone + Sized + Send>(&self, slice: &[T]) -> &[T] {
+	pub fn alloc_slice_clone<T: Clone + Sized>(&self, slice: &[T]) -> &[T] {
 		unsafe {
-			let bump = self.bump.lock().unwrap();
-			let slice = bump.alloc_slice_clone(slice);
+			let slice = self.bump.alloc_slice_clone(slice);
 			self.push_drop(slice);
 			transmute(slice)
 		}
@@ -50,7 +47,7 @@ impl ArenaAllocator {
 		unsafe {
 			if needs_drop::<T>() {
 				let drop = |p: *mut u8, l: usize| drop_in_place(from_raw_parts_mut(p as *mut T, l));
-				let mut slice_drops = self.drops.lock().unwrap();
+				let mut slice_drops = self.drops.borrow_mut();
 				let ptr = slice.as_ptr() as *mut u8;
 				slice_drops.push((ptr, slice.len(), drop));
 			}
@@ -60,7 +57,7 @@ impl ArenaAllocator {
 
 impl Drop for ArenaAllocator {
 	fn drop(&mut self) {
-		let drops = self.drops.lock().unwrap();
+		let drops = self.drops.borrow_mut();
 		for (ptr, len, drop) in drops.iter() {
 			drop(*ptr, *len)
 		}

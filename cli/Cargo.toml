@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+toml = "0.8"
+indicatif = "0.17"
 half = "2.3.1"
 anyhow = "1.0.79"
 bytemuck = "1.14.3"

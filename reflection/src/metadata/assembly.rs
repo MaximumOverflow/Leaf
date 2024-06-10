@@ -15,7 +15,7 @@ use crate::metadata::functions::Function;
 #[derivative(Debug)]
 pub struct Assembly<'l> {
 	name: String,
-	assembly_version: Version,
+	version: Version,
 	blob_heap: Arc<BlobHeapScope<'l>>,
 	#[derivative(Debug(format_with = "debug_types"))]
 	types: HashMap<UniqueIdentifier<'l>, &'l Type<'l>>,
@@ -29,16 +29,23 @@ pub struct Assembly<'l> {
 }
 
 impl<'l> Assembly<'l> {
+	#[inline]
 	pub fn name(&self) -> &str {
 		&self.name
 	}
 
+	#[inline]
+	pub fn version(&self) -> Version {
+		self.version
+	}
+
+	#[inline]
 	pub fn functions(&'l self) -> impl Iterator<Item = &'l Function<'l>> {
 		self.functions.values().map(move |f| &**f)
 	}
 }
 
-#[derive(Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Version {
 	pub major: u16,
 	pub minor: u16,
@@ -71,7 +78,7 @@ mod build {
 				name: name.to_string(),
 				type_heap: heaps.type_heap().clone(),
 				blob_heap: BlobHeap::make_scope(heaps.blob_heap()),
-				assembly_version: version,
+				version,
 				types: HashMap::new(),
 				functions: HashMap::new(),
 			};
@@ -204,7 +211,7 @@ impl<'val: 'req, 'req> crate::serialization::MetadataRead<'val, 'req> for Assemb
 
 			Ok(Self {
 				name: assembly_name,
-				assembly_version,
+				version: assembly_version,
 				types: structs
 					.into_iter()
 					.map(|(id, ty)| (id, req.type_heap().struct_ref(&*ty.get())))
@@ -229,7 +236,7 @@ impl<'val> crate::serialization::MetadataWrite<'val, '_> for Assembly<'val> {
 	) -> Result<(), Error> {
 		stream.write_all(b"LEAF")?;
 		Version::format_version().unwrap_or_default().write(stream, ())?;
-		self.assembly_version.write(stream, ())?;
+		self.version.write(stream, ())?;
 		self.name.write(stream, ())?;
 
 		self.blob_heap.write(stream, ())?;

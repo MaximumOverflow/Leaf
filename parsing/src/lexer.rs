@@ -386,7 +386,7 @@ impl<'l> TokenStream<'l> {
 		self.tokens
 	}
 
-	pub fn file_name(&self) -> &Arc<str> {
+	pub fn file(&self) -> &Arc<str> {
 		&self.file_name
 	}
 
