@@ -63,34 +63,34 @@ pub enum ValueIndexKind {
 impl ValueIndex {
 	#[inline(always)]
 	pub fn local(idx: usize) -> Self {
-		Self(ValueIndexKind::Local.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+		Self(ValueIndexKind::Local.as_tag() | ((idx as u64) << 2))
 	}
 	#[inline(always)]
 	pub fn constant(idx: usize) -> Self {
-		Self(ValueIndexKind::Constant.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+		Self(ValueIndexKind::Constant.as_tag() | ((idx as u64) << 2))
 	}
 	#[inline(always)]
 	pub fn function(idx: usize) -> Self {
-		Self(ValueIndexKind::Function.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+		Self(ValueIndexKind::Function.as_tag() | ((idx as u64) << 2))
 	}
 	#[inline(always)]
 	pub fn parameter(idx: usize) -> Self {
-		Self(ValueIndexKind::Parameter.as_tag() | (idx as u64 & 0x3FFFFFFFFFFFFFFF))
+		Self(ValueIndexKind::Parameter.as_tag() | ((idx as u64) << 2))
 	}
 	#[inline(always)]
 	pub fn kind(&self) -> ValueIndexKind {
-		unsafe { std::mem::transmute(self.0.overflowing_shr(62).0 as usize) }
+		unsafe { std::mem::transmute((self.0 & 0x03) as usize) }
 	}
 	#[inline(always)]
 	pub fn index(&self) -> usize {
-		(self.0 & 0x3FFFFFFFFFFFFFFF) as usize
+		self.0.overflowing_shr(2).0 as usize
 	}
 }
 
 impl ValueIndexKind {
 	#[inline(always)]
 	fn as_tag(self) -> u64 {
-		(self as u64) << 62
+		self as u64
 	}
 }
 
