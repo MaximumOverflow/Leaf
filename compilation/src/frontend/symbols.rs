@@ -42,6 +42,7 @@ pub struct Namespace<'l> {
 }
 
 impl<'l> Namespace<'l> {
+	#[inline]
 	pub fn new(name: &'l str) -> Self {
 		Self {
 			name,
@@ -49,6 +50,11 @@ impl<'l> Namespace<'l> {
 			children: Default::default(),
 			functions: Default::default(),
 		}
+	}
+
+	#[inline]
+	pub fn types(&self) -> &FxHashMap<&'l str, &'l Type<'l>> {
+		&self.types
 	}
 
 	#[tracing::instrument(skip_all)]
@@ -100,28 +106,25 @@ pub enum SymbolResolverHint {
 }
 
 pub trait SymbolResolver<'l> {
-	fn get_symbol(&'l self, name: &str) -> Option<Symbol<'l>>;
-	fn get_symbol_with_hint(&'l self, name: &str, hint: SymbolResolverHint) -> Option<Symbol<'l>>;
+	fn get_symbol(&'l self, name: &str, hint: SymbolResolverHint) -> Option<Symbol<'l>>;
 }
 
 impl<'l> SymbolResolver<'l> for Namespace<'l> {
-	fn get_symbol(&'l self, name: &str) -> Option<Symbol<'l>> {
-		if let Some(symbol) = self.types.get(name) {
-			return Some((*symbol).into());
-		}
-		if let Some(symbol) = self.functions.get(name) {
-			return Some((*symbol).into());
-		}
-		None
-	}
-
-	fn get_symbol_with_hint(&'l self, name: &str, hint: SymbolResolverHint) -> Option<Symbol<'l>> {
+	fn get_symbol(&'l self, name: &str, hint: SymbolResolverHint) -> Option<Symbol<'l>> {
 		match hint {
 			SymbolResolverHint::Field => None,
-			SymbolResolverHint::None => self.get_symbol(name),
 			SymbolResolverHint::Type => self.types.get(name).cloned().map(Into::into),
 			SymbolResolverHint::Function => self.functions.get(name).cloned().map(Into::into),
 			SymbolResolverHint::Namespace => self.children.get(name).map(Into::into),
+			SymbolResolverHint::None => {
+				if let Some(symbol) = self.types.get(name) {
+					return Some((*symbol).into());
+				}
+				if let Some(symbol) = self.functions.get(name) {
+					return Some((*symbol).into());
+				}
+				None
+			},
 		}
 	}
 }

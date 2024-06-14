@@ -84,19 +84,25 @@ fn main() {
 		},
 	};
 
-	let progress_callback =
-		match args.no_progress {
-			true => None,
-			false => {
-				let mut current = -1;
-				let progress_bar_style = ProgressStyle::with_template(
-				"{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}"
-			).unwrap().progress_chars("=>-");
+	let (progress_sender, progress_thread) = match args.no_progress {
+		true => (None, None),
+		false => {
+			let (progress_sender, progress_receiver) = std::sync::mpsc::channel();
+			let progress_sender = Arc::new(progress_sender);
 
+			let progress_thread = std::thread::spawn(move || unsafe {
 				let mut progress_bar = ProgressBar::new(0);
 				progress_bar.finish_and_clear();
 
-				let func: Box<dyn FnMut(CompilationProgress)> = Box::new(move |progress| unsafe {
+				let mut current = -1;
+				let mut progress_i = 0;
+				let progress_bar_style = ProgressStyle::with_template(
+					"{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
+				)
+					.unwrap()
+					.progress_chars("=>-");
+
+				while let Ok(progress) = progress_receiver.recv() {
 					let phase: isize = std::mem::transmute(std::mem::discriminant(&progress));
 					let count: isize =
 						std::mem::transmute(std::mem::discriminant(&CompilationProgress::Finished));
@@ -104,6 +110,7 @@ fn main() {
 						current = phase;
 						if !progress_bar.is_finished() {
 							progress_bar.finish();
+							progress_i = 0;
 						}
 						progress_bar = ProgressBar::new(0).with_style(progress_bar_style.clone());
 						match progress {
@@ -121,22 +128,34 @@ fn main() {
 									count
 								));
 							},
+							CompilationProgress::CompilingSymbols(_, _) => {
+								progress_bar.set_message(format!(
+									"[{}/{}] Compiling symbols...",
+									current + 1,
+									count
+								));
+							},
 							CompilationProgress::Finished => {},
 						}
 					}
 					match progress {
-						| CompilationProgress::ParsingFiles(i, len)
-						| CompilationProgress::DeclaringSymbols(i, len) => {
+						CompilationProgress::ParsingFiles(i, len) => {
 							progress_bar.set_length(len as u64);
-							progress_bar.set_position(i as u64);
+							progress_bar.set_position(i as u64 + 1);
+						},
+						| CompilationProgress::DeclaringSymbols(i, len)
+						| CompilationProgress::CompilingSymbols(i, len) => {
+							progress_i = progress_i.max(i);
+							progress_bar.set_length(len as u64);
+							progress_bar.set_position(progress_i as u64 + 1);
 						},
 						CompilationProgress::Finished => {},
 					}
-				});
-
-				Some(func)
-			},
-		};
+				}
+			});
+			(Some(progress_sender), Some(progress_thread))
+		},
+	};
 
 	match args.command {
 		Command::Build => {
@@ -146,18 +165,25 @@ fn main() {
 			let config = std::fs::read_to_string(config).unwrap();
 			let config: CompilationConfig = toml::from_str(&config).unwrap();
 
-			let start = SystemTime::now();
 			let allocator = ArenaAllocator::default();
-			let mut context = CompilationContext::new_with_callbacks(
+			let heaps = Heaps::new(&allocator);
+			let context = CompilationContext::new_with_callbacks(
 				config,
-				&allocator,
-				CompilationCallbacks { progress_callback },
+				&heaps,
+				CompilationCallbacks {
+					progress_events_sink: progress_sender,
+				},
 			);
 
-			if let Err(err) = context.compile() {
-				std::io::stderr().lock().write_all(&err).unwrap()
+			let start = SystemTime::now();
+			let result = context.compile();
+			if let Some(thread) = progress_thread {
+				let _ = thread.join();
+			}
+			if let Err(err) = result {
+				std::io::stderr().lock().write_all(&err).unwrap();
 			} else {
-				eprintln!("Compilation completed in {:?}", start.elapsed().unwrap());
+				eprintln!("Compilation completed in {:?}", start.elapsed().unwrap())
 			}
 		},
 	}

@@ -11,6 +11,7 @@ derivative = "2.2.0"
 bitflags = "2.5.0"
 fxhash = "0.2.1"
 nohash-hasher = "0.2.0"
+parking_lot = "0.12"
 leaf_derive = { path = "../derive", features = ["metadata"] }
 bytemuck = { version = "1.15.0", optional = true }
 tracing = "0.1.40"

@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use ariadne::{Label, ReportKind, Source};
 use fxhash::FxHashMap;
+use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use rust_search::SearchBuilder;
 use tracing::{debug_span, error};
 use leaf_parsing::ErrMode;
@@ -13,39 +14,39 @@ use leaf_reflection::heaps::{ArenaAllocator, Heaps};
 use crate::frontend::compilation_context::callbacks::CompilationCallbacks;
 use crate::frontend::compilation_context::CompilationProgress;
 use crate::frontend::compilation_context::config::CompilationConfig;
-use crate::frontend::compilation_context::unit::CompilationUnit;
+use crate::frontend::compilation_context::unit::{CompilationUnit, ProgressInfo};
 
 use crate::frontend::reports::*;
 use crate::frontend::symbols::Namespace;
 
 pub struct CompilationContext<'l> {
-	heaps: Heaps<'l>,
+	heaps: &'l Heaps<'l>,
 	config: CompilationConfig,
 	root_namespace: Namespace<'l>,
 	assemblies: FxHashMap<(&'l str, Version), &'l Assembly<'l>>,
-	callbacks: CompilationCallbacks,
+	callbacks: Arc<CompilationCallbacks>,
 }
 
 impl<'l> CompilationContext<'l> {
-	pub fn new(config: CompilationConfig, allocator: &'l ArenaAllocator) -> Self {
-		Self::new_with_callbacks(config, allocator, Default::default())
+	pub fn new(config: CompilationConfig, heaps: &'l Heaps<'l>) -> Self {
+		Self::new_with_callbacks(config, heaps, Default::default())
 	}
 
 	pub fn new_with_callbacks(
 		config: CompilationConfig,
-		allocator: &'l ArenaAllocator,
+		heaps: &'l Heaps<'l>,
 		callbacks: CompilationCallbacks,
 	) -> Self {
 		Self {
 			config,
-			heaps: Heaps::new(allocator),
+			heaps,
 			assemblies: Default::default(),
 			root_namespace: Namespace::new(""),
-			callbacks,
+			callbacks: Arc::new(callbacks),
 		}
 	}
 
-	pub fn compile(&'l mut self) -> Result<&'l Assembly<'l>, Vec<u8>> {
+	pub fn compile(mut self) -> Result<&'l Assembly<'l>, Vec<u8>> {
 		for (name, dependency) in &self.config.dependencies {
 			unimplemented!("Dependencies are not implemented");
 		}
@@ -62,8 +63,8 @@ impl<'l> CompilationContext<'l> {
 
 		let file_count = files.len();
 		for (i, file) in files.into_iter().enumerate() {
-			if let Some(callback) = self.callbacks.progress_callback.as_mut() {
-				callback(CompilationProgress::ParsingFiles(i, file_count));
+			if let Some(sink) = &self.callbacks.progress_events_sink {
+				let _ = sink.send(CompilationProgress::ParsingFiles(i, file_count));
 			}
 
 			match std::fs::read_to_string(&file) {
@@ -89,8 +90,8 @@ impl<'l> CompilationContext<'l> {
 
 		let mut tokens = Vec::with_capacity(contents.len());
 		for (i, (code, path)) in contents.iter().enumerate() {
-			if let Some(callback) = self.callbacks.progress_callback.as_mut() {
-				callback(CompilationProgress::ParsingFiles(i, file_count));
+			if let Some(sink) = &self.callbacks.progress_events_sink {
+				let _ = sink.send(CompilationProgress::ParsingFiles(i, file_count));
 			}
 			match debug_span!("lex_files").in_scope(|| Token::lex_all(code)) {
 				Ok(res) => tokens.push((res, path.clone())),
@@ -108,8 +109,8 @@ impl<'l> CompilationContext<'l> {
 
 		let mut asts = Vec::with_capacity(streams.len());
 		for (i, stream) in streams.iter_mut().enumerate() {
-			if let Some(callback) = self.callbacks.progress_callback.as_mut() {
-				callback(CompilationProgress::ParsingFiles(i, file_count));
+			if let Some(sink) = &self.callbacks.progress_events_sink {
+				let _ = sink.send(CompilationProgress::ParsingFiles(i, file_count));
 			}
 			match debug_span!("parse_files").in_scope(|| Ast::parse(stream)) {
 				Ok(parsed) => asts.push(parsed),
@@ -136,8 +137,8 @@ impl<'l> CompilationContext<'l> {
 			let namespace = self.root_namespace.get_or_add_child(ns);
 			for decl in &ast.declarations {
 				let i = symbol_i.next().unwrap();
-				if let Some(callback) = self.callbacks.progress_callback.as_mut() {
-					callback(CompilationProgress::DeclaringSymbols(i, symbol_count));
+				if let Some(sink) = &self.callbacks.progress_events_sink {
+					let _ = sink.send(CompilationProgress::DeclaringSymbols(i, symbol_count));
 				}
 				match decl.symbol {
 					Symbol::Enum(_) => unimplemented!(),
@@ -154,17 +155,30 @@ impl<'l> CompilationContext<'l> {
 			}
 		}
 
-		for ast in asts {
-			let mut unit = CompilationUnit::new(ast);
-			if let Err(err) = unit.compile_types() {
-				errors.extend(err);
-				continue;
-			}
-			if let Err(err) = unit.compile_functions() {
-				errors.extend(err);
-				continue;
-			}
-		}
+		let progress_info = Arc::new(ProgressInfo {
+			total_symbols: symbol_count,
+			compiled_symbols: Default::default(),
+		});
+
+		let mut results = vec![];
+		asts.into_par_iter()
+			.map(|ast| {
+				let mut unit = CompilationUnit::new(
+					ast,
+					self.heaps,
+					&self.root_namespace,
+					self.callbacks.clone(),
+					progress_info.clone(),
+				);
+				if let Err(err) = unit.compile_types() {
+					return Err(err);
+				}
+				if let Err(err) = unit.compile_functions() {
+					return Err(err);
+				}
+				Ok(())
+			})
+			.collect_into_vec(&mut results);
 
 		if !errors.is_empty() {
 			let mut report = vec![];
@@ -176,8 +190,8 @@ impl<'l> CompilationContext<'l> {
 
 		self.assemblies.insert((assembly.name(), assembly.version()), assembly);
 
-		if let Some(callback) = self.callbacks.progress_callback.as_mut() {
-			callback(CompilationProgress::Finished);
+		if let Some(sink) = &self.callbacks.progress_events_sink {
+			let _ = sink.send(CompilationProgress::Finished);
 		}
 
 		Ok(assembly)

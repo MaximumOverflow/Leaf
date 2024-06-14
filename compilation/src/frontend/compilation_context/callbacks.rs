@@ -1,6 +1,9 @@
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
+
 #[derive(Default)]
 pub struct CompilationCallbacks {
-	pub progress_callback: Option<Box<dyn FnMut(CompilationProgress)>>,
+	pub progress_events_sink: Option<Arc<Sender<CompilationProgress>>>,
 }
 
 pub enum CompilationProgress {

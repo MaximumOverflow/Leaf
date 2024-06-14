@@ -62,7 +62,7 @@ pub struct BlobHeapScope<'l> {
 	heap: Arc<BlobHeap<'l>>,
 	vec: RwLock<Vec<&'l [u8]>>,
 	map: RwLock<FxHashMap<&'l [u8], usize>>,
-	ptr: RwLock<HashMap<*const u8, usize, BuildNoHashHasher<usize>>>,
+	ptr: RwLock<HashMap<usize, usize, BuildNoHashHasher<usize>>>,
 }
 
 impl<'l> BlobHeapScope<'l> {
@@ -134,7 +134,7 @@ mod intern {
 		fn intern_in_scope(self, scope: &BlobHeapScope<'l>) -> (Self::Interned, usize) {
 			{
 				let ptr = scope.ptr.read().unwrap();
-				if let Some(idx) = ptr.get(&self.as_ptr()) {
+				if let Some(idx) = ptr.get(&(self.as_ptr() as usize)) {
 					let vec = scope.vec.read().unwrap();
 					return (vec[*idx], *idx);
 				}
@@ -159,7 +159,7 @@ mod intern {
 			drop(map);
 
 			let mut ptr = scope.ptr.write().unwrap();
-			ptr.insert(blob.as_ptr(), idx);
+			ptr.insert(blob.as_ptr() as usize, idx);
 			drop(ptr);
 
 			(blob, idx)

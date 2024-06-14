@@ -12,6 +12,7 @@ tracing = "0.1.40"
 ariadne = "0.4"
 fxhash = "0.2"
 nohash-hasher = "0.2"
+rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 
 leaf_parsing = { path = "../parsing" }

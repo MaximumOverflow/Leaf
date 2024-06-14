@@ -1,16 +1,19 @@
-use crate::heaps::general_purpose_heap::ArenaAllocator;
+use std::cell::UnsafeCell;
 use std::collections::{HashMap, HashSet};
-use std::cell::{RefCell, UnsafeCell};
+
+use parking_lot::Mutex;
+
 use crate::{Struct, Type};
+use crate::heaps::general_purpose_heap::ArenaAllocator;
 
 pub struct TypeHeap<'l> {
 	bump: &'l ArenaAllocator,
-	set: RefCell<HashSet<usize>>,
-	arrays: RefCell<HashMap<(usize, usize), &'l Type<'l>>>,
-	pointers: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
-	references: RefCell<HashMap<(usize, bool), &'l Type<'l>>>,
-	structs: RefCell<HashMap<usize, (&'l Type<'l>, &'l Struct<'l>)>>,
-	function_types: RefCell<HashMap<(&'l Type<'l>, &'l [&'l Type<'l>]), &'l Type<'l>>>,
+	set: Mutex<HashSet<usize>>,
+	arrays: Mutex<HashMap<(usize, usize), &'l Type<'l>>>,
+	pointers: Mutex<HashMap<(usize, bool), &'l Type<'l>>>,
+	references: Mutex<HashMap<(usize, bool), &'l Type<'l>>>,
+	structs: Mutex<HashMap<usize, (&'l Type<'l>, &'l Struct<'l>)>>,
+	function_types: Mutex<HashMap<(&'l Type<'l>, &'l [&'l Type<'l>]), &'l Type<'l>>>,
 }
 
 #[rustfmt::skip]
@@ -23,7 +26,7 @@ impl<'l> TypeHeap<'l> {
 			structs: Default::default(),
 			pointers: Default::default(),
 			references: Default::default(),
-			function_types: RefCell::new(Default::default()),
+			function_types: Default::default(),
 		}
 	}
 }
@@ -42,8 +45,8 @@ impl<'l> TypeHeap<'l> {
 	}
 
 	pub fn struct_ref(&self, ty: &'l Struct<'l>) -> &'l Type<'l> {
-		let mut structs = self.structs.borrow_mut();
-		let mut set = self.set.borrow_mut();
+		let mut structs = self.structs.lock();
+		let mut set = self.set.lock();
 
 		let key = ty as *const _ as usize;
 		if let Some((ty, _)) = structs.get(&key) {
@@ -61,8 +64,8 @@ impl<'l> TypeHeap<'l> {
 	}
 
 	pub fn pointer(&self, ty: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
-		let mut pointers = self.pointers.borrow_mut();
-		let mut set = self.set.borrow_mut();
+		let mut pointers = self.pointers.lock();
+		let mut set = self.set.lock();
 
 		let key = (as_key(ty), mutable);
 		if let Some(ty) = pointers.get(&key) {
@@ -78,8 +81,8 @@ impl<'l> TypeHeap<'l> {
 	}
 
 	pub fn reference(&self, ty: &'l Type<'l>, mutable: bool) -> &'l Type<'l> {
-		let mut references = self.references.borrow_mut();
-		let mut set = self.set.borrow_mut();
+		let mut references = self.references.lock();
+		let mut set = self.set.lock();
 
 		let key = (as_key(ty), mutable);
 		if let Some(ty) = references.get(&key) {
@@ -96,12 +99,12 @@ impl<'l> TypeHeap<'l> {
 
 	pub fn array(&self, elem_ty: &'l Type<'l>, count: usize) -> &'l Type<'l> {
 		let key = (as_key(elem_ty), count);
-		let mut arrays = self.arrays.borrow_mut();
+		let mut arrays = self.arrays.lock();
 		if let Some(ty) = arrays.get(&key) {
 			return ty;
 		}
 
-		let mut set = self.set.borrow_mut();
+		let mut set = self.set.lock();
 		Self::assert_type_in_heap(elem_ty, &set);
 		let ty = self.bump.alloc(Type::Array { count, ty: elem_ty });
 		set.insert(as_key(ty));
@@ -114,12 +117,12 @@ impl<'l> TypeHeap<'l> {
 		ret_ty: &'l Type<'l>,
 		param_tys: &[&'l Type<'l>],
 	) -> &'l Type<'l> {
-		let mut functions = self.function_types.borrow_mut();
+		let mut functions = self.function_types.lock();
 		if let Some(ty) = functions.get(&(ret_ty, param_tys)) {
 			return ty;
 		}
 
-		let mut set = self.set.borrow_mut();
+		let mut set = self.set.lock();
 		Self::assert_type_in_heap(ret_ty, &set);
 		for param in param_tys {
 			Self::assert_type_in_heap(param, &set);
