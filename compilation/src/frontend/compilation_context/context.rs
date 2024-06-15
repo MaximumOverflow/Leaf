@@ -1,20 +1,20 @@
-use std::path::Path;
 use std::sync::Arc;
-use ariadne::{Label, ReportKind, Source};
+use ariadne::{Color, ReportKind, Source};
 use fxhash::FxHashMap;
+use pathdiff::diff_paths;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use rust_search::SearchBuilder;
-use tracing::{debug_span, error};
+use tracing::debug_span;
 use leaf_parsing::ErrMode;
-use leaf_reflection::{Assembly, Version};
+use leaf_reflection::{Assembly, Type, Version};
 use leaf_parsing::ast::{CompilationUnit as Ast, Symbol};
-use leaf_parsing::lexer::{Token, TokenData, TokenStream};
-use leaf_parsing::parser::{Parse, ParserError};
-use leaf_reflection::heaps::{ArenaAllocator, Heaps};
+use leaf_parsing::lexer::{Token, TokenStream};
+use leaf_parsing::parser::{Parse};
+use leaf_reflection::heaps::{Heaps};
 use crate::frontend::compilation_context::callbacks::CompilationCallbacks;
 use crate::frontend::compilation_context::CompilationProgress;
 use crate::frontend::compilation_context::config::CompilationConfig;
-use crate::frontend::compilation_context::unit::{CompilationUnit, ProgressInfo};
+use crate::frontend::compilation_context::unit::{CompilationUnit};
 
 use crate::frontend::reports::*;
 use crate::frontend::symbols::Namespace;
@@ -46,8 +46,8 @@ impl<'l> CompilationContext<'l> {
 		}
 	}
 
-	pub fn compile(mut self) -> Result<&'l Assembly<'l>, Vec<u8>> {
-		for (name, dependency) in &self.config.dependencies {
+	pub fn compile(mut self) -> Result<&'l Assembly<'l>, Vec<FrontEndError>> {
+		for (_name, _dependency) in &self.config.dependencies {
 			unimplemented!("Dependencies are not implemented");
 		}
 
@@ -62,41 +62,67 @@ impl<'l> CompilationContext<'l> {
 		let mut report_cache = ReportCache::default();
 
 		let file_count = files.len();
-		for (i, file) in files.into_iter().enumerate() {
-			if let Some(sink) = &self.callbacks.progress_events_sink {
-				let _ = sink.send(CompilationProgress::ParsingFiles(i, file_count));
-			}
-
+		let empty_file: Arc<str> = Arc::from("");
+		for file in files {
 			match std::fs::read_to_string(&file) {
-				Ok(code) => contents.push((code, file)),
+				Ok(code) => {
+					let relative_path: Arc<str> = Arc::from(
+						diff_paths(file, &self.config.directories.src_dir)
+							.unwrap()
+							.to_string_lossy(),
+					);
+					contents.push((Arc::<str>::from(code), relative_path));
+					if let Some(sink) = &self.callbacks.progress_event_sink {
+						let _ = sink.send(CompilationProgress::ReadingFiles(file_count));
+					}
+				},
 				Err(err) => {
-					let id: Arc<str> = Arc::from(file.as_str());
-					let mut report = FrontEndReport::build(ReportKind::Error, id.clone(), 0);
-					report = report.with_message(err.to_string());
-					errors.push(report.finish());
+					let relative_path = diff_paths(file, &self.config.directories.src_dir)
+						.unwrap()
+						.to_string_lossy()
+						.to_string();
 
-					report_cache.0.entry(id.clone()).or_insert_with(|| Source::from(""));
+					let id: Arc<str> = Arc::from(relative_path);
+					errors.push(COULD_NOT_RETRIEVE_SOURCE);
+
+					let cache = Arc::get_mut(&mut report_cache.0).unwrap();
+					cache.entry(id.clone()).or_insert_with(|| Source::from(empty_file.clone()));
+
+					let report = FrontEndReport::build(ReportKind::Error, id.clone(), 0)
+						.with_message(err.to_string())
+						.finish();
+
+					if let Some(sink) = &self.callbacks.report_sink {
+						let mut buffer = vec![];
+						report.write_for_stdout(report_cache.clone(), &mut buffer).unwrap();
+						sink.send((ReportKind::Error, buffer)).unwrap();
+					}
 				},
 			}
 		}
 
 		for (code, file) in &contents {
-			let id: Arc<str> = Arc::from(file.as_str());
-			report_cache
-				.0
-				.entry(id.clone())
-				.or_insert_with(|| Source::from(code.as_str()));
+			let cache = Arc::get_mut(&mut report_cache.0).unwrap();
+			cache.entry(file.clone()).or_insert_with(|| Source::from(code.clone()));
 		}
 
 		let mut tokens = Vec::with_capacity(contents.len());
-		for (i, (code, path)) in contents.iter().enumerate() {
-			if let Some(sink) = &self.callbacks.progress_events_sink {
-				let _ = sink.send(CompilationProgress::ParsingFiles(i, file_count));
-			}
+		for (code, path) in &contents {
 			match debug_span!("lex_files").in_scope(|| Token::lex_all(code)) {
-				Ok(res) => tokens.push((res, path.clone())),
+				Ok(res) => {
+					tokens.push((res, path.clone()));
+					if let Some(sink) = &self.callbacks.progress_event_sink {
+						let _ = sink.send(CompilationProgress::LexingFiles(file_count));
+					}
+				},
 				Err(err) => {
-					errors.push(err.to_report(Arc::from(path.as_str())));
+					errors.push(FrontEndError::from(&err));
+					if let Some(sink) = &self.callbacks.report_sink {
+						let mut buffer = vec![];
+						let report = err.to_report(path.clone());
+						report.write_for_stdout(report_cache.clone(), &mut buffer).unwrap();
+						sink.send((ReportKind::Error, buffer)).unwrap();
+					}
 					continue;
 				},
 			}
@@ -108,15 +134,23 @@ impl<'l> CompilationContext<'l> {
 			.collect();
 
 		let mut asts = Vec::with_capacity(streams.len());
-		for (i, stream) in streams.iter_mut().enumerate() {
-			if let Some(sink) = &self.callbacks.progress_events_sink {
-				let _ = sink.send(CompilationProgress::ParsingFiles(i, file_count));
-			}
+		for stream in &mut streams {
 			match debug_span!("parse_files").in_scope(|| Ast::parse(stream)) {
-				Ok(parsed) => asts.push(parsed),
+				Ok(parsed) => {
+					asts.push((parsed, stream.file().clone()));
+					if let Some(sink) = &self.callbacks.progress_event_sink {
+						let _ = sink.send(CompilationProgress::ParsingFiles(file_count));
+					}
+				},
 				Err(err) => match err {
 					ErrMode::Backtrack(err) | ErrMode::Cut(err) => {
-						errors.push(err.to_report(stream.file().clone()))
+						errors.push(FrontEndError::from(&err));
+						if let Some(sink) = &self.callbacks.report_sink {
+							let mut buffer = vec![];
+							let report = err.to_report(stream.file().clone());
+							report.write_for_stdout(report_cache.clone(), &mut buffer).unwrap();
+							sink.send((ReportKind::Error, buffer)).unwrap();
+						}
 					},
 					_ => unreachable!(),
 				},
@@ -130,45 +164,62 @@ impl<'l> CompilationContext<'l> {
 		));
 
 		// Recursively instantiate namespaces and declare symbols
-		let mut symbol_i = 0..;
-		let symbol_count = asts.iter().flat_map(|a| &a.declarations).count();
-		for ast in &asts {
+		let symbol_count = asts.iter().flat_map(|a| &a.0.declarations).count();
+		for (ast, file) in &asts {
+			let report_data = ReportData::new(
+				file.clone(),
+				report_cache.clone(),
+				self.callbacks.report_sink.clone(),
+			);
 			let ns = self.heaps.blob_heap().intern(ast.namespace);
 			let namespace = self.root_namespace.get_or_add_child(ns);
 			for decl in &ast.declarations {
-				let i = symbol_i.next().unwrap();
-				if let Some(sink) = &self.callbacks.progress_events_sink {
-					let _ = sink.send(CompilationProgress::DeclaringSymbols(i, symbol_count));
-				}
 				match decl.symbol {
 					Symbol::Enum(_) => unimplemented!(),
 					Symbol::Struct(_) => {
-						let ty = assembly.create_struct(ast.namespace, decl.name.value).unwrap();
+						let ty = match assembly.create_struct(ast.namespace, decl.name.value) {
+							Ok(ty) => ty,
+							Err(err) => {
+								let mut report = report_data.new_error(decl.name.range.start);
+								report.add_label(decl.name.range.clone(), Some(Color::Red), err);
+								report.send();
+								continue;
+							},
+						};
 						namespace.add_type(ty);
+						if let Some(sink) = &self.callbacks.progress_event_sink {
+							let _ = sink.send(CompilationProgress::DeclaringSymbols(symbol_count));
+						}
 					},
 					Symbol::Function(_) => {
-						let func =
-							assembly.create_function(ast.namespace, decl.name.value).unwrap();
+						let func = match assembly.create_function(ast.namespace, decl.name.value) {
+							Ok(ty) => ty,
+							Err(err) => {
+								let mut report = report_data.new_error(decl.name.range.start);
+								report.add_label(decl.name.range.clone(), Some(Color::Red), err);
+								report.send();
+								continue;
+							},
+						};
 						namespace.add_fn(func);
+						if let Some(sink) = &self.callbacks.progress_event_sink {
+							let _ = sink.send(CompilationProgress::DeclaringSymbols(symbol_count));
+						}
 					},
 				}
 			}
 		}
-
-		let progress_info = Arc::new(ProgressInfo {
-			total_symbols: symbol_count,
-			compiled_symbols: Default::default(),
-		});
-
 		let mut results = vec![];
 		asts.into_par_iter()
-			.map(|ast| {
+			.map(|(ast, file)| {
 				let mut unit = CompilationUnit::new(
 					ast,
-					self.heaps,
+					file.clone(),
+					assembly.heaps(),
 					&self.root_namespace,
 					self.callbacks.clone(),
-					progress_info.clone(),
+					symbol_count,
+					report_cache.clone(),
 				);
 				if let Err(err) = unit.compile_types() {
 					return Err(err);
@@ -181,16 +232,12 @@ impl<'l> CompilationContext<'l> {
 			.collect_into_vec(&mut results);
 
 		if !errors.is_empty() {
-			let mut report = vec![];
-			for err in errors {
-				err.write_for_stdout(&mut report_cache, &mut report).unwrap();
-			}
-			return Err(report);
+			return Err(errors);
 		}
 
 		self.assemblies.insert((assembly.name(), assembly.version()), assembly);
 
-		if let Some(sink) = &self.callbacks.progress_events_sink {
+		if let Some(sink) = &self.callbacks.progress_event_sink {
 			let _ = sink.send(CompilationProgress::Finished);
 		}
 

@@ -132,7 +132,7 @@ impl<'l, 'a> LLVM_Backend<'l, 'a> {
 			value_types.insert(ValueIndex::constant(i), *const_ref.ty());
 		}
 
-		let mut builder = self.context.create_builder();
+		let builder = self.context.create_builder();
 		for (i, opcode) in body.opcodes().iter().enumerate() {
 			if let Some(block) = blocks.get(&ValueIndex::local(i)) {
 				if let Some(current) = builder.get_insert_block() {

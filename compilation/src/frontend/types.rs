@@ -1,6 +1,6 @@
 use std::ops::Range;
 use std::sync::Arc;
-use ariadne::{Color, Label};
+use ariadne::Color;
 use fxhash::FxHashMap;
 use tracing::trace;
 
@@ -42,12 +42,11 @@ pub trait TypeResolver<'l> {
 					_ => match self.types().get(id) {
 						Some(ty) => ty,
 						None => {
-							let report = reports.new_error(ast.range().start).with_label(
-								Label::new((reports.file(), ast.range()))
-									.with_color(Color::Red)
-									.with_message(format!(
-										"Type `{id}` is not available in the current scope"
-									)),
+							let mut report = reports.new_error(ast.range().start);
+							report.add_label(
+								ast.range(),
+								Some(Color::Red),
+								format!("Type `{id}` is not available in the current scope"),
 							);
 							return Err((TYPE_NOT_FOUND, report));
 						},
@@ -147,22 +146,23 @@ pub fn try_apply_implicit_casts<'a, 'l>(
 }
 
 #[inline(always)]
-pub fn assert_type_eq<'l>(
+pub fn assert_type_eq<'r, 'l>(
 	ty: &'l Type<'l>,
 	expected: &'l Type<'l>,
 	range: Range<usize>,
-	reports: &ReportData,
+	reports: &'r mut ReportData,
 ) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
 	match ty == expected {
 		true => Ok(()),
 		false => {
-			let report = reports.new_error(range.start).with_label(
-				Label::new((reports.file(), range))
-					.with_color(Color::Red)
-					.with_message(format! {
-						"Expected type `{}`, found `{}`",
-						expected, ty,
-					}),
+			let mut report = reports.new_error(range.start);
+			report.add_label(
+				range,
+				Some(Color::Red),
+				format! {
+					"Expected type `{}`, found `{}`",
+					expected, ty,
+				},
 			);
 			Err((INVALID_TYPE, report))
 		},
@@ -174,50 +174,50 @@ pub fn assert_value_type_eq<'l>(
 	val: ValueRef<'_, 'l>,
 	expected: &'l Type<'l>,
 	range: Range<usize>,
-	reports: &ReportData<'_, 'l, '_>,
+	reports: &mut ReportData,
 ) -> Result<(), (FrontEndError, FrontEndReportBuilder)> {
 	match val.ty() == expected {
 		true => Ok(()),
 		false => {
-			let mut report = reports.new_error(range.start);
-
-			let ty = match reports.variable_info.get(&val) {
-				None => val.ty(),
-				Some((_, ty, expr)) => {
-					let Type::Reference { ty: base, .. } = val.ty() else {
-						unreachable!();
-					};
-
-					match ty {
-						Some(ty) => {
-							report.add_label(
-								Label::new((reports.file(), ty.range().clone())).with_message(
-									format!("Type `{}` explicitly specified here", base),
-								),
-							);
-						},
-						None => {
-							report.add_label(
-								Label::new((reports.file(), expr.range().clone())).with_message(
-									format!("This expression evaluates to `{}`", base),
-								),
-							);
-						},
-					}
-					base
-				},
-			};
-
-			report.add_label(
-				Label::new((reports.file(), range))
-					.with_color(Color::Red)
-					.with_message(format! {
-						"Expected type `{}`, found `{}`",
-						expected, ty,
-					}),
-			);
-
-			Err((INVALID_TYPE, report))
+			let _report = reports.new_error(range.start);
+			unimplemented!()
+			// let ty = match reports.variable_info.get(&val) {
+			// 	None => val.ty(),
+			// 	Some((_, ty, expr)) => {
+			// 		let Type::Reference { ty: base, .. } = val.ty() else {
+			// 			unreachable!();
+			// 		};
+			//
+			// 		match ty {
+			// 			Some(ty) => {
+			// 				report.add_label(
+			// 					Label::new((reports.file(), ty.range().clone())).with_message(
+			// 						format!("Type `{}` explicitly specified here", base),
+			// 					),
+			// 				);
+			// 			},
+			// 			None => {
+			// 				report.add_label(
+			// 					Label::new((reports.file(), expr.range().clone())).with_message(
+			// 						format!("This expression evaluates to `{}`", base),
+			// 					),
+			// 				);
+			// 			},
+			// 		}
+			// 		base
+			// 	},
+			// };
+			//
+			// report.add_label(
+			// 	Label::new((reports.file(), range))
+			// 		.with_color(Color::Red)
+			// 		.with_message(format! {
+			// 			"Expected type `{}`, found `{}`",
+			// 			expected, ty,
+			// 		}),
+			// );
+			//
+			// Err((INVALID_TYPE, report))
 		},
 	}
 }

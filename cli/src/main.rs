@@ -1,15 +1,18 @@
 #![allow(unused_imports)]
 
+mod progress;
+
 use std::alloc::Layout;
 use std::collections::HashMap;
 use std::ffi::c_char;
 use std::fs::File;
 use std::io::{BufWriter, Cursor, Write};
-use std::ops::Range;
+use std::ops::{ControlFlow, Range};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::mpsc::TryRecvError;
+use std::time::{Duration, SystemTime};
 
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
@@ -21,14 +24,15 @@ use tracing_subscriber::Registry;
 use leaf_compilation::backends::CompilationBackend;
 use leaf_compilation::backends::llvm::{LLVM_Backend, LLVMContext, OptimizationLevel};
 
-use leaf_compilation::frontend::{CompilationUnit};
 use leaf_compilation::frontend::compilation_context::{
-	CompilationCallbacks, CompilationContext, CompilationProgress,
+	CompilationCallbacks, CompilationContext, CompilationProgress, ReportEventData,
 };
 use leaf_compilation::frontend::compilation_context::CompilationConfig;
+use leaf_compilation::frontend::reports::{ReportData, ReportKind};
 use leaf_compilation::reflection::{Assembly, Version};
 use leaf_compilation::reflection::heaps::{ArenaAllocator, Heaps};
 use leaf_compilation::reflection::serialization::{MetadataRead, MetadataWrite};
+use crate::progress::Progress;
 
 #[derive(Debug, clap::Parser)]
 struct Args {
@@ -84,78 +88,66 @@ fn main() {
 		},
 	};
 
-	let (progress_sender, progress_thread) = match args.no_progress {
+	let (progress_event_sink, progress) = match args.no_progress {
 		true => (None, None),
 		false => {
-			let (progress_sender, progress_receiver) = std::sync::mpsc::channel();
-			let progress_sender = Arc::new(progress_sender);
-
-			let progress_thread = std::thread::spawn(move || unsafe {
-				let mut progress_bar = ProgressBar::new(0);
-				progress_bar.finish_and_clear();
-
-				let mut current = -1;
-				let mut progress_i = 0;
-				let progress_bar_style = ProgressStyle::with_template(
-					"{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len}",
-				)
-					.unwrap()
-					.progress_chars("=>-");
-
-				while let Ok(progress) = progress_receiver.recv() {
-					let phase: isize = std::mem::transmute(std::mem::discriminant(&progress));
-					let count: isize =
-						std::mem::transmute(std::mem::discriminant(&CompilationProgress::Finished));
-					if current != phase {
-						current = phase;
-						if !progress_bar.is_finished() {
-							progress_bar.finish();
-							progress_i = 0;
-						}
-						progress_bar = ProgressBar::new(0).with_style(progress_bar_style.clone());
-						match progress {
-							CompilationProgress::ParsingFiles(_, _) => {
-								progress_bar.set_message(format!(
-									"[{}/{}] Parsing files...",
-									current + 1,
-									count
-								));
-							},
-							CompilationProgress::DeclaringSymbols(_, _) => {
-								progress_bar.set_message(format!(
-									"[{}/{}] Declaring symbols...",
-									current + 1,
-									count
-								));
-							},
-							CompilationProgress::CompilingSymbols(_, _) => {
-								progress_bar.set_message(format!(
-									"[{}/{}] Compiling symbols...",
-									current + 1,
-									count
-								));
-							},
-							CompilationProgress::Finished => {},
-						}
-					}
-					match progress {
-						CompilationProgress::ParsingFiles(i, len) => {
-							progress_bar.set_length(len as u64);
-							progress_bar.set_position(i as u64 + 1);
-						},
-						| CompilationProgress::DeclaringSymbols(i, len)
-						| CompilationProgress::CompilingSymbols(i, len) => {
-							progress_i = progress_i.max(i);
-							progress_bar.set_length(len as u64);
-							progress_bar.set_position(progress_i as u64 + 1);
-						},
-						CompilationProgress::Finished => {},
-					}
-				}
-			});
-			(Some(progress_sender), Some(progress_thread))
+			let (sender, receiver) = std::sync::mpsc::channel();
+			let progress = Progress::new(receiver);
+			(Some(Arc::new(sender)), Some(progress))
 		},
 	};
+
+	let (report_sink, reports) = std::sync::mpsc::channel::<ReportEventData>();
+
+	let diagnostics_thread = std::thread::spawn(move || {
+		let mut progress = progress;
+		let mut errors = vec![];
+		loop {
+			let mut received = false;
+			let mut should_break = false;
+			if let Some(progress) = &mut progress {
+				match progress.update() {
+					ControlFlow::Break(_) => should_break = true,
+					ControlFlow::Continue(v) => received = v,
+				}
+			}
+
+			loop {
+				match reports.try_recv() {
+					Ok((kind, report)) => {
+						received = true;
+						match kind {
+							ReportKind::Error => errors.extend(report),
+							_ => match &progress {
+								Some(p) => p.suspend(|| {
+									std::io::stderr().lock().write_all(&report).unwrap()
+								}),
+								None => std::io::stderr().lock().write_all(&report).unwrap(),
+							},
+						}
+					},
+					Err(err) => match err {
+						TryRecvError::Empty => break,
+						TryRecvError::Disconnected => {
+							should_break = true;
+							break;
+						},
+					},
+				}
+			}
+
+			if should_break {
+				break;
+			}
+
+			if !received {
+				std::thread::sleep(Duration::from_millis(100));
+			}
+		}
+
+		drop(progress);
+		std::io::stderr().lock().write_all(&errors).unwrap();
+	});
 
 	match args.command {
 		Command::Build => {
@@ -171,19 +163,19 @@ fn main() {
 				config,
 				&heaps,
 				CompilationCallbacks {
-					progress_events_sink: progress_sender,
+					progress_event_sink,
+					report_sink: Some(Arc::new(report_sink)),
 				},
 			);
 
 			let start = SystemTime::now();
 			let result = context.compile();
-			if let Some(thread) = progress_thread {
-				let _ = thread.join();
-			}
-			if let Err(err) = result {
-				std::io::stderr().lock().write_all(&err).unwrap();
-			} else {
-				eprintln!("Compilation completed in {:?}", start.elapsed().unwrap())
+
+			let elapsed = start.elapsed().unwrap();
+			diagnostics_thread.join().unwrap();
+
+			if let Ok(_) = result {
+				eprintln!("Compilation completed in {:?}", elapsed);
 			}
 		},
 	}

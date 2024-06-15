@@ -1,14 +1,22 @@
 use std::sync::mpsc::Sender;
+use ariadne::ReportKind;
 use std::sync::Arc;
+
+pub type ProgressEventSink = Arc<Sender<CompilationProgress>>;
+pub type ReportSink = Arc<Sender<ReportEventData>>;
+pub type ReportEventData = (ReportKind<'static>, Vec<u8>);
 
 #[derive(Default)]
 pub struct CompilationCallbacks {
-	pub progress_events_sink: Option<Arc<Sender<CompilationProgress>>>,
+	pub report_sink: Option<ReportSink>,
+	pub progress_event_sink: Option<ProgressEventSink>,
 }
 
 pub enum CompilationProgress {
-	ParsingFiles(usize, usize),
-	DeclaringSymbols(usize, usize),
-	CompilingSymbols(usize, usize),
+	ReadingFiles(usize),
+	LexingFiles(usize),
+	ParsingFiles(usize),
+	DeclaringSymbols(usize),
+	CompilingSymbols(usize),
 	Finished,
 }

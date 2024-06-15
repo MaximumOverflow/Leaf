@@ -1,6 +1,6 @@
-use leaf_reflection::{Field, Function, Type};
-use crate::frontend::types::TypeResolver;
 use fxhash::FxHashMap;
+
+use leaf_reflection::{Field, Function, Type};
 
 pub enum Symbol<'l> {
 	Type(&'l Type<'l>),
@@ -57,6 +57,11 @@ impl<'l> Namespace<'l> {
 		&self.types
 	}
 
+	#[inline]
+	pub fn functions(&self) -> &FxHashMap<&'l str, &'l Function<'l>> {
+		&self.functions
+	}
+
 	#[tracing::instrument(skip_all)]
 	pub fn get_or_add_child(&mut self, name: &'l str) -> &mut Namespace<'l> {
 		match name.split_once("::") {
@@ -64,6 +69,17 @@ impl<'l> Namespace<'l> {
 			Some((name, rem)) => {
 				let parent = self.children.entry(name).or_insert_with(|| Namespace::new(name));
 				parent.get_or_add_child(rem)
+			},
+		}
+	}
+
+	#[tracing::instrument(skip_all)]
+	pub fn get_child(&self, name: &str) -> Option<&Namespace<'l>> {
+		match name.split_once("::") {
+			None => self.children.get(name),
+			Some((name, rem)) => {
+				let parent = self.children.get(name)?;
+				parent.get_child(rem)
 			},
 		}
 	}
