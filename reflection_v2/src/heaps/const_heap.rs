@@ -185,12 +185,62 @@ impl<'l, T: ?Sized + FromInterned<'l>> ConstRef<T> {
 	}
 }
 
+impl<T: ?Sized + for<'l> FromInterned<'l>> Debug for ConstRef<T>
+where
+	for<'l> <T as FromInterned<'l>>::Type: Debug,
+{
+	#[inline]
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		self.get().fmt(f)
+	}
+}
+
+impl<T: ?Sized + for<'l> FromInterned<'l>> Display for ConstRef<T>
+where
+	for<'l> <T as FromInterned<'l>>::Type: Display,
+{
+	#[inline]
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		self.get().fmt(f)
+	}
+}
+
+impl<T: ?Sized + for<'l> FromInterned<'l>> Eq for ConstRef<T> where
+	for<'l> <T as FromInterned<'l>>::Type: Eq
+{
+}
+
+impl<T: ?Sized + for<'l> FromInterned<'l>> PartialEq for ConstRef<T>
+where
+	for<'l> <T as FromInterned<'l>>::Type: PartialEq,
+{
+	#[inline]
+	fn eq(&self, other: &Self) -> bool {
+		self.get() == other.get()
+	}
+
+	#[inline]
+	fn ne(&self, other: &Self) -> bool {
+		self.get() != other.get()
+	}
+}
+
+impl<T: ?Sized + for<'l> FromInterned<'l>> Hash for ConstRef<T>
+where
+	for<'l> <T as FromInterned<'l>>::Type: Hash,
+{
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.get().hash(state)
+	}
+}
+
 #[derive(Copy, Clone)]
 struct Entry {
 	len: usize,
 	ptr: *const u8,
 	kind: ConstKind,
 }
+unsafe impl Send for Entry {}
 
 impl Eq for Entry {}
 
@@ -214,6 +264,7 @@ struct Blob {
 	len: usize,
 	ptr: *const u8,
 }
+unsafe impl Send for Blob {}
 
 impl Borrow<[u8]> for Blob {
 	fn borrow(&self) -> &[u8] {
@@ -318,6 +369,7 @@ impl ConstHeap {
 		}
 	}
 
+	#[inline]
 	pub fn iter(&self) -> Iter {
 		Iter {
 			idx: 0,
@@ -326,7 +378,7 @@ impl ConstHeap {
 		}
 	}
 
-	pub fn as_dot_graph(&self) -> String {
+	pub fn as_graph(&self) -> String {
 		struct Nothing;
 		impl Display for Nothing {
 			fn fmt(&self, _: &mut Formatter<'_>) -> std::fmt::Result {
@@ -336,9 +388,7 @@ impl ConstHeap {
 
 		let inner = self.inner.lock();
 		let Inner {
-			entry_vec: entries,
-			blob_map: blobs,
-			..
+			blob_map: blobs, ..
 		} = &*inner;
 
 		let mut blob_nodes = vec![];
