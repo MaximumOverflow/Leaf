@@ -1,0 +1,19 @@
+[package]
+name = "leaf_reflection_v2"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fxhash = "0.2"
+bumpalo = "3.15"
+petgraph = "0.6"
+num-traits = "0.2"
+owning_ref = "0.4"
+parking_lot = "0.12"
+
+[features]
+#build = []
+#write = ["dep:bytemuck"]
+#read = ["dep:bytemuck", "build"]
